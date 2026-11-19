@@ -14,15 +14,21 @@ import {
   checkReasonsFor,
   derivedFields,
   docKindForCategory,
+  fieldsForLabels,
+  followsRememberedWriter,
   labelPatchFields,
   mergeEditedLabels,
   normalizePdNumber,
   pairGroupsTouched,
   pathFieldsFor,
   previewScienceCode,
+  rememberedWriterFields,
   settleItem,
+  sheetSectionFor,
   sheetTabForStatus,
   sortKeyFor,
+  writerInitialsKey,
+  writerSetByPerson,
   type IngestionItemFields,
 } from "./ingestionSheet";
 
@@ -97,11 +103,38 @@ describe("checkReasonsFor", () => {
     companyKey: "cedarline systems",
     fiscalYearEnd: Date.UTC(2025, 2, 31),
     scienceCode: "2.02.09",
+    writerName: "Dana Whitlock",
     writerInitials: "DW",
+    text: "Extracted text",
   };
+  const noWriter = { writerName: undefined, writerInitials: undefined };
 
   it("gives nothing for a complete final PD", () => {
     expect(checkReasonsFor(base)).toEqual([]);
+  });
+
+  it("flags a read file that gave no text, from its preview and stored text", () => {
+    // A PDF that is only a scan: read, with a note, and no text.
+    expect(checkReasonsFor({ ...base, text: undefined })).toEqual(["no_text"]);
+    expect(checkReasonsFor({ ...base, text: "  \n " })).toEqual(["no_text"]);
+    // The full text in storage is text, even with an empty preview.
+    expect(checkReasonsFor({ ...base, text: undefined, textStorageId: "kg2abc" as never })).toEqual([]);
+    // Only once read: a file still being read has no text yet, and one that
+    // failed is "could_not_read" alone.
+    for (const status of ["discovered", "fetched"] as const) {
+      expect(checkReasonsFor({ ...base, status, text: undefined }), status).toEqual([]);
+    }
+    expect(checkReasonsFor({ ...base, status: "failed", text: undefined })).toEqual(["could_not_read"]);
+    // Off the review tab nothing is flagged.
+    for (const status of ["approved", "rejected", "deleted"] as const) {
+      expect(checkReasonsFor({ ...base, status, text: undefined }), status).toEqual([]);
+    }
+    // With other reasons, in the fixed order.
+    expect(checkReasonsFor({ ...base, text: undefined, companyKey: undefined, ...noWriter })).toEqual([
+      "no_company",
+      "no_text",
+      "no_writer",
+    ]);
   });
 
   it("gives each reason on its own", () => {
@@ -112,11 +145,15 @@ describe("checkReasonsFor", () => {
     expect(checkReasonsFor({ ...base, status: "failed" })).toEqual(["could_not_read"]);
     expect(checkReasonsFor({ ...base, fiscalYearEnd: undefined })).toEqual(["no_fiscal_year"]);
     expect(checkReasonsFor({ ...base, scienceCode: undefined })).toEqual(["no_science_code"]);
-    expect(checkReasonsFor({ ...base, writerInitials: undefined })).toEqual(["no_writer"]);
+    expect(checkReasonsFor({ ...base, ...noWriter })).toEqual(["no_writer"]);
+    expect(checkReasonsFor({ ...base, writerName: undefined })).toEqual(["unmatched_initials"]);
   });
 
-  it("takes a writer's name or initials", () => {
-    expect(checkReasonsFor({ ...base, writerInitials: undefined, writerName: "Dana Whitlock" })).toEqual([]);
+  it("takes a writer's name; initials alone need a person to say who they are (2026-11-12)", () => {
+    expect(checkReasonsFor({ ...base, writerInitials: undefined })).toEqual([]);
+    expect(checkReasonsFor({ ...base, writerName: undefined, writerInitials: "KT" })).toEqual(["unmatched_initials"]);
+    // Something that is not initials is no writer at all.
+    expect(checkReasonsFor({ ...base, writerName: undefined, writerInitials: "K" })).toEqual(["no_writer"]);
   });
 
   it("asks for a fiscal year on every category but company files and unknown", () => {
@@ -133,15 +170,20 @@ describe("checkReasonsFor", () => {
   });
 
   it("asks for a science code and writer on final PDs only", () => {
-    const reasons = checkReasonsFor({ ...base, category: "draft", scienceCode: undefined, writerInitials: undefined });
+    const reasons = checkReasonsFor({ ...base, category: "draft", scienceCode: undefined, ...noWriter });
     expect(reasons).toEqual([]);
+    expect(checkReasonsFor({ ...base, category: "draft", writerName: undefined })).toEqual([]);
   });
 
-  it("does not ask for a science code while the file is still being read", () => {
+  it("asks for nothing while the file is still being read", () => {
     for (const status of ["discovered", "fetched"] as const) {
       expect(checkReasonsFor({ ...base, status, scienceCode: undefined })).toEqual([]);
-      // Reading does not fill in a writer, so that is still asked for.
-      expect(checkReasonsFor({ ...base, status, writerInitials: undefined })).toEqual(["no_writer"]);
+      // The row shows only "Being read", so there is nothing to pick yet.
+      expect(checkReasonsFor({ ...base, status, ...noWriter })).toEqual([]);
+      expect(checkReasonsFor({ ...base, status, writerName: undefined })).toEqual([]);
+      expect(
+        checkReasonsFor({ ...base, status, companyKey: undefined, fiscalYearEnd: undefined, category: "unknown" })
+      ).toEqual([]);
     }
     // A file that could not be read will not get one from reading.
     expect(checkReasonsFor({ ...base, status: "failed", scienceCode: undefined })).toEqual([
@@ -196,9 +238,40 @@ describe("sortKeyFor", () => {
     }
   });
 
+  it("puts the newest fiscal year first, then files with no year, before the PD number (live QA fixes)", () => {
+    const FY2025 = Date.UTC(2025, 2, 31);
+    const FY2024 = Date.UTC(2024, 11, 31);
+    for (const category of ["final_pd", "draft", "review_copy"] as const) {
+      const at = (name: string, extra: Partial<IngestionItemFields>) => sortKeyFor({ category, name, ...extra });
+      const rows = [
+        at("none-1.docx", { pdNumber: "1" }),
+        at("2024-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2024 }),
+        at("2025-pd2.docx", { pdNumber: "2", fiscalYearEnd: FY2025 }),
+        at("2024-pd1-s1.docx", { pdNumber: "1", fiscalYearEnd: FY2024, versionCode: "S", versionNumber: 1 }),
+        at("2025-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2025 }),
+      ];
+      expect([...rows].sort(), category).toEqual([
+        at("2025-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2025 }),
+        at("2025-pd2.docx", { pdNumber: "2", fiscalYearEnd: FY2025 }),
+        at("2024-pd1-s1.docx", { pdNumber: "1", fiscalYearEnd: FY2024, versionCode: "S", versionNumber: 1 }),
+        at("2024-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2024 }),
+        at("none-1.docx", { pdNumber: "1" }),
+      ]);
+    }
+    // A plain string: the year part is four digits, 9999 less the year.
+    expect(sortKeyFor({ category: "final_pd", name: "A.docx", pdNumber: "4", fiscalYearEnd: FY2025 })).toBe("7974 0004- ~ a.docx");
+    // Only the year counts: two year ends in one year sort by number.
+    expect(
+      sortKeyFor({ category: "final_pd", name: "z", pdNumber: "1", fiscalYearEnd: Date.UTC(2025, 11, 31) }) <
+        sortKeyFor({ category: "final_pd", name: "a", pdNumber: "2", fiscalYearEnd: FY2025 })
+    ).toBe(true);
+  });
+
   it("orders everything else by the lower-cased name", () => {
     for (const category of ["transcript", "supporting", "company_file", "unknown"] as const) {
-      expect(sortKeyFor({ category, name: "Budget 2025.PDF", pdNumber: "4" })).toBe("budget 2025.pdf");
+      expect(sortKeyFor({ category, name: "Budget 2025.PDF", pdNumber: "4", fiscalYearEnd: Date.UTC(2025, 2, 31) })).toBe(
+        "budget 2025.pdf"
+      );
     }
   });
 });
@@ -323,6 +396,75 @@ describe("derivedFields and settleItem", () => {
     const row = rowAt(`${FY}/Drafts/notes.docx`, { scienceCodeSource: "document" });
     expect(derivedFields(row as IngestionItemFields & { category: "draft" }).scienceCodeSource).toBeUndefined();
   });
+
+  it("drops the writer name source when there is no name", () => {
+    const row = rowAt(`${FY}/Drafts/notes.docx`, { writerNameSource: "initials" });
+    expect(derivedFields(row as IngestionItemFields & { category: "draft" }).writerNameSource).toBeUndefined();
+  });
+});
+
+describe("writers by initials (2026-11-12)", () => {
+  const read = { status: "pending_review" as const, editedLabels: [] };
+
+  it("keys initials as the file names give them, upper case, two or three letters", () => {
+    expect(writerInitialsKey("kt")).toBe("KT");
+    expect(writerInitialsKey(" DWo ")).toBe("DWO");
+    for (const value of [undefined, null, "", "K", "KTDW", "K1", "K.T"]) expect(writerInitialsKey(value), String(value)).toBeNull();
+  });
+
+  it("knows a writer a person set on the file, before the source existed too", () => {
+    expect(writerSetByPerson({ writerNameSource: "person" })).toBe(true);
+    expect(writerSetByPerson({ editedLabels: ["writerName"] })).toBe(true);
+    expect(writerSetByPerson({ writerNameSource: "initials", editedLabels: ["category"] })).toBe(false);
+    expect(writerSetByPerson({})).toBe(false);
+  });
+
+  it("gives the remembered writer to a file with those initials and no writer a person set", () => {
+    expect(rememberedWriterFields({ ...read, writerInitials: "KT" }, "Kim Tran")).toEqual({
+      writerName: "Kim Tran",
+      writerNameSource: "initials",
+    });
+    // A new match replaces the name a file took from the old one.
+    expect(
+      rememberedWriterFields({ ...read, writerInitials: "KT", writerName: "Kim Tan", writerNameSource: "initials" }, "Kim Tran")
+    ).toEqual({ writerName: "Kim Tran", writerNameSource: "initials" });
+    // With no match (an Undo), or once its initials are gone, the name it took goes.
+    expect(rememberedWriterFields({ ...read, writerInitials: "KT", writerName: "Kim Tran", writerNameSource: "initials" }, null)).toEqual({
+      writerName: undefined,
+      writerNameSource: undefined,
+    });
+    expect(rememberedWriterFields({ ...read, writerName: "Kim Tran", writerNameSource: "initials" }, "Kim Tran")).toEqual({
+      writerName: undefined,
+      writerNameSource: undefined,
+    });
+    // Nothing to take: no match and no name from one.
+    expect(rememberedWriterFields({ ...read, writerInitials: "KT" }, null)).toEqual({});
+  });
+
+  it("never touches a writer a person set on the file, or an approved file", () => {
+    const person = { ...read, writerInitials: "KT", writerName: "Jordan Ellis", writerNameSource: "person" as const };
+    expect(followsRememberedWriter(person)).toBe(false);
+    expect(rememberedWriterFields(person, "Kim Tran")).toEqual({});
+    const before = { ...read, writerInitials: "KT", writerName: "Jordan Ellis", editedLabels: ["writerName" as const] };
+    expect(rememberedWriterFields(before, "Kim Tran")).toEqual({});
+    const approved = { ...read, status: "approved" as const, writerInitials: "KT" };
+    expect(followsRememberedWriter(approved)).toBe(false);
+    expect(rememberedWriterFields(approved, "Kim Tran")).toEqual({});
+    // A file with no initials and no name from them has nothing to follow.
+    expect(followsRememberedWriter({ ...read })).toBe(false);
+    // Deleted files follow too, so a file put back shows the name.
+    expect(followsRememberedWriter({ ...read, status: "deleted", writerInitials: "KT" })).toBe(true);
+  });
+
+  it("settles a remembered name with no check, and takes it back to a check without it", () => {
+    const row = rowAt(`${FY}/To be submitted/${PD_NAME}`);
+    const unmatched = settleItem({ ...row, status: "pending_review", scienceCode: "2.02.09" });
+    expect(unmatched.writerInitials).toBe("DW");
+    expect(unmatched.checkReasons).toContain("unmatched_initials");
+    const matched = settleItem({ ...unmatched, ...rememberedWriterFields(unmatched, "Dana Whitlock") });
+    expect(matched).toMatchObject({ writerName: "Dana Whitlock", writerNameSource: "initials" });
+    expect(matched.checkReasons).not.toContain("unmatched_initials");
+  });
 });
 
 describe("approved rows staged before the labels", () => {
@@ -426,7 +568,10 @@ describe("labelPatchFields", () => {
       versionCode: "R",
       versionNumber: 3,
     });
-    expect(labelPatchFields({ writerName: " Priya Nair " }).fields).toEqual({ writerName: "Priya Nair" });
+    expect(labelPatchFields({ writerName: " Priya Nair " }).fields).toEqual({
+      writerName: "Priya Nair",
+      writerNameSource: "person",
+    });
     expect(labelPatchFields({ scienceCode: " 2.02.09 " }).fields).toEqual({
       scienceCode: "2.02.09",
       scienceCodeSource: "person",
@@ -453,7 +598,37 @@ describe("labelPatchFields", () => {
     expect(() => labelPatchFields({ pdNumber: "4ab" })).toThrow(/PD number/);
     expect(() => labelPatchFields({ version: { code: "R", number: 1.5 } })).toThrow(/version number/);
     expect(() => labelPatchFields({ writerName: " " })).toThrow("Type the writer's name.");
+    // The roster falls back to an email address; it is never a writer.
+    expect(() => labelPatchFields({ writerName: "dana.whitlock@example.com" })).toThrow(
+      "Type the writer's name, not an email address."
+    );
     expect(() => labelPatchFields({ scienceCode: "9.99.99" })).toThrow(/not a CRA field of science code/);
+  });
+});
+
+describe("fieldsForLabels", () => {
+  it("keeps only the row fields of the labels that apply to one file", () => {
+    const { fields } = labelPatchFields({
+      category: "final_pd",
+      fiscalYearEnd: Date.UTC(2025, 2, 31),
+      version: { code: "T", number: 2 },
+      writerName: "Priya Nair",
+      scienceCode: "2.02.09",
+    });
+    expect(fieldsForLabels(fields, ["category"])).toEqual({ category: "final_pd" });
+    expect(fieldsForLabels(fields, ["fiscalYearEnd", "scienceCode"])).toEqual({
+      fiscalYearEnd: Date.UTC(2025, 2, 31),
+      fiscalYearEndAssumed: false,
+      scienceCode: "2.02.09",
+      scienceCodeSource: "person",
+    });
+    expect(fieldsForLabels(fields, ["version", "writerName"])).toEqual({
+      versionCode: "T",
+      versionNumber: 2,
+      writerName: "Priya Nair",
+      writerNameSource: "person",
+    });
+    expect(fieldsForLabels(fields, [])).toEqual({});
   });
 });
 
@@ -522,16 +697,106 @@ describe("company band counts", () => {
     const a = countShareOf(counted({}))!;
     const b = countShareOf(counted({ needsCheck: true, status: "fetched", fiscalYearEnd: undefined }))!;
     let counts = addShare(addShare(emptyImportCounts(), a, 1), b, 1);
+    // b is still being read, so it waits under Not sorted yet ("unknown", 2026-11-12).
     expect(counts).toEqual({
       total: 2,
       needsCheck: 1,
       ready: 1,
       beingRead: 1,
-      categories: { final_pd: { total: 2, needsCheck: 1, fiscalYears: { "2025": 1, none: 1 } } },
+      categories: {
+        final_pd: { total: 1, needsCheck: 0, fiscalYears: { "2025": 1 } },
+        unknown: { total: 1, needsCheck: 1, fiscalYears: { none: 1 } },
+      },
     });
     counts = addShare(counts, b, -1);
+    expect(counts.categories.unknown).toBeUndefined();
     expect(counts.categories.final_pd.fiscalYears).toEqual({ "2025": 1 });
     counts = addShare(counts, a, -1);
     expect(counts).toEqual(emptyImportCounts());
+  });
+
+  it("counts a file to check once in needsCheck and once under each of its reasons", () => {
+    const two = countShareOf(counted({ needsCheck: true, checkReasons: ["no_writer", "no_science_code"] }))!;
+    expect(two.checkReasons).toEqual(["no_science_code", "no_writer"]);
+    const one = countShareOf(counted({ needsCheck: true, checkReasons: ["no_science_code"] }))!;
+    let counts = addShare(addShare(emptyImportCounts(), two, 1), one, 1);
+    expect(counts.needsCheck).toBe(2);
+    expect(counts.categories.final_pd).toEqual({
+      total: 2,
+      needsCheck: 2,
+      fiscalYears: { "2025": 2 },
+      checkReasons: { no_science_code: 2, no_writer: 1 },
+    });
+    // A reason at zero goes, and the map goes once it is empty.
+    counts = addShare(counts, two, -1);
+    expect(counts.categories.final_pd.checkReasons).toEqual({ no_science_code: 1 });
+    counts = addShare(counts, one, -1);
+    expect(counts).toEqual(emptyImportCounts());
+    // Reasons count only while the file needs a check.
+    expect(countShareOf(counted({ needsCheck: false, checkReasons: ["no_writer"] }))!.checkReasons).toEqual([]);
+  });
+
+  it("starts a stored category with no reason map from an empty one", () => {
+    const legacy = { total: 1, needsCheck: 1, ready: 0, beingRead: 0, categories: { final_pd: { total: 1, needsCheck: 1, fiscalYears: { "2025": 1 } } } };
+    const share = countShareOf(counted({ needsCheck: true, checkReasons: ["no_writer"] }))!;
+    expect(addShare(legacy, share, 1).categories.final_pd.checkReasons).toEqual({ no_writer: 1 });
+    // Taking away a reason it never counted leaves a negative count for the repair to put right.
+    expect(addShare(legacy, share, -1).categories).toEqual({});
+    const two = { ...legacy, total: 2, categories: { final_pd: { total: 2, needsCheck: 2, fiscalYears: { "2025": 2 } } } };
+    expect(addShare(two, share, -1).categories.final_pd.checkReasons).toEqual({ no_writer: -1 });
+  });
+
+  it("counts a New file on To review in its band and section, with its year, and never on another tab", () => {
+    const fresh = countShareOf(counted({ isNew: true }))!;
+    expect(fresh.isNew).toBe(true);
+    expect(countShareOf(counted({ isNew: true, sheetTab: "deleted", status: "deleted" }))!.isNew).toBe(false);
+    expect(countShareOf(counted({ isNew: undefined }))!.isNew).toBe(false);
+    const old = countShareOf(counted({ fiscalYearEnd: Date.UTC(2024, 2, 31) }))!;
+    let counts = addShare(addShare(emptyImportCounts(), fresh, 1), old, 1);
+    expect(counts.newFiles).toBe(1);
+    expect(counts.categories.final_pd).toEqual({
+      total: 2,
+      needsCheck: 0,
+      fiscalYears: { "2025": 1, "2024": 1 },
+      newFiles: 1,
+      newFiscalYears: { "2025": 1 },
+    });
+    // The 24 hours end: the same file, no longer New, moves only the New counts.
+    counts = addShare(addShare(counts, fresh, -1), { ...fresh, isNew: false }, 1);
+    expect(counts.newFiles).toBeUndefined();
+    expect(counts.categories.final_pd).toEqual({ total: 2, needsCheck: 0, fiscalYears: { "2025": 1, "2024": 1 } });
+  });
+});
+
+describe("the section a file shows in (2026-11-12)", () => {
+  it("is Not sorted yet while the file is being read, then its category", () => {
+    expect(sheetSectionFor({ status: "discovered", category: "final_pd" })).toBe("unknown");
+    expect(sheetSectionFor({ status: "fetched", category: "transcript" })).toBe("unknown");
+    expect(sheetSectionFor({ status: "pending_review", category: "final_pd" })).toBe("final_pd");
+    expect(sheetSectionFor({ status: "failed", category: "draft" })).toBe("draft");
+    // A file still unsorted after reading stays there.
+    expect(sheetSectionFor({ status: "pending_review", category: "unknown" })).toBe("unknown");
+    expect(sheetSectionFor({ status: "approved", category: "supporting" })).toBe("supporting");
+    expect(sheetSectionFor({ status: "discovered", category: undefined })).toBeUndefined();
+  });
+
+  it("is settled on every write, so a file moves to its section when reading ends", () => {
+    const row = settleItem({
+      driveItemId: "local:Halden Foods/2025/Submitted/04 HaldenFoods 2025-06-30 T1.SO Proofing.docx",
+      path: "Halden Foods/2025/Submitted/04 HaldenFoods 2025-06-30 T1.SO Proofing.docx",
+      name: "04 HaldenFoods 2025-06-30 T1.SO Proofing.docx",
+      docKind: "pd",
+      size: 10,
+      lastModifiedAt: 1,
+      contentHash: "h",
+      pairGroupKey: "?",
+      status: "fetched",
+      updatedAt: 1,
+    });
+    expect(row.category).toBe("final_pd");
+    expect(row.sheetSection).toBe("unknown");
+    // Being read: no check reasons at all, so being read, ready and to check add up.
+    expect(row.checkReasons).toEqual([]);
+    expect(settleItem({ ...row, status: "pending_review" }).sheetSection).toBe("final_pd");
   });
 });

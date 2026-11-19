@@ -5,9 +5,9 @@ import { authComponent, createAuth } from "./auth";
 import {
   INGEST_EXTENSIONS,
   MAX_FILE_BYTES,
-  classify,
   extensionOf,
   sanitizeRelPath,
+  uploadUpsertFields,
 } from "./lib/ingestionClassify";
 
 const http = httpRouter();
@@ -94,24 +94,14 @@ http.route({
       );
     }
 
-    const dirPath = relPath.split("/").slice(0, -1).join("/");
-    const meta = classify(dirPath, name);
-    const itemId = await ctx.runMutation(
-      internal.ingestion.upsertDiscoveredItem,
-      {
-        driveItemId: `local:${relPath}`,
-        path: relPath,
-        name,
-        clientName: meta.clientName,
-        fiscalYearLabel: meta.fiscalYearLabel,
-        fiscalYear: meta.fiscalYear,
-        docKind: meta.docKind,
-        size: bytes.byteLength,
-        lastModifiedAt: Number.isFinite(mtimeRaw) && mtimeRaw > 0 ? mtimeRaw : Date.now(),
-        contentHash: hash,
-        pairGroupKey: meta.pairGroupKey,
-      }
-    );
+    // The same fields the Import page's drop stages (uploadUpsertFields).
+    // The uploader sends no person or batch: the server groups its files
+    // into one batch by the quiet gap between them (2026-11-12).
+    const fields = uploadUpsertFields(relPath, bytes.byteLength, mtimeRaw, hash);
+    const itemId = await ctx.runMutation(internal.ingestion.upsertDiscoveredItem, {
+      ...fields,
+      via: "uploader",
+    });
     if (itemId === null) {
       // Same content already staged (or already reviewed) — idempotent no-op.
       return Response.json({ skipped: true, reason: "unchanged" }, { status: 200 });
@@ -123,7 +113,7 @@ http.route({
       storageId,
     });
     return Response.json(
-      { staged: true, docKind: meta.docKind, group: meta.pairGroupKey },
+      { staged: true, docKind: fields.docKind, group: fields.pairGroupKey },
       { status: 200 }
     );
   }),

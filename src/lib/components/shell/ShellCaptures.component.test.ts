@@ -37,6 +37,7 @@ function seed(user: Record<string, unknown>) {
   __setQueryData("changelog:unseenCount", 2);
   __setQueryData("errorReports:openCount", 4);
   __setQueryData("adminAttention:getAttention", { total: 1, ingestionFailed: 1 });
+  __setQueryData("ingestion:sheetTotals", { files: 504, companies: 7, needsCheck: 117, ready: 387, beingRead: 0, complete: true });
   __setQueryData("notifications:listRecent", []);
 }
 
@@ -59,7 +60,10 @@ describe("round 2 shell captures", () => {
     await render(AdminWorkspacePage, { title: "House rules", children: body });
     await expect.poll(() => document.querySelector('[data-admin-link="/admin/house-rules"]')?.getAttribute("aria-current")).toBe("page");
     await expect.poll(() => document.querySelector('[data-admin-developer-link="alerts"] [data-rail-badge]')?.textContent).toBe("4");
-    expect(document.querySelector('[data-admin-link="/admin/ingestion"] [data-rail-attention]')).not.toBeNull();
+    // The Import row shows the To review count (2026-11-12, Paper Files 1); the
+    // failed files' attention stays on the rail's Admin item.
+    expect(document.querySelector('[data-admin-link="/admin/import"] [data-section-sidebar-count]')?.textContent).toBe("504");
+    expect(document.querySelector('[data-admin-link="/admin/import"] [data-rail-attention]')).toBeNull();
     expect(document.querySelector('[data-frame-rail] [data-rail-item="admin"] [data-rail-attention]')).not.toBeNull();
     await settle();
     await page.screenshot({ path: await captures.path("b3-admin-house-rules") });

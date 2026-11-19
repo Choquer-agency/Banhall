@@ -5,6 +5,7 @@
     IconBrain,
     IconCloudDownload,
     IconDollarCircle,
+    IconImport,
     IconShieldCheck,
     IconSliders,
     IconTable,
@@ -26,6 +27,7 @@
     "house-rules": IconBook,
     tags: IconTag,
     brain: IconBrain,
+    import: IconImport,
     ingestion: IconCloudDownload,
     models: IconSliders,
     reviews: IconShieldCheck,
@@ -39,4 +41,4 @@
   const Icon = $derived(ICONS[icon]);
 </script>
 
-<Icon {size} strokeWidth={icon === "comparisons" ? 1.3 : 1.5} data-admin-route-icon={icon} class="shrink-0" />
+<Icon {size} strokeWidth={icon === "comparisons" ? 1.3 : icon === "import" ? 1.8 : 1.5} data-admin-route-icon={icon} class="shrink-0" />

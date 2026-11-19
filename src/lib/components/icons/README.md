@@ -94,6 +94,7 @@ These icons are copied from the Paper round 2 boards (A1 to J9, page "Round 2, f
 | `IconUpload` | Upload files | `0 0 24 24` | 16 / 1.6 | 16 / 1.6 | E1-E3, E6, F1, G1, G2 | E, F1, G1, G2 Interview dropzone: "Drop transcripts" |
 |  |  |  |  | 15 / 1.5 | E2 | E2 add menu: Upload files |
 | `IconCloudDownload` | OneDrive import | `0 0 24 24` | 15 / 1.5 | 15 / 1.5 | A5, E2 | A5 Admin flyout: OneDrive import; E2 add menu: From OneDrive |
+| `IconImport` | Import (arrow up off a line) | `0 0 24 24` | 16 / 1.8 | 16 / 1.8 | Import Files 1-6 | Admin sidebar: Import, with its To review count |
 | `IconBook` | Notes / house rules / written text | `0 0 24 24` | 15 / 1.5 | 15 / 1.5 | A5, C4, E2 | A5 Admin flyout: House rules; E2 add menu: Paste text or notes and each company document (Scoping notes, Interview transcript, FY 2025 report); C4 pending-invite menu: Copy invite link |
 | `IconDocument` | Report page (24 grid) | `0 0 24 24` | 15 / 1.8 | 15 / 1.8 | F2-F5 | F2-F5 top bar page tile on "Projects / Adaptive cold storage controls" |
 | `IconDocumentSmall` | Company document (14 grid) | `0 0 14 14` | 14 / 1.2 | 14 / 1.2 | A1-A5, B1, B2, D1-D3, D5 | Home "Cedarline Systems documents" card: each document row |

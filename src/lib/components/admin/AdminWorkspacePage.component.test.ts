@@ -143,5 +143,32 @@ describe("AdminWorkspacePage", () => {
     expect(current.querySelectorAll("h1")).toHaveLength(1);
     expect(current.querySelectorAll("[data-testid=route-content]")).toHaveLength(1);
     expect(current.querySelector("[data-testid=admin-action]")).not.toBeNull();
+    // No count given: no count line.
+    expect(current.querySelector("[data-admin-page-count]")).toBeNull();
+  });
+
+  it("shows the count beside the title in both presentations", async () => {
+    __setPageUrl("/admin/import");
+    __setQueryData("users:getCurrentUser", { _id: "a", role: "admin", firstName: "Ada", lastName: "Admin" });
+    const { unmount } = await render(AdminWorkspacePage, {
+      title: "Import",
+      count: "556 files from 7 companies",
+      children: content,
+    });
+    const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
+    expect(bar.querySelector("[data-page-count]")?.textContent).toBe("556 files from 7 companies");
+    await unmount();
+
+    __setPageUrl("/admin/import?workspace=current");
+    await render(AdminWorkspacePage, {
+      title: "Import",
+      count: "556 files from 7 companies",
+      children: content,
+    });
+    const current = document.querySelector<HTMLElement>('[data-admin-presentation="current"]')!;
+    expect(current.querySelector("h1")?.textContent).toBe("Import");
+    const count = current.querySelector<HTMLElement>("[data-admin-page-count]")!;
+    expect(count.textContent).toBe("556 files from 7 companies");
+    expect(getComputedStyle(count).color).toBe("rgb(107, 127, 123)");
   });
 });

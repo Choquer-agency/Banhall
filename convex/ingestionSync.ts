@@ -383,6 +383,8 @@ async function walkDelta(
       batch.length > 0
         ? await ctx.runMutation(internal.ingestion.upsertDiscoveredBatch, {
             items: batch as never,
+            // The run's Import batch counts what arrived (2026-11-12).
+            runId,
           })
         : 0;
     await ctx.runMutation(internal.ingestion.updateSyncRun, {

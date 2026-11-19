@@ -41,6 +41,7 @@ import {
   pdVersionCodeValidator,
   scienceCodeSourceValidator,
   sheetTabValidator,
+  writerNameSourceValidator,
 } from "./lib/ingestionSheetValidators";
 import {
   sectionMetricsValidator,
@@ -4303,7 +4304,43 @@ export default defineSchema({
     // off this (not startedAt) so healthy long continuation chains aren't
     // treated as crashed.
     lastProgressAt: v.optional(v.number()),
+    // 2026-11-12: the Import batch this run's files arrive in (startSync
+    // makes one). Runs from before have none; the History tab lists those
+    // from this table.
+    batchId: v.optional(v.id("importBatches")),
   }).index("by_startedAt", ["startedAt"]),
+
+  // 2026-11-12 (Import page, adding files): one row per batch of files that
+  // arrived together, for the History tab and the status line under the
+  // toolbar. `source`: "page" (dropped on the Import page or Add files; the
+  // signed-in admin is `addedBy`), "uploader" (the client uploader, which
+  // sends no person or batch: files that arrive within a quiet gap of each
+  // other are one batch) or "onedrive" (one OneDrive sync run). Counters move
+  // as files arrive and are read; nothing here touches the Brain.
+  importBatches: defineTable({
+    source: v.union(v.literal("page"), v.literal("uploader"), v.literal("onedrive")),
+    addedBy: v.optional(v.id("users")),
+    startedAt: v.number(),
+    // When the last file arrived (or the browser last reported).
+    lastFileAt: v.number(),
+    // Page only: the files the browser is sending (after leaving out those
+    // already here), and whether it has finished sending them.
+    toSend: v.optional(v.number()),
+    sendingDone: v.optional(v.boolean()),
+    // Files staged: new, or changed, so they are read again.
+    added: v.number(),
+    // Files skipped because the same file is already in Import.
+    alreadyHere: v.number(),
+    // Page only: files the browser could not send.
+    failed: v.number(),
+    // Of `added`, how many have finished being read, and how many of those could not be read.
+    read: v.number(),
+    couldNotRead: v.number(),
+    lastReadAt: v.optional(v.number()),
+  })
+    .index("by_startedAt", ["startedAt"])
+    .index("by_lastFileAt", ["lastFileAt"])
+    .index("by_source_and_lastFileAt", ["source", "lastFileAt"]),
 
   ingestionItems: defineTable({
     driveItemId: v.string(), // Graph item id — stable upsert key
@@ -4413,9 +4450,14 @@ export default defineSchema({
     // Order inside a category section: PD number, version, then name for
     // final PDs, drafts and review copies; the lower-cased name otherwise.
     sortKey: v.optional(v.string()),
-    // Set by a person on the sheet (ingestion.setSheetLabels). Text only:
-    // never linked to a user.
+    // Set by a person on the sheet (ingestion.setSheetLabels), or since
+    // 2026-11-12 taken from the writer a person said the file name's
+    // initials stand for (importWriterInitials). Text only: never linked to
+    // a user.
     writerName: v.optional(v.string()),
+    // 2026-11-12 widen: where writerName came from. Absent on names set
+    // before (a person's: editedLabels has "writerName").
+    writerNameSource: v.optional(writerNameSourceValidator),
     // A code from shared/craScienceCodes.ts: read from a final PD's text
     // ("document") or set by a person ("person"). Source is absent with no code.
     scienceCode: v.optional(v.string()),
@@ -4423,6 +4465,18 @@ export default defineSchema({
     // The labels a person set. A move or a new copy on the drive keeps
     // these instead of what the new path says.
     editedLabels: v.optional(v.array(editableLabelValidator)),
+    // 2026-11-12 (Import page, adding files). The section a file shows in on
+    // the sheet: its category, or "unknown" (Not sorted yet) while it is
+    // being read. Worked out on every write (settleItem).
+    sheetSection: v.optional(ingestionCategoryValidator),
+    // New: true from when the file arrives (new, or new bytes) until
+    // ingestion.clearExpiredNew clears it 24 hours after `arrivedAt`.
+    isNew: v.optional(v.boolean()),
+    arrivedAt: v.optional(v.number()),
+    // The batch the file last arrived in (importBatches), and whether that
+    // batch still waits for this file's reading to count it as read.
+    batchId: v.optional(v.id("importBatches")),
+    batchReadPending: v.optional(v.boolean()),
     updatedAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
@@ -4436,20 +4490,63 @@ export default defineSchema({
     // first one is in creation order, which no label edit changes, so the
     // counts rebuild can page through it while files change.
     .index("by_sheetTab_and_companyKey", ["sheetTab", "companyKey"])
-    .index("by_sheetTab_and_companyKey_and_category_and_sortKey", [
+    // A section's files (2026-11-12: by sheetSection, so a file being read
+    // lists under Not sorted yet until it is read).
+    .index("by_sheetTab_and_companyKey_and_sheetSection_and_sortKey", [
       "sheetTab",
       "companyKey",
-      "category",
+      "sheetSection",
       "sortKey",
     ])
-    .index("by_sheetTab_and_companyKey_and_category_and_needsCheck_and_sortKey", [
+    // Named without "_and_": the full names pass the 64 characters the
+    // backend allows (tests/convexIndexNames.test.ts guards every name).
+    .index("by_sheetTab_companyKey_sheetSection_needsCheck_sortKey", [
       "sheetTab",
       "companyKey",
-      "category",
+      "sheetSection",
       "needsCheck",
       "sortKey",
     ])
+    .index("by_sheetTab_companyKey_sheetSection_isNew_sortKey", [
+      "sheetTab",
+      "companyKey",
+      "sheetSection",
+      "isNew",
+      "sortKey",
+    ])
+    // The New files whose 24 hours are up (ingestion.clearExpiredNew).
+    .index("by_isNew_and_arrivedAt", ["isNew", "arrivedAt"])
+    // "Already here": a file with the same bytes (the page asks before sending).
+    .index("by_contentHash", ["contentHash"])
+    // 2026-11-12: the files whose name gave these initials, for applying a
+    // writer a person matched to them (ingestion.matchWriterInitials).
+    .index("by_sheetTab_and_writerInitials", ["sheetTab", "writerInitials"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
+
+  // 2026-11-12 (Import sheet): "these initials are this writer", said once
+  // by a person for the whole firm (ingestion.matchWriterInitials). The code
+  // never makes a match itself (shared/pdFilename.ts): only a person's pick
+  // does. Every import file whose name gave these initials and whose writer
+  // no person set on the file shows this name (writerNameSource "initials").
+  // One row per initials (upper case, as the file names give them).
+  importWriterInitials: defineTable({
+    initials: v.string(),
+    writerName: v.string(),
+    setBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_initials", ["initials"]),
+
+  // 2026-11-12 (Import sheet): what a person picked on the sheet for a
+  // company the app does not have yet, kept by company key so it holds on
+  // every tab until the company is created on approval. `industry` is a
+  // slug from the app's industry list (shared/industries.ts), as on
+  // clients.industry.
+  importNewCompanies: defineTable({
+    companyKey: v.string(),
+    industry: v.optional(v.string()),
+    setBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_companyKey", ["companyKey"]),
 
   // 2026-11-11 (Import sheet, phase 2): what one company band shows without
   // reading its files. One row per sheet tab and company key; companyKey is
@@ -4467,13 +4564,17 @@ export default defineSchema({
     ...importCountFields,
     // needsCheck > 0, for listing only the bands with something to check.
     hasCheck: v.boolean(),
+    // newFiles > 0 (2026-11-12), for listing only the bands with New files.
+    // Absent on a band row not written since; read as false.
+    hasNew: v.optional(v.boolean()),
     // Goes up on every change of the counts; the rebuild checks it did not
     // move while it paged through the files.
     revision: v.number(),
     updatedAt: v.number(),
   })
     .index("by_sheetTab_and_companyKey", ["sheetTab", "companyKey"])
-    .index("by_sheetTab_and_hasCheck_and_companyKey", ["sheetTab", "hasCheck", "companyKey"]),
+    .index("by_sheetTab_and_hasCheck_and_companyKey", ["sheetTab", "hasCheck", "companyKey"])
+    .index("by_sheetTab_and_hasNew_and_companyKey", ["sheetTab", "hasNew", "companyKey"]),
 
   // ─── Story 1 (CAP-1/2/4): Generation Brief ────────────────────────────────
   // Stores the Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.

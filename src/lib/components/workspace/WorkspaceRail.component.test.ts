@@ -290,7 +290,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
       ["House rules", "/admin/house-rules"],
       ["Project tags", "/admin/tags"],
       ["The Brain", "/admin/brain"],
-      ["OneDrive import", "/admin/ingestion"],
+      ["Import", "/admin/import"],
       ["Models", "/admin/models"],
       ["QA reviews", "/admin/reviews"],
       ["Learning health", "/admin/learning"],

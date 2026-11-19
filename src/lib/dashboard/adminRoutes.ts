@@ -9,6 +9,7 @@ export type AdminRouteIcon =
   | "house-rules"
   | "tags"
   | "brain"
+  | "import"
   | "ingestion"
   | "models"
   | "reviews"
@@ -38,7 +39,8 @@ export const ADMIN_GROUPS: readonly AdminRouteGroup[] = [
       { href: "/admin/house-rules", label: "House rules", icon: "house-rules" },
       { href: "/admin/tags", label: "Project tags", icon: "tags" },
       { href: "/admin/brain", label: "The Brain", icon: "brain" },
-      { href: "/admin/ingestion", label: "OneDrive import", icon: "ingestion" },
+      // The Import page (2026-11-12, Paper Files 1): its row shows the To review count.
+      { href: "/admin/import", label: "Import", icon: "import" },
     ],
   },
   {
@@ -60,8 +62,13 @@ export const ADMIN_GROUPS: readonly AdminRouteGroup[] = [
 /** The eight pages the rail (B2) and the flyout (A5) list, in board order. */
 export const ADMIN_RAIL_ROUTES: readonly AdminRoute[] = ADMIN_GROUPS.flatMap((group) => group.routes);
 
-/** Reachable from the command palette only (not on the round 2 rail). */
+/**
+ * Reachable from the command palette only (not on the round 2 rail). The
+ * old OneDrive page keeps the sync controls until Import has its History
+ * tab (2026-11-12), so it stays findable here.
+ */
 export const ADMIN_PALETTE_ONLY_ROUTES: readonly AdminRoute[] = [
+  { href: "/admin/ingestion", label: "OneDrive sync", icon: "ingestion" },
   { href: "/admin/comparisons", label: "Paired comparisons", icon: "comparisons" },
   { href: "/admin/backfill", label: "Ownership review", icon: "backfill" },
   { href: "/admin/users", label: "Users and roles", icon: "users" },
@@ -73,5 +80,8 @@ export const ADMIN_ROUTES: readonly AdminRoute[] = [...ADMIN_RAIL_ROUTES, ...ADM
 /** "Open Admin" and G then A land here (`/admin` redirects to it). */
 export const ADMIN_LANDING_PATH = "/admin/house-rules";
 
-/** The route whose rail and flyout rows carry the ingestion attention signal. */
-export const ADMIN_INGESTION_PATH = "/admin/ingestion";
+/**
+ * The Import page (2026-11-12): its row in the Admin sidebar shows the To
+ * review count, and in the drawer the failed-files attention dot.
+ */
+export const ADMIN_IMPORT_PATH = "/admin/import";

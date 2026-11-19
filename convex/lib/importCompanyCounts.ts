@@ -5,7 +5,8 @@
 
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { isBeingRead } from "./ingestionSheet";
+import { activeClientForKey } from "./clients";
+import { isBeingRead, sheetSectionFor } from "./ingestionSheet";
 import type { ImportCounts, SheetTab } from "./ingestionSheetValidators";
 
 /** The band key for files with no company yet. */
@@ -16,17 +17,22 @@ export const NO_FISCAL_YEAR = "none";
 /** The fields of a row the counts read. */
 export type CountedRow = Pick<
   Doc<"ingestionItems">,
-  "sheetTab" | "companyKey" | "category" | "fiscalYearEnd" | "needsCheck" | "status" | "clientName"
+  "sheetTab" | "companyKey" | "category" | "fiscalYearEnd" | "needsCheck" | "checkReasons" | "status" | "clientName" | "isNew"
 >;
 
 /** What one row adds to its band. */
 export type CountShare = {
   sheetTab: SheetTab;
   companyKey: string;
+  /** The section the row shows in (sheetSectionFor): Not sorted yet ("unknown") while it is being read. */
   category: string;
   fiscalYear: string;
   needsCheck: boolean;
+  /** Why it needs a check, each reason once and sorted; empty when it needs none. */
+  checkReasons: string[];
   beingRead: boolean;
+  /** New (2026-11-12): only a file on To review counts as New. */
+  isNew: boolean;
 };
 
 /** The fiscal year bucket of a fiscal year end: its UTC year, or "none". */
@@ -37,13 +43,17 @@ export function fiscalYearBucket(fiscalYearEnd: number | undefined): string {
 /** The band a row counts in and what it adds, or null for a row not on the sheet. */
 export function countShareOf(row: CountedRow | null | undefined): CountShare | null {
   if (!row || row.sheetTab === undefined || row.category === undefined) return null;
+  const needsCheck = row.needsCheck === true;
   return {
     sheetTab: row.sheetTab,
     companyKey: row.companyKey ?? NO_COMPANY_KEY,
-    category: row.category,
+    category: sheetSectionFor(row)!,
     fiscalYear: fiscalYearBucket(row.fiscalYearEnd),
-    needsCheck: row.needsCheck === true,
+    needsCheck,
+    // Only a file that needs a check counts under its reasons.
+    checkReasons: needsCheck ? [...new Set(row.checkReasons ?? [])].sort() : [],
     beingRead: isBeingRead(row.status),
+    isNew: row.sheetTab === "review" && row.isNew === true,
   };
 }
 
@@ -54,7 +64,10 @@ function sameShare(a: CountShare, b: CountShare): boolean {
     a.category === b.category &&
     a.fiscalYear === b.fiscalYear &&
     a.needsCheck === b.needsCheck &&
-    a.beingRead === b.beingRead
+    a.checkReasons.length === b.checkReasons.length &&
+    a.checkReasons.every((reason, index) => reason === b.checkReasons[index]) &&
+    a.beingRead === b.beingRead &&
+    a.isNew === b.isNew
   );
 }
 
@@ -62,29 +75,48 @@ export function emptyImportCounts(): ImportCounts {
   return { total: 0, needsCheck: 0, ready: 0, beingRead: 0, categories: {} };
 }
 
+/** `record` with `key` moved by `sign`, the key gone at zero. Returns a new object. */
+function bump(record: Record<string, number> | undefined, key: string, sign: 1 | -1): Record<string, number> {
+  const next = { ...record };
+  const value = (next[key] ?? 0) + sign;
+  if (value === 0) delete next[key];
+  else next[key] = value;
+  return next;
+}
+
 /**
  * `counts` with one row's share added (sign 1) or taken away (sign -1). A
- * category or year that reaches zero is removed. Returns a new object.
+ * category, year or check reason that reaches zero is removed, and so is a
+ * category's reason map once it is empty. A category stored without a reason
+ * map (a band row from before it existed) starts from an empty one. The New
+ * counts (2026-11-12) work the same way: `newFiles` and a category's
+ * `newFiles` and `newFiscalYears` are left out at zero. Returns a new object.
  */
 export function addShare(counts: ImportCounts, share: CountShare, sign: 1 | -1): ImportCounts {
   const categories = { ...counts.categories };
   const before = categories[share.category] ?? { total: 0, needsCheck: 0, fiscalYears: {} };
-  const fiscalYears = { ...before.fiscalYears };
-  const years = (fiscalYears[share.fiscalYear] ?? 0) + sign;
-  if (years === 0) delete fiscalYears[share.fiscalYear];
-  else fiscalYears[share.fiscalYear] = years;
+  const fiscalYears = bump(before.fiscalYears, share.fiscalYear, sign);
+  let checkReasons = { ...before.checkReasons };
+  for (const reason of share.checkReasons) checkReasons = bump(checkReasons, reason, sign);
+  const newFiles = (before.newFiles ?? 0) + (share.isNew ? sign : 0);
+  const newFiscalYears = share.isNew ? bump(before.newFiscalYears, share.fiscalYear, sign) : { ...before.newFiscalYears };
   const category = {
     total: before.total + sign,
     needsCheck: before.needsCheck + (share.needsCheck ? sign : 0),
     fiscalYears,
+    ...(Object.keys(checkReasons).length > 0 ? { checkReasons } : {}),
+    ...(newFiles !== 0 ? { newFiles } : {}),
+    ...(Object.keys(newFiscalYears).length > 0 ? { newFiscalYears } : {}),
   };
   if (category.total === 0) delete categories[share.category];
   else categories[share.category] = category;
+  const bandNew = (counts.newFiles ?? 0) + (share.isNew ? sign : 0);
   return {
     total: counts.total + sign,
     needsCheck: counts.needsCheck + (share.needsCheck ? sign : 0),
     ready: counts.ready + (!share.needsCheck && !share.beingRead ? sign : 0),
     beingRead: counts.beingRead + (share.beingRead ? sign : 0),
+    ...(bandNew !== 0 ? { newFiles: bandNew } : {}),
     categories,
   };
 }
@@ -96,6 +128,7 @@ export function countsOf(row: Doc<"importCompanies">): ImportCounts {
     needsCheck: row.needsCheck,
     ready: row.ready,
     beingRead: row.beingRead,
+    ...(row.newFiles !== undefined && row.newFiles !== 0 ? { newFiles: row.newFiles } : {}),
     categories: row.categories,
   };
 }
@@ -103,8 +136,15 @@ export function countsOf(row: Doc<"importCompanies">): ImportCounts {
 /** True when any count went below zero, which only drift can cause. */
 function hasNegative(counts: ImportCounts): boolean {
   if (counts.total < 0 || counts.needsCheck < 0 || counts.ready < 0 || counts.beingRead < 0) return true;
+  if ((counts.newFiles ?? 0) < 0) return true;
   return Object.values(counts.categories).some(
-    (c) => c.total < 0 || c.needsCheck < 0 || Object.values(c.fiscalYears).some((n) => n < 0)
+    (c) =>
+      c.total < 0 ||
+      c.needsCheck < 0 ||
+      (c.newFiles ?? 0) < 0 ||
+      Object.values(c.fiscalYears).some((n) => n < 0) ||
+      Object.values(c.checkReasons ?? {}).some((n) => n < 0) ||
+      Object.values(c.newFiscalYears ?? {}).some((n) => n < 0)
   );
 }
 
@@ -121,8 +161,32 @@ export async function importCompanyRow(
 }
 
 /**
+ * The name a band shows (2026-11-11, phase 3b fixes). The rule: the name of
+ * the active company with the band's key, when there is one; otherwise the
+ * name the band already has, so a later file's spelling ("CEDARLINE
+ * SYSTEMS" in one folder) never renames it; otherwise `offered`, the
+ * spelling of the file that starts the band. Only a different spelling can
+ * change a named band, so the company is read only then, or always with
+ * `checkCompany` (a rebuild). The band for files with no company has no name.
+ */
+export async function bandDisplayName(
+  ctx: QueryCtx | MutationCtx,
+  companyKey: string,
+  stored: string | undefined,
+  offered: string | undefined,
+  options: { checkCompany?: boolean } = {}
+): Promise<string> {
+  if (companyKey === NO_COMPANY_KEY) return "";
+  const kept = stored?.trim() ? stored : undefined;
+  if (!options.checkCompany && kept !== undefined && (offered === undefined || offered === kept)) return kept;
+  const company = await activeClientForKey(ctx, companyKey);
+  return company?.name ?? kept ?? offered ?? "";
+}
+
+/**
  * Write a band's new counts: deleted when the total reaches zero, created
- * when it did not exist. `displayName` replaces the stored name when given.
+ * when it did not exist. Its name follows bandDisplayName, with `offered`
+ * the spelling of the file just written (or, for a rebuild, its earliest).
  */
 export async function writeImportCompany(
   ctx: MutationCtx,
@@ -130,7 +194,8 @@ export async function writeImportCompany(
   companyKey: string,
   existing: Doc<"importCompanies"> | null,
   counts: ImportCounts,
-  displayName: string | undefined
+  offered: string | undefined,
+  options: { checkCompany?: boolean } = {}
 ): Promise<void> {
   if (hasNegative(counts)) {
     // Only a write that skipped this helper can cause it. Keep the band
@@ -146,14 +211,24 @@ export async function writeImportCompany(
   }
   const fields = {
     ...counts,
+    // A band that had New files and has none now loses the count.
+    newFiles: counts.newFiles,
     hasCheck: counts.needsCheck > 0,
-    displayName: companyKey === NO_COMPANY_KEY ? "" : (displayName ?? existing?.displayName ?? ""),
+    hasNew: (counts.newFiles ?? 0) > 0,
+    displayName: await bandDisplayName(ctx, companyKey, existing?.displayName, offered, options),
     updatedAt: Date.now(),
   };
   if (existing) {
     await ctx.db.patch(existing._id, { ...fields, revision: existing.revision + 1 });
   } else {
-    await ctx.db.insert("importCompanies", { sheetTab, companyKey, ...fields, revision: 1 });
+    const { newFiles, ...rest } = fields;
+    await ctx.db.insert("importCompanies", {
+      sheetTab,
+      companyKey,
+      ...rest,
+      ...(newFiles === undefined ? {} : { newFiles }),
+      revision: 1,
+    });
   }
 }
 
@@ -188,13 +263,17 @@ export async function adjustImportCompanyCounts(
   const into = countShareOf(after);
   const displayName = after?.clientName;
   if (out && into && sameShare(out, into)) {
-    // Counts unchanged; only the latest client name may have moved.
+    // Counts unchanged; only the spelling of the client name may have moved,
+    // which renames the band only as bandDisplayName allows.
     if (before?.clientName === displayName || displayName === undefined) return;
+    if (into.companyKey === NO_COMPANY_KEY) return;
     const existing = await importCompanyRow(ctx, into.sheetTab, into.companyKey);
-    if (existing && existing.displayName !== displayName && into.companyKey !== NO_COMPANY_KEY) {
+    if (!existing) return;
+    const name = await bandDisplayName(ctx, into.companyKey, existing.displayName, displayName);
+    if (name !== existing.displayName) {
       // The revision moves too, so a rebuild running meanwhile starts again
       // rather than write back the name it read before.
-      await ctx.db.patch(existing._id, { displayName, revision: existing.revision + 1, updatedAt: Date.now() });
+      await ctx.db.patch(existing._id, { displayName: name, revision: existing.revision + 1, updatedAt: Date.now() });
     }
     return;
   }

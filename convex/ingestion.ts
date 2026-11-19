@@ -13,17 +13,34 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { importSource } from "./brain";
 import { getCurrentUserOrNull } from "./lib/auth";
+import { domainError } from "./lib/contracts";
 import { graphConfiguration } from "./lib/providerConfig";
+import { chatDisplayName } from "./lib/chatAuthors";
+import { FRESH_UPLOAD_MS, isStorageReferenced, uploadClaimFor } from "./lib/storage";
+import {
+  extensionOf,
+  INGEST_EXTENSIONS,
+  isJunkPath,
+  MAX_FILE_BYTES,
+  sanitizeRelPath,
+  uploadUpsertFields,
+} from "./lib/ingestionClassify";
 import {
   changedFields,
+  cleanWriterName,
   definedFields,
+  fieldsForLabels,
+  followsRememberedWriter,
+  hasReadText,
   labelPatchFields,
   mergeEditedLabels,
   pairGroupsTouched,
   pathFieldsFor,
   previewScienceCode,
+  rememberedWriterFields,
   settleItem,
   sheetTabForStatus,
+  writerInitialsKey,
   type IngestionItemFields,
 } from "./lib/ingestionSheet";
 import {
@@ -36,6 +53,7 @@ import {
   writeImportCompany,
 } from "./lib/importCompanyCounts";
 import {
+  batchResultValidator,
   checkReasonValidator,
   editableLabelValidator,
   importCategoryCountsValidator,
@@ -45,6 +63,7 @@ import {
   scienceCodeSourceValidator,
   sheetLabelPatchValidator,
   sheetTabValidator,
+  writerNameSourceValidator,
 } from "./lib/ingestionSheetValidators";
 import {
   activeClientAfterMerges,
@@ -52,8 +71,17 @@ import {
   dashboardCompanyForKey,
   mergedClientForKey,
 } from "./lib/clients";
-import { normalizeDashboardText } from "../shared/dashboardProjection";
+import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { industrySlug } from "../shared/industries";
+import {
+  canDelete,
+  canPutBack,
+  DELETED_IN_ONEDRIVE_NOTE,
+  deletedReasonFor,
+  labelApplies,
+  type BatchSkipReason,
+} from "../shared/importSheetRules";
 
 // ─── OneDrive corpus ingestion staging (BNH-17) ─────────────────────────────
 // Human-in-the-loop bridge between the client's OneDrive and The Brain.
@@ -91,9 +119,50 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
 // (convex/projects.ts, which clears the ported* fields): none of them writes
 // a field the sheet fields or the counts are worked out from.
 
+/**
+ * The writer a person said some initials stand for, by initials, as one
+ * mutation has read them (2026-11-12). A batch passes one so it reads each
+ * match once; a mutation that writes a match fills it with the new value.
+ */
+type RememberedWriters = Map<string, string | null>;
+
+async function rememberedWriter(
+  ctx: QueryCtx,
+  initials: string,
+  memo?: RememberedWriters
+): Promise<string | null> {
+  if (memo?.has(initials)) return memo.get(initials) ?? null;
+  const match = await ctx.db
+    .query("importWriterInitials")
+    .withIndex("by_initials", (q) => q.eq("initials", initials))
+    .first();
+  const name = match?.writerName ?? null;
+  memo?.set(initials, name);
+  return name;
+}
+
+/**
+ * A settled row with the writer its initials stand for (2026-11-12): every
+ * write of a row that follows the remembered initials (not approved, no
+ * writer a person set on the file) reads the match, so a new file, a file
+ * put back or renamed, and a match made or undone all show the same name.
+ */
+async function settleWithWriter(
+  ctx: MutationCtx,
+  row: IngestionItemFields,
+  memo?: RememberedWriters
+): Promise<IngestionItemFields> {
+  const settled = settleItem(row);
+  if (!followsRememberedWriter(settled)) return settled;
+  const initials = writerInitialsKey(settled.writerInitials);
+  const name = initials === null ? null : await rememberedWriter(ctx, initials, memo);
+  const writer = rememberedWriterFields(settled, name);
+  return Object.keys(writer).length === 0 ? settled : settleItem({ ...settled, ...writer });
+}
+
 /** Insert an ingestion item: the one place rows are created. */
 async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promise<Id<"ingestionItems">> {
-  const row = definedFields(settleItem(fields));
+  const row = definedFields(await settleWithWriter(ctx, fields));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
   return id;
@@ -102,16 +171,17 @@ async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promis
 /**
  * Patch an ingestion item: settles the patched row, writes only the fields
  * that changed and keeps the company counts right. With `touch`, updatedAt
- * moves only when something else changed.
+ * moves only when something else changed. `writers` lets a batch read each
+ * remembered writer once.
  */
 async function patchItem(
   ctx: MutationCtx,
   before: Doc<"ingestionItems">,
   patch: Partial<IngestionItemFields>,
-  options: { touch?: boolean } = {}
+  options: { touch?: boolean; writers?: RememberedWriters } = {}
 ): Promise<{ after: Doc<"ingestionItems">; changed: boolean }> {
   const { _id, _creationTime, ...fields } = before;
-  let settled = settleItem({ ...fields, ...patch });
+  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, options.writers);
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
   if (changed && options.touch) {
@@ -300,6 +370,9 @@ const sheetRowFields = {
   versionCode: v.optional(pdVersionCodeValidator),
   versionNumber: v.optional(v.number()),
   writerName: v.optional(v.string()),
+  // 2026-11-12: "initials" when the name is the writer a person said the
+  // file name's initials stand for (no AI mark: the file name and a person).
+  writerNameSource: v.optional(writerNameSourceValidator),
   writerInitials: v.optional(v.string()),
   reviewerInitials: v.optional(v.string()),
   scienceCode: v.optional(v.string()),
@@ -310,6 +383,16 @@ const sheetRowFields = {
   size: v.number(),
   extractNote: v.optional(v.string()),
   error: v.optional(v.string()),
+  // Why a file is on the Deleted tab (2026-11-11, phase 3b;
+  // shared/importSheetRules.ts deletedReasonFor): a person deleted it in
+  // Import, it was removed in OneDrive (its review note says so, even if a
+  // person deleted it after), or it was rejected on the old review page.
+  // "Put back" takes every kind but a file removed in OneDrive.
+  deletedReason: v.optional(
+    v.union(v.literal("deleted"), v.literal("removed_in_onedrive"), v.literal("rejected"))
+  ),
+  // New (2026-11-12): arrived in the last 24 hours. Only on To review.
+  isNew: v.optional(v.boolean()),
 };
 const sheetRowValidator = v.object(sheetRowFields);
 type SheetRow = Infer<typeof sheetRowValidator>;
@@ -327,6 +410,7 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     versionCode: item.versionCode,
     versionNumber: item.versionNumber,
     writerName: item.writerName,
+    writerNameSource: item.writerNameSource,
     writerInitials: item.writerInitials,
     reviewerInitials: item.reviewerInitials,
     scienceCode: item.scienceCode,
@@ -337,6 +421,8 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     size: item.size,
     extractNote: item.extractNote,
     error: item.error,
+    deletedReason: deletedReasonFor(item),
+    isNew: item.isNew === true && item.sheetTab === "review" ? true : undefined,
   });
 }
 
@@ -371,6 +457,8 @@ export const sheetTotals = query({
       needsCheck: v.number(),
       ready: v.number(),
       beingRead: v.number(),
+      // 2026-11-12: files that are New (To review only).
+      newFiles: v.number(),
       complete: v.boolean(),
     })
   ),
@@ -380,7 +468,7 @@ export const sheetTotals = query({
       .query("importCompanies")
       .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
       .take(SHEET_BAND_READ_LIMIT + 1);
-    const totals = { files: 0, companies: 0, needsCheck: 0, ready: 0, beingRead: 0 };
+    const totals = { files: 0, companies: 0, needsCheck: 0, ready: 0, beingRead: 0, newFiles: 0 };
     for (const band of bands.slice(0, SHEET_BAND_READ_LIMIT)) {
       // A rebuild's start row has no files yet; it is not a company on the sheet.
       if (band.total <= 0) continue;
@@ -389,6 +477,7 @@ export const sheetTotals = query({
       totals.needsCheck += band.needsCheck;
       totals.ready += band.ready;
       totals.beingRead += band.beingRead;
+      totals.newFiles += band.newFiles ?? 0;
     }
     return { ...totals, complete: bands.length <= SHEET_BAND_READ_LIMIT };
   },
@@ -437,27 +526,49 @@ const sheetBandValidator = v.object({
   needsCheck: v.number(),
   ready: v.number(),
   beingRead: v.number(),
+  // 2026-11-12: the band's New files (To review only).
+  newFiles: v.number(),
   categories: v.record(v.string(), importCategoryCountsValidator),
   company: v.union(v.null(), knownCompanyValidator),
   // A company key the app does not know yet (never true for the no-company band).
   isNew: v.boolean(),
+  // A new company's industry, as a person picked it on the sheet
+  // (2026-11-12, importNewCompanies): a slug from the app's industry list.
+  pickedIndustry: v.optional(v.string()),
 });
+
+/** What a person picked on the sheet for a company the app does not have yet. */
+async function newCompanyPicks(ctx: QueryCtx, companyKey: string): Promise<Doc<"importNewCompanies"> | null> {
+  return await ctx.db
+    .query("importNewCompanies")
+    .withIndex("by_companyKey", (q) => q.eq("companyKey", companyKey))
+    .first();
+}
 
 /**
  * A page of company bands for a tab in name order (the no-company band, key
  * "", comes first), or only those with a file that needs a check. Each band
- * carries its counts and what the app knows about that company.
+ * carries its counts, with each category's check reasons for the section's
+ * note ("9 need a writer"), what the app knows about that company (its
+ * industry among it), and for a new company the industry a person picked on
+ * the sheet (2026-11-12). `onlyNew` (2026-11-12, the New filter) lists only
+ * the bands with New files, and wins over `onlyToCheck` (the page sends one).
  */
 export const sheetCompanies = query({
   args: {
     tab: sheetTabValidator,
     onlyToCheck: v.boolean(),
+    onlyNew: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(sheetBandValidator),
   handler: async (ctx, args) => {
     if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
-    const bands = args.onlyToCheck
+    const bands = args.onlyNew
+      ? ctx.db
+          .query("importCompanies")
+          .withIndex("by_sheetTab_and_hasNew_and_companyKey", (q) => q.eq("sheetTab", args.tab).eq("hasNew", true))
+      : args.onlyToCheck
       ? ctx.db
           .query("importCompanies")
           .withIndex("by_sheetTab_and_hasCheck_and_companyKey", (q) =>
@@ -472,26 +583,34 @@ export const sheetCompanies = query({
       // A rebuild's start row has no files yet (rebuildImportCompanyCounts).
       if (band.total <= 0) continue;
       const company = await knownCompany(ctx, band.companyKey);
-      page.push({
-        companyKey: band.companyKey,
-        displayName: band.displayName,
-        total: band.total,
-        needsCheck: band.needsCheck,
-        ready: band.ready,
-        beingRead: band.beingRead,
-        categories: band.categories,
-        company,
-        isNew: band.companyKey !== NO_COMPANY_KEY && company === null,
-      });
+      const isNew = band.companyKey !== NO_COMPANY_KEY && company === null;
+      const picks = isNew ? await newCompanyPicks(ctx, band.companyKey) : null;
+      page.push(
+        definedFields({
+          companyKey: band.companyKey,
+          displayName: band.displayName,
+          total: band.total,
+          needsCheck: band.needsCheck,
+          ready: band.ready,
+          beingRead: band.beingRead,
+          newFiles: band.newFiles ?? 0,
+          categories: band.categories,
+          company,
+          isNew,
+          pickedIndustry: picks?.industry,
+        })
+      );
     }
     return { ...result, page };
   },
 });
 
 /**
- * A page of one section's files (one tab, company and category) in sortKey
- * order, or only the ones that need a check. companyKey "" lists the files
- * with no company.
+ * A page of one section's files (one tab, company and section) in sortKey
+ * order, or only the ones that need a check, or (2026-11-12) only the New
+ * ones. companyKey "" lists the files with no company. `category` is the
+ * section: since 2026-11-12 a file still being read lists under "unknown"
+ * (Not sorted yet) until it is read (ingestionItems.sheetSection).
  */
 export const sheetFiles = query({
   args: {
@@ -499,26 +618,37 @@ export const sheetFiles = query({
     companyKey: v.string(),
     category: ingestionCategoryValidator,
     onlyToCheck: v.boolean(),
+    onlyNew: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   returns: paginationResultValidator(sheetRowValidator),
   handler: async (ctx, args) => {
     if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
     const companyKey = args.companyKey === NO_COMPANY_KEY ? undefined : args.companyKey;
-    const files = args.onlyToCheck
+    const files = args.onlyNew
       ? ctx.db
           .query("ingestionItems")
-          .withIndex("by_sheetTab_and_companyKey_and_category_and_needsCheck_and_sortKey", (q) =>
+          .withIndex("by_sheetTab_companyKey_sheetSection_isNew_sortKey", (q) =>
             q
               .eq("sheetTab", args.tab)
               .eq("companyKey", companyKey)
-              .eq("category", args.category)
+              .eq("sheetSection", args.category)
+              .eq("isNew", true)
+          )
+      : args.onlyToCheck
+      ? ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_companyKey_sheetSection_needsCheck_sortKey", (q) =>
+            q
+              .eq("sheetTab", args.tab)
+              .eq("companyKey", companyKey)
+              .eq("sheetSection", args.category)
               .eq("needsCheck", true)
           )
       : ctx.db
           .query("ingestionItems")
-          .withIndex("by_sheetTab_and_companyKey_and_category_and_sortKey", (q) =>
-            q.eq("sheetTab", args.tab).eq("companyKey", companyKey).eq("category", args.category)
+          .withIndex("by_sheetTab_and_companyKey_and_sheetSection_and_sortKey", (q) =>
+            q.eq("sheetTab", args.tab).eq("companyKey", companyKey).eq("sheetSection", args.category)
           );
     const result = await files.paginate(boundedPage(args.paginationOpts, SHEET_FILES_PAGE_MAX));
     return { ...result, page: result.page.map(sheetRow) };
@@ -648,7 +778,7 @@ export const sheetFile = query({
       addedVia: item.driveItemId.startsWith("local:") ? ("folder_upload" as const) : ("onedrive_sync" as const),
       lastModifiedAt: item.lastModifiedAt,
       reviewedAt: item.reviewedAt,
-      hasText: Boolean(item.text?.trim()) || item.textStorageId !== undefined,
+      hasText: hasReadText(item),
       hasOriginal: item.storageId !== undefined,
     });
   },
@@ -656,13 +786,20 @@ export const sheetFile = query({
 
 // ─── Review actions (the human in the loop) ─────────────────────────────────
 
+// Refusals people read (2026-11-11, phase 3b fixes: plain words, as they
+// reach the Import page's toasts), shared by the single-file mutations below.
+const ITEM_NOT_FOUND = "This file is no longer in Import.";
+const ALREADY_IN_BRAIN = "This file is already approved into the Brain. Remove it from the Brain page instead.";
+const STILL_PROCESSING = "This file is still processing and cannot be deleted yet";
+const ONLY_DELETED_RESTORE = "This file is not deleted, so there is nothing to put back.";
+
 /** Auth + preconditions for approval; runs with the caller's identity. */
 export const getItemForApproval = internalQuery({
   args: { itemId: v.id("ingestionItems") },
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
+    if (!item) throw new Error(ITEM_NOT_FOUND);
     if (item.status !== "pending_review") {
       throw new Error("Only items pending review can be approved");
     }
@@ -777,16 +914,15 @@ export const rejectItem = mutation({
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
-    if (item.status === "approved") {
-      throw new Error(
-        "Already in the Brain — revoke it from the Brain admin page instead"
-      );
-    }
+    if (!item) throw new Error(ITEM_NOT_FOUND);
+    if (item.status === "approved") throw new Error(ALREADY_IN_BRAIN);
     if (item.status === "deleted") {
       throw new Error("Restore this item before rejecting it");
     }
     const { after } = await patchItem(ctx, item, {
+      // A file rejected while it is still being read will never be read
+      // now: its batch counts it as done, so the status line settles.
+      ...(await finishBatchRead(ctx, item, false)),
       status: "rejected",
       pairStatus: undefined,
       reviewNote: args.note?.trim() || undefined,
@@ -800,6 +936,38 @@ export const rejectItem = mutation({
   },
 });
 
+/** Why a staged item cannot be deleted, or null when it can (or already is). */
+function removalRefusal(item: Doc<"ingestionItems">): string | null {
+  if (item.status === "approved") return ALREADY_IN_BRAIN;
+  if (item.status === "deleted") return null;
+  if (!canDelete(item.status)) return STILL_PROCESSING;
+  return null;
+}
+
+/** The deleted state for an item: reversible, restoreItem puts the old status back. */
+function removedFields(item: Doc<"ingestionItems">, admin: string): Partial<IngestionItemFields> {
+  const now = Date.now();
+  return {
+    status: "deleted",
+    pairStatus: undefined,
+    deletedFromStatus: item.status as NonNullable<Doc<"ingestionItems">["deletedFromStatus"]>,
+    deletedBy: admin,
+    deletedAt: now,
+    updatedAt: now,
+  };
+}
+
+/** The status a deleted item goes back to, with its deletion cleared (restoreItem, the old page). */
+function restoredFields(item: Doc<"ingestionItems">): Partial<IngestionItemFields> {
+  return {
+    status: item.deletedFromStatus ?? "pending_review",
+    deletedFromStatus: undefined,
+    deletedBy: undefined,
+    deletedAt: undefined,
+    updatedAt: Date.now(),
+  };
+}
+
 /**
  * Remove a staged item from active review without touching OneDrive or an
  * approved Brain source. The explicit deleted state keeps this reversible;
@@ -810,28 +978,14 @@ export const removeItem = mutation({
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
-    if (item.status === "approved") {
-      throw new Error(
-        "Already in the Brain — revoke it from the Brain admin page instead"
-      );
-    }
+    if (!item) throw new Error(ITEM_NOT_FOUND);
+    const refusal = removalRefusal(item);
+    if (refusal) throw new Error(refusal);
     if (item.status === "deleted") return null;
-    if (
-      item.status !== "pending_review" &&
-      item.status !== "rejected" &&
-      item.status !== "failed"
-    ) {
-      throw new Error("This file is still processing and cannot be deleted yet");
-    }
-    const now = Date.now();
     const { after } = await patchItem(ctx, item, {
-      status: "deleted",
-      pairStatus: undefined,
-      deletedFromStatus: item.status,
-      deletedBy: admin,
-      deletedAt: now,
-      updatedAt: now,
+      // One its batch still waits for (rejected before it was read) is done.
+      ...(await finishBatchRead(ctx, item, false)),
+      ...removedFields(item, admin),
     });
     // The old group, and the new one if settling an old row moved it.
     await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
@@ -844,79 +998,260 @@ export const restoreItem = mutation({
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
-    if (item.status !== "deleted") {
-      throw new Error("Only deleted ingestion items can be restored");
-    }
-    const restoredStatus = item.deletedFromStatus ?? "pending_review";
-    const { after } = await patchItem(ctx, item, {
-      status: restoredStatus,
-      deletedFromStatus: undefined,
-      deletedBy: undefined,
-      deletedAt: undefined,
-      updatedAt: Date.now(),
-    });
+    if (!item) throw new Error(ITEM_NOT_FOUND);
+    if (item.status !== "deleted") throw new Error(ONLY_DELETED_RESTORE);
+    const { after } = await patchItem(ctx, item, restoredFields(item));
     // The old group, and the new one if settling an old row moved it.
     await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
     return null;
   },
 });
 
-/** Files one label edit may change. */
-const SHEET_LABEL_MAX_FILES = 100;
+// ─── The Import page's batch calls (2026-11-11, phase 3b fixes) ─────────────
+// setSheetLabels, removeItems and restoreItems take up to 100 files and never
+// refuse the whole call for one file: each file they cannot change is left as
+// it is and named in `skipped` with why (shared/importSheetRules.ts
+// BatchSkipReason), and `changedIds` is exactly what the call changed. Only a
+// call that is wrong in itself (more than 100 files, a value no file can take)
+// is refused, before anything is written.
+
+/** Files one Import page call may change, delete or put back. */
+const SHEET_BATCH_MAX_FILES = 100;
+
+/** Put-back files read again are spaced like the sync's PDFs (ingestionSync.ts PDF_READ_SPACING_MS). */
+const PUT_BACK_READ_SPACING_MS = 2_000;
+
+type BatchResult = Infer<typeof batchResultValidator>;
+
+/** What one batch call changed and left, as it goes. */
+function batchOutcome() {
+  const changedIds: Array<Id<"ingestionItems">> = [];
+  const skipped: BatchResult["skipped"] = [];
+  return {
+    changed: (id: Id<"ingestionItems">) => changedIds.push(id),
+    skip: (id: Id<"ingestionItems">, reason: BatchSkipReason) => skipped.push({ id, reason }),
+    result: (): BatchResult => ({ changed: changedIds.length, changedIds, skipped }),
+  };
+}
 
 /**
- * Change labels on up to 100 files of the review tab (2026-11-11, phase 2).
+ * The ids of one Import page batch, once each; refuses more than the
+ * batch limit with `tooMany`. Refusals here are ConvexErrors so the page
+ * can show their words (a plain Error's message never reaches a deployed page).
+ */
+function batchIds(ids: Array<Id<"ingestionItems">>, tooMany: string): Array<Id<"ingestionItems">> {
+  const unique = [...new Set(ids)];
+  if (unique.length > SHEET_BATCH_MAX_FILES) domainError("INVALID_INPUT", tooMany);
+  return unique;
+}
+
+/** Why removeItems leaves a file as it is, or null when it deletes it (removeItem's rules). */
+function removalSkip(item: Doc<"ingestionItems"> | null): BatchSkipReason | null {
+  if (!item) return "missing";
+  if (item.status === "approved") return "approved";
+  if (item.status === "deleted") return "already_deleted";
+  if (!canDelete(item.status)) return "being_read";
+  return null;
+}
+
+/**
+ * Delete up to 100 files from the Import page (2026-11-11, phase 3b), with
+ * removeItem's rules: a file that is missing, approved, already deleted or
+ * still being read is skipped with its reason, and the rest are deleted.
+ * Counts move through patchItem; pairing for every group touched is scheduled.
+ */
+export const removeItems = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: batchResultValidator,
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Delete up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    const groups = new Set<string>();
+    for (const id of ids) {
+      const item = await ctx.db.get(id);
+      const skip = removalSkip(item);
+      if (skip || !item) {
+        outcome.skip(id, skip ?? "missing");
+        continue;
+      }
+      const { after } = await patchItem(ctx, item, {
+        // One its batch still waits for (rejected before it was read) is done.
+        ...(await finishBatchRead(ctx, item, false)),
+        ...removedFields(item, admin),
+      });
+      groups.add(after.pairGroupKey);
+      groups.add(item.pairGroupKey);
+      outcome.changed(id);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return outcome.result();
+  },
+});
+
+/** Why restoreItems leaves a file as it is, or null when it puts it back (canPutBack). */
+function putBackSkip(item: Doc<"ingestionItems"> | null): BatchSkipReason | null {
+  if (!item) return "missing";
+  const deletedReason = deletedReasonFor(item);
+  if (deletedReason === "removed_in_onedrive") return "removed_in_onedrive";
+  if (!canPutBack({ status: item.status, deletedReason })) return "not_on_tab";
+  return null;
+}
+
+/**
+ * The status a put-back file takes on To review, so it is never stranded:
+ * - deleted while waiting for review or after it could not be read: that status;
+ * - otherwise (rejected, now or before it was deleted, so the status it had
+ *   before is not known), from what it holds: text read from it, or bytes
+ *   with a reading note but no text (a scan), waits for review; an error from
+ *   reading means it could not be read; bytes stored but never read go back
+ *   to be read ("fetched", and extractUploadedItem is scheduled, as for an
+ *   upload); nothing stored goes back to "discovered", which the next
+ *   OneDrive sync fetches and reads (takeUnprocessedItems).
+ */
+function putBackStatus(item: Doc<"ingestionItems">): "pending_review" | "failed" | "fetched" | "discovered" {
+  const from = item.status === "deleted" ? item.deletedFromStatus : undefined;
+  if (from === "pending_review" || from === "failed") return from;
+  if (hasReadText(item)) return "pending_review";
+  if (item.error !== undefined) return "failed";
+  if (item.storageId !== undefined) return item.extractNote !== undefined ? "pending_review" : "fetched";
+  return "discovered";
+}
+
+/** A put-back file: on To review again, its deletion and any rejection undone. */
+function putBackFields(item: Doc<"ingestionItems">): Partial<IngestionItemFields> {
+  return {
+    status: putBackStatus(item),
+    deletedFromStatus: undefined,
+    deletedBy: undefined,
+    deletedAt: undefined,
+    reviewNote: undefined,
+    reviewedBy: undefined,
+    reviewedAt: undefined,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Put back up to 100 files on the Deleted tab (2026-11-11, phase 3b; the
+ * Undo after a delete and "Put back"): each returns to To review in the
+ * state its data calls for (putBackStatus), a file to be read again is
+ * handed to extraction, a few seconds apart. A file that is missing, not on
+ * the Deleted tab, or removed in OneDrive is skipped with its reason. The
+ * old page's restoreItem still returns a file to the status it was deleted from.
+ */
+export const restoreItems = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: batchResultValidator,
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Put back up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    const groups = new Set<string>();
+    let reads = 0;
+    for (const id of ids) {
+      const item = await ctx.db.get(id);
+      const skip = putBackSkip(item);
+      if (skip || !item) {
+        outcome.skip(id, skip ?? "missing");
+        continue;
+      }
+      const { after } = await patchItem(ctx, item, putBackFields(item));
+      if (after.status === "fetched") {
+        await ctx.scheduler.runAfter(reads * PUT_BACK_READ_SPACING_MS, internal.ingestionSync.extractUploadedItem, {
+          itemId: id,
+        });
+        reads += 1;
+      }
+      groups.add(after.pairGroupKey);
+      groups.add(item.pairGroupKey);
+      outcome.changed(id);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return outcome.result();
+  },
+});
+
+/**
+ * The company name a typed one is stored as (2026-11-11, phase 3b fixes): an
+ * existing company's own spelling wins, so typing "cedarline systems" or
+ * "Cédarline Systems" files into Cedarline Systems and never renames it. The
+ * active company with the typed name's key first, then a band with that key
+ * on any tab (its display name), then the name projects give a company with
+ * no company row; only a key that matches nothing keeps the typed name, as
+ * labelPatchFields cleaned it (trimmed, inner spaces collapsed).
+ */
+async function companyNameToStore(ctx: MutationCtx, typed: string): Promise<string> {
+  const key = dashboardCompanyKey(typed);
+  const company = await activeClientForKey(ctx, key);
+  if (company) return company.name;
+  for (const tab of ["review", "approved", "deleted"] as const) {
+    const band = await importCompanyRow(ctx, tab, key);
+    if (band && band.displayName.trim()) return band.displayName;
+  }
+  const projects = await dashboardCompanyForKey(ctx, key);
+  if (projects && projects.projectCount > 0 && projects.clientName.trim()) return projects.clientName;
+  return typed;
+}
+
+/**
+ * Change labels on up to 100 files of the review tab (2026-11-11, phase 2;
+ * per file since the phase 3b fixes). Each file gets the patch's labels that
+ * apply to it (shared/importSheetRules.ts labelApplies, judged by the
+ * category it has after the change, the rule the page offers by); a file to
+ * which none apply, or that is no longer on To review or no longer exists,
+ * is skipped with its reason. A patch wrong in itself (an unknown science
+ * code, a bad version) refuses the whole call before anything is written.
  * Each label set is marked in editedLabels, so a later move or new copy on
  * the drive keeps it. The row is settled (docKind, company key, fiscal year,
  * pairing key and sheet fields follow), the company counts move through
  * patchItem, and pairing for the groups the files left and joined is
  * scheduled (recomputePairs, two groups a run), so a 100-file edit never
  * reads whole pair groups in this transaction. A file a person makes a final
- * PD gets the science code its stored text preview gives, if it has none.
- * Approved or deleted files are refused before anything is written. Returns
- * how many files changed.
+ * PD gets the science code its stored text preview gives, if it has none. A
+ * company typed is stored in an existing company's spelling
+ * (companyNameToStore). Its refusals are ConvexErrors, so the page can show
+ * their words.
  */
 export const setSheetLabels = mutation({
   args: {
     ids: v.array(v.id("ingestionItems")),
     patch: sheetLabelPatchValidator,
   },
-  returns: v.number(),
+  returns: batchResultValidator,
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
-    const ids = [...new Set(args.ids)];
-    if (ids.length === 0) return 0;
-    if (ids.length > SHEET_LABEL_MAX_FILES) {
-      throw new Error(`Change up to ${SHEET_LABEL_MAX_FILES} files at a time.`);
-    }
+    const ids = batchIds(args.ids, `Change up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    if (ids.length === 0) return outcome.result();
     const { fields, labels } = labelPatchFields(args.patch);
+    if (fields.clientName !== undefined) fields.clientName = await companyNameToStore(ctx, fields.clientName);
 
-    const items: Array<Doc<"ingestionItems">> = [];
+    const groups = new Set<string>();
     for (const id of ids) {
       const item = await ctx.db.get(id);
-      if (!item) throw new Error("One of these files is no longer in the import. Refresh and try again.");
-      const tab = sheetTabForStatus(item.status);
-      if (tab === "approved") {
-        throw new Error(`"${item.name}" is already approved, so its labels cannot be changed here.`);
+      if (!item) {
+        outcome.skip(id, "missing");
+        continue;
       }
-      if (item.status === "rejected") {
-        throw new Error(`"${item.name}" was rejected, so its labels cannot be changed here.`);
+      if (sheetTabForStatus(item.status) !== "review") {
+        outcome.skip(id, "not_on_tab");
+        continue;
       }
-      if (tab === "deleted") {
-        throw new Error(`"${item.name}" is deleted. Restore it before changing its labels.`);
+      const { _id, _creationTime, ...stored } = item;
+      const category = item.category ?? settleItem(stored).category ?? "unknown";
+      const applying = labels.filter((label) =>
+        labelApplies(label, { status: item.status, category }, fields.category ?? category)
+      );
+      if (applying.length === 0) {
+        outcome.skip(id, "does_not_apply");
+        continue;
       }
-      items.push(item);
-    }
-
-    let changed = 0;
-    const groups = new Set<string>();
-    for (const item of items) {
       const patch: Partial<IngestionItemFields> = {
-        ...fields,
-        editedLabels: mergeEditedLabels(item.editedLabels, labels),
+        ...fieldsForLabels(fields, applying),
+        editedLabels: mergeEditedLabels(item.editedLabels, applying),
       };
-      if (fields.category !== undefined && fields.category !== item.category) {
+      if (patch.category !== undefined && patch.category !== item.category) {
         // The file name is read for the category the person chose: a
         // scheme-named PD kept in a supporting folder gives its number,
         // version and initials once it is made a final PD (labels a person
@@ -929,18 +1264,175 @@ export const setSheetLabels = mutation({
         patch.reviewerInitials = read.reviewerInitials;
         patch.pdTitle = read.pdTitle;
       }
-      if (fields.category === "final_pd" && item.category !== "final_pd") {
+      if (patch.category === "final_pd" && item.category !== "final_pd") {
         // Extraction reads the code only for a file that was a final PD then.
-        const { _id, _creationTime, ...stored } = item;
         Object.assign(patch, previewScienceCode(settleItem({ ...stored, ...patch })));
       }
       const result = await patchItem(ctx, item, patch, { touch: true });
       if (!result.changed) continue;
-      changed += 1;
+      outcome.changed(id);
       for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
-    return changed;
+    return outcome.result();
+  },
+});
+
+// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
+// A final PD's file name gives its writer's initials ("T2.KT"), never a
+// person (shared/pdFilename.ts): the code never guesses who KT is. When an
+// admin picks a writer on a file whose initials have no writer yet, that pick
+// says "KT is Kim Tran" for the whole firm (importWriterInitials), and every
+// import file with those initials whose writer no person set on the file
+// takes the name (writerNameSource "initials"; patchItem reads the match on
+// every write, so new and put-back files take it too). A writer set on one
+// file still wins for that file. Undo sets the match back the same way.
+
+/** Files one run of a writer match settles before it schedules the rest. */
+const WRITER_MATCH_BATCH = 100;
+
+/** The tabs a match walks, To review first. Approved files keep what they were approved as. */
+const WRITER_MATCH_TABS = ["review", "deleted"] as const;
+type WriterMatchTab = (typeof WRITER_MATCH_TABS)[number];
+const writerMatchTabValidator = v.union(v.literal("review"), v.literal("deleted"));
+
+/**
+ * One page of the files on `tab` whose name gave `initials`, each settled
+ * with the writer they stand for now (patchItem reads it, from `writers`).
+ * Counts move through patchItem; pairing does not read the writer, but a row
+ * written for the first time since the labels may move group, so the groups
+ * touched are recomputed.
+ */
+async function applyWriterPage(
+  ctx: MutationCtx,
+  initials: string,
+  tab: WriterMatchTab,
+  cursor: string | null,
+  writers: RememberedWriters
+): Promise<{ changed: number; isDone: boolean; continueCursor: string }> {
+  const page = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_sheetTab_and_writerInitials", (q) => q.eq("sheetTab", tab).eq("writerInitials", initials))
+    .paginate({ cursor, numItems: WRITER_MATCH_BATCH });
+  let changed = 0;
+  const groups = new Set<string>();
+  for (const item of page.page) {
+    if (!followsRememberedWriter(item)) continue;
+    const result = await patchItem(ctx, item, {}, { touch: true, writers });
+    if (!result.changed) continue;
+    changed += 1;
+    for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+  }
+  await recomputeGroups(ctx, groups, MANY_ROWS);
+  return { changed, isDone: page.isDone, continueCursor: page.continueCursor };
+}
+
+/** Schedules the rest of a match's walk: the next page of `tab`, else the next tab. */
+async function continueWriterMatch(
+  ctx: MutationCtx,
+  initials: string,
+  tab: WriterMatchTab,
+  page: { isDone: boolean; continueCursor: string }
+): Promise<void> {
+  const next = page.isDone ? WRITER_MATCH_TABS[WRITER_MATCH_TABS.indexOf(tab) + 1] : tab;
+  if (next === undefined) return;
+  await ctx.scheduler.runAfter(0, internal.ingestion.applyWriterInitials, {
+    initials,
+    tab: next,
+    cursor: page.isDone ? null : page.continueCursor,
+  });
+}
+
+/**
+ * Says which writer some initials stand for, for the whole firm, or with
+ * `writerName` null that no one has said (Undo). Admin only. The first 100
+ * files with those initials on To review take the name in this call; the
+ * rest of To review, then Deleted, follow in scheduled runs of 100.
+ * Returns the match before (for Undo), how many files changed now, and
+ * whether more To review files are still to follow. The name follows the
+ * writer name rules (cleanWriterName); refusals are ConvexErrors.
+ */
+export const matchWriterInitials = mutation({
+  args: { initials: v.string(), writerName: v.union(v.string(), v.null()) },
+  returns: v.object({
+    initials: v.string(),
+    writerName: v.union(v.string(), v.null()),
+    previous: v.union(v.string(), v.null()),
+    changed: v.number(),
+    more: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const initials = writerInitialsKey(args.initials);
+    if (initials === null) domainError("INVALID_INPUT", "Initials are two or three letters, such as KT.");
+    const name = args.writerName === null ? null : cleanWriterName(args.writerName);
+    const match = await ctx.db
+      .query("importWriterInitials")
+      .withIndex("by_initials", (q) => q.eq("initials", initials))
+      .first();
+    const previous = match?.writerName ?? null;
+    if (name === null) {
+      if (match) await ctx.db.delete(match._id);
+    } else if (!match) {
+      await ctx.db.insert("importWriterInitials", { initials, writerName: name, setBy: admin, updatedAt: Date.now() });
+    } else if (match.writerName !== name) {
+      await ctx.db.patch(match._id, { writerName: name, setBy: admin, updatedAt: Date.now() });
+    }
+    const page = await applyWriterPage(ctx, initials, "review", null, new Map([[initials, name]]));
+    await continueWriterMatch(ctx, initials, "review", page);
+    return { initials, writerName: name, previous, changed: page.changed, more: !page.isDone };
+  },
+});
+
+/** The rest of a match's walk (matchWriterInitials): one page, then it schedules the next. */
+export const applyWriterInitials = internalMutation({
+  args: { initials: v.string(), tab: writerMatchTabValidator, cursor: v.union(v.string(), v.null()) },
+  returns: v.object({ changed: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const initials = writerInitialsKey(args.initials);
+    if (initials === null) return { changed: 0, done: true };
+    // The match as it is now: a later pick or an Undo meanwhile wins.
+    const page = await applyWriterPage(ctx, initials, args.tab, args.cursor, new Map());
+    await continueWriterMatch(ctx, initials, args.tab, page);
+    return { changed: page.changed, done: page.isDone && args.tab === WRITER_MATCH_TABS[WRITER_MATCH_TABS.length - 1] };
+  },
+});
+
+// ─── A new company's industry (2026-11-12) ──────────────────────────────────
+
+/** The longest industry slug kept. */
+const MAX_INDUSTRY = 60;
+
+/**
+ * Picks the industry of a company on the sheet that the app does not have
+ * yet (no company, merged company or projects with its key), kept by company
+ * key so it holds on every tab and can be used when the company is created
+ * on approval. `industry` is from the app's industry list (stored as its
+ * slug, as clients.industry is); admins may add one, as on New company.
+ * Admin only.
+ */
+export const setNewCompanyIndustry = mutation({
+  args: { companyKey: v.string(), industry: v.string() },
+  returns: v.object({ industry: v.string() }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const companyKey = args.companyKey.trim();
+    if (companyKey === NO_COMPANY_KEY || dashboardCompanyKey(companyKey) !== companyKey) {
+      domainError("INVALID_INPUT", "Pick the company first.");
+    }
+    const industry = industrySlug(args.industry);
+    if (!industry) domainError("INVALID_INPUT", "Pick an industry.");
+    if (industry.length > MAX_INDUSTRY) domainError("INVALID_INPUT", `An industry can be up to ${MAX_INDUSTRY} characters.`);
+    if ((await knownCompany(ctx, companyKey)) !== null) {
+      domainError("INVALID_INPUT", "This company is already in Banhall. Change its industry on its company page.");
+    }
+    const picks = await newCompanyPicks(ctx, companyKey);
+    if (!picks) {
+      await ctx.db.insert("importNewCompanies", { companyKey, industry, setBy: admin, updatedAt: Date.now() });
+    } else if (picks.industry !== industry) {
+      await ctx.db.patch(picks._id, { industry, setBy: admin, updatedAt: Date.now() });
+    }
+    return { industry };
   },
 });
 
@@ -967,14 +1459,28 @@ export const startSync = mutation({
     if (latest?.status === "running" && Date.now() - lastBeat < 15 * 60 * 1000) {
       throw new Error("A sync is already running");
     }
+    // 2026-11-12: the run's files arrive in one Import batch (History tab).
+    const now = Date.now();
+    const batchId = await ctx.db.insert("importBatches", {
+      source: "onedrive",
+      addedBy: admin as Id<"users">,
+      startedAt: now,
+      lastFileAt: now,
+      added: 0,
+      alreadyHere: 0,
+      failed: 0,
+      read: 0,
+      couldNotRead: 0,
+    });
     const runId = await ctx.db.insert("oneDriveSyncRuns", {
       status: "running",
       triggeredBy: admin,
-      startedAt: Date.now(),
-      lastProgressAt: Date.now(),
+      startedAt: now,
+      lastProgressAt: now,
       discovered: 0,
       processed: 0,
       skipped: 0,
+      batchId,
     });
     await ctx.scheduler.runAfter(0, internal.ingestionSync.syncOneDrive, {
       runId,
@@ -1084,16 +1590,99 @@ function documentCodeCleared(item: Doc<"ingestionItems">): Partial<IngestionItem
     : {};
 }
 
+// ─── Batches of arriving files (2026-11-12, the Import page) ────────────────
+// Every file that arrives (new, or new bytes) is New for 24 hours and points
+// at the batch it came in: a drop or Add files on the Import page, a run of
+// the client uploader, or a OneDrive sync run. The batch counts what arrived,
+// what was already here, what the browser could not send and how much has
+// been read, for the History tab and the status line under the toolbar.
+
+/** Files the uploader sends with no longer gap than this between them are one batch. */
+const UPLOADER_BATCH_GAP_MS = 10 * 60_000;
+/** How long a file stays New. */
+const NEW_FOR_MS = 24 * 60 * 60_000;
+/** New flags one clearExpiredNew run clears before it schedules the next. */
+const NEW_CLEAR_BATCH = 100;
+
+/** Where a file arrived from, for upsertDiscovered. */
+type Arrival = { batchId?: Id<"importBatches">; now: number };
+
+type BatchChange = Partial<Record<"added" | "alreadyHere" | "read" | "couldNotRead", number>>;
+
+/** Moves a batch's counters (missing batch: nothing). `arrived` moves lastFileAt too. */
+async function changeBatch(
+  ctx: MutationCtx,
+  batchId: Id<"importBatches"> | undefined,
+  change: BatchChange,
+  now: number,
+  arrived: boolean
+) {
+  if (!batchId) return;
+  const batch = await ctx.db.get(batchId);
+  if (!batch) return;
+  const patch: Partial<Doc<"importBatches">> = {};
+  for (const key of ["added", "alreadyHere", "read", "couldNotRead"] as const) {
+    const by = change[key] ?? 0;
+    if (by !== 0) patch[key] = Math.max(0, batch[key] + by);
+  }
+  if (arrived) patch.lastFileAt = Math.max(batch.lastFileAt, now);
+  if ((change.read ?? 0) > 0) patch.lastReadAt = now;
+  if (Object.keys(patch).length > 0) await ctx.db.patch(batchId, patch);
+}
+
+/**
+ * The fields of a file that just arrived: New from now, in its batch, which
+ * waits for its reading. A file that was still waiting stops waiting for its
+ * earlier copy (that copy's batch counts it as done), so no batch waits on a
+ * copy that was replaced. Since 2026-11-19 this holds in the same batch too:
+ * both arrivals count in `added`, so each needs its own done.
+ */
+async function arrivalFields(
+  ctx: MutationCtx,
+  existing: Doc<"ingestionItems"> | null,
+  arrival: Arrival
+): Promise<Partial<IngestionItemFields>> {
+  if (existing?.batchReadPending && existing.batchId) {
+    await changeBatch(ctx, existing.batchId, { read: 1 }, arrival.now, false);
+  }
+  return {
+    isNew: true,
+    arrivedAt: arrival.now,
+    batchId: arrival.batchId,
+    batchReadPending: arrival.batchId ? true : undefined,
+  };
+}
+
+/**
+ * A file left "being read" (read, could not be read, gone, or rejected or
+ * deleted before it was read): the batch it arrived in counts it as done,
+ * once. A file that will never be read counts as done rather than leaving
+ * the batch's added count, so History still says how many were added.
+ * Returns the fields that say it no longer waits.
+ */
+async function finishBatchRead(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems">,
+  couldNotRead: boolean
+): Promise<Partial<IngestionItemFields>> {
+  if (!item.batchReadPending) return {};
+  await changeBatch(ctx, item.batchId, { read: 1, couldNotRead: couldNotRead ? 1 : 0 }, Date.now(), false);
+  return { batchReadPending: undefined };
+}
+
 /**
  * Stage or refresh one drive item. The feeders send classify's view of the
  * path; the stored client, fiscal year, docKind, pairing key and labels are
  * worked out here from the path (pathFieldsFor, then settleItem), keeping
  * any label a person set. Adds the pair groups the write touched to `groups`.
+ * A file that arrives (a new row, new bytes, or a failed file sent again) is
+ * New and joins `arrival`'s batch (2026-11-12); a rename or move is not.
  */
 async function upsertDiscovered(
   ctx: MutationCtx,
   args: UpsertArgs,
-  groups: Set<string>
+  groups: Set<string>,
+  arrival: Arrival = { now: Date.now() }
 ): Promise<Id<"ingestionItems"> | null> {
   const existing = await ctx.db
     .query("ingestionItems")
@@ -1104,6 +1693,7 @@ async function upsertDiscovered(
     return await insertItem(ctx, {
       ...args,
       ...fromPath,
+      ...(await arrivalFields(ctx, null, arrival)),
       status: "discovered",
       updatedAt: Date.now(),
     });
@@ -1119,6 +1709,7 @@ async function upsertDiscovered(
         ...args,
         ...fromPath,
         ...documentCodeCleared(existing),
+        ...(await arrivalFields(ctx, existing, arrival)),
         status: "discovered",
         error: undefined,
         updatedAt: Date.now(),
@@ -1182,6 +1773,7 @@ async function upsertDiscovered(
     ...args,
     ...fromPath,
     ...documentCodeCleared(existing),
+    ...(await arrivalFields(ctx, existing, arrival)),
     status: "discovered",
     text: undefined,
     textStorageId: undefined,
@@ -1197,30 +1789,66 @@ async function upsertDiscovered(
 }
 
 /**
+ * The open batch of the client uploader, or a new one: the uploader sends
+ * no person and no batch (scripts/client-uploader is unchanged), so files
+ * that arrive within UPLOADER_BATCH_GAP_MS of the last one are one batch.
+ */
+async function uploaderBatch(ctx: MutationCtx, now: number): Promise<Id<"importBatches">> {
+  const last = await ctx.db
+    .query("importBatches")
+    .withIndex("by_source_and_lastFileAt", (q) => q.eq("source", "uploader"))
+    .order("desc")
+    .first();
+  if (last && now - last.lastFileAt <= UPLOADER_BATCH_GAP_MS) return last._id;
+  return await ctx.db.insert("importBatches", {
+    source: "uploader",
+    startedAt: now,
+    lastFileAt: now,
+    added: 0,
+    alreadyHere: 0,
+    failed: 0,
+    read: 0,
+    couldNotRead: 0,
+  });
+}
+
+/**
  * Upsert a discovered drive item. Returns the item id when it needs
  * fetching/extraction, or null when the stored copy is already current or the
- * item was already reviewed.
+ * item was already reviewed. `via: "uploader"` (the upload route): the file
+ * joins the uploader's open batch, which counts it as added or already here.
  */
 export const upsertDiscoveredItem = internalMutation({
-  args: upsertFields,
+  args: { ...upsertFields, via: v.optional(v.literal("uploader")) },
   handler: async (ctx, args): Promise<Id<"ingestionItems"> | null> => {
+    const { via, ...fields } = args;
     const groups = new Set<string>();
-    const id = await upsertDiscovered(ctx, args, groups);
+    const now = Date.now();
+    const batchId = via === "uploader" ? await uploaderBatch(ctx, now) : undefined;
+    const id = await upsertDiscovered(ctx, fields, groups, { batchId, now });
+    await changeBatch(ctx, batchId, id === null ? { alreadyHere: 1 } : { added: 1 }, now, true);
     await recomputeGroups(ctx, groups, ONE_ROW);
     return id;
   },
 });
 
 /** Page-sized batch upsert for the delta walk (one mutation per Graph page
- * instead of one per file — keeps huge initial crawls inside action limits). */
+ * instead of one per file, which keeps huge initial crawls inside action
+ * limits). `runId` (2026-11-12): the sync run, whose batch the files join. */
 export const upsertDiscoveredBatch = internalMutation({
-  args: { items: v.array(v.object(upsertFields)) },
+  args: { items: v.array(v.object(upsertFields)), runId: v.optional(v.id("oneDriveSyncRuns")) },
   handler: async (ctx, args): Promise<number> => {
     let inserted = 0;
+    let unchanged = 0;
     const groups = new Set<string>();
+    const now = Date.now();
+    const run = args.runId ? await ctx.db.get(args.runId) : null;
+    const batchId = run?.batchId;
     for (const item of args.items.slice(0, 250)) {
-      if ((await upsertDiscovered(ctx, item, groups)) !== null) inserted++;
+      if ((await upsertDiscovered(ctx, item, groups, { batchId, now })) !== null) inserted++;
+      else unchanged++;
     }
+    await changeBatch(ctx, batchId, { added: inserted, alreadyHere: unchanged }, now, inserted + unchanged > 0);
     // The batch already read up to 250 rows: schedule every group it touched.
     await recomputeGroups(ctx, groups, MANY_ROWS);
     return inserted;
@@ -1248,9 +1876,11 @@ export const markDriveItemRemoved = internalMutation({
     }
     if (existing.status === "rejected" || existing.status === "deleted") return null;
     const { after } = await patchItem(ctx, existing, {
+      // A file gone before it was read is no longer waited for by its batch.
+      ...(await finishBatchRead(ctx, existing, false)),
       status: "rejected",
       pairStatus: undefined,
-      reviewNote: "Deleted in OneDrive",
+      reviewNote: DELETED_IN_ONEDRIVE_NOTE,
       updatedAt: Date.now(),
     });
     // The old group, and the new one if settling an old row moved it.
@@ -1267,26 +1897,43 @@ export const getItem = internalQuery({
 });
 
 /**
+ * Attach stored bytes to a staged item and hand it to extraction in its own
+ * action: the upload route's step (attachUpload) and the Import page's
+ * (stageImportFiles) are this one function. Adds the pair groups the write
+ * touched to `groups`. False when the item is not waiting for its bytes.
+ */
+async function attachStored(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems"> | null,
+  storageId: Id<"_storage">,
+  delayMs: number,
+  groups: Set<string>
+): Promise<boolean> {
+  if (!item || item.status !== "discovered") return false;
+  const { after } = await patchItem(ctx, item, {
+    storageId,
+    status: "fetched",
+    updatedAt: Date.now(),
+  });
+  // Only an old row the write settled can have moved group.
+  for (const key of pairGroupsTouched(item, after)) groups.add(key);
+  await ctx.scheduler.runAfter(Math.max(0, delayMs), internal.ingestionSync.extractUploadedItem, {
+    itemId: item._id,
+  });
+  return true;
+}
+
+/**
  * Path B (crawler upload), and each PDF of the Graph path since 2026-10-26:
  * attach stored bytes and hand off to extraction in its own action.
  */
 export const attachUpload = internalMutation({
   args: { itemId: v.id("ingestionItems"), storageId: v.id("_storage"), delayMs: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    const groups = new Set<string>();
     const item = await ctx.db.get(args.itemId);
-    if (!item || item.status !== "discovered") return null;
-    const { after } = await patchItem(ctx, item, {
-      storageId: args.storageId,
-      status: "fetched",
-      updatedAt: Date.now(),
-    });
-    // Only an old row the write settled can have moved group.
-    await recomputeGroups(ctx, pairGroupsTouched(item, after), ONE_ROW);
-    await ctx.scheduler.runAfter(
-      Math.max(0, args.delayMs ?? 0),
-      internal.ingestionSync.extractUploadedItem,
-      { itemId: args.itemId }
-    );
+    if (!(await attachStored(ctx, item, args.storageId, args.delayMs ?? 0, groups))) return null;
+    await recomputeGroups(ctx, groups, ONE_ROW);
     return null;
   },
 });
@@ -1331,6 +1978,7 @@ export const markItemProcessed = internalMutation({
         : {};
     const { after } = await patchItem(ctx, item, {
       ...scienceCode,
+      ...(await finishBatchRead(ctx, item, false)),
       storageId: args.storageId,
       text: args.text,
       textStorageId: args.textStorageId,
@@ -1356,6 +2004,7 @@ export const markItemFailed = internalMutation({
       return null;
     }
     const { after } = await patchItem(ctx, item, {
+      ...(await finishBatchRead(ctx, item, true)),
       status: "failed",
       pairStatus: undefined,
       error: args.error.slice(0, 500),
@@ -1365,6 +2014,517 @@ export const markItemFailed = internalMutation({
     // surface the transcript's missing_pd gap, and vice versa.
     await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
     return null;
+  },
+});
+
+// ─── Adding files on the Import page (2026-11-12) ───────────────────────────
+// The page's drop and Add files: the browser hashes each file (SHA-256),
+// asks which are already here (importFilesHere) so their bytes are never
+// sent, starts a batch (startImportBatch), uploads the rest a few at a time
+// through upload URLs and stages each group it uploaded (stageImportFiles),
+// then says it has finished (finishImportBatch). Staging goes through the
+// upload route's own steps (uploadUpsertFields, upsertDiscovered,
+// attachStored), so a file is classified, labelled, read and counted the
+// same whichever way it arrives. Files only ever land in Import, for an
+// admin to review: nothing here reaches the Brain, a company or a project.
+
+/** Hashes one importFilesHere call may ask about. */
+const HASH_CHECK_MAX = 200;
+/** Files one stageImportFiles call may stage. */
+const STAGE_FILES_MAX = 10;
+/** Files one page batch may send. */
+const PAGE_BATCH_MAX_FILES = 20_000;
+/** PDFs staged together are read this far apart, like a put back's (PUT_BACK_READ_SPACING_MS). */
+const STAGED_PDF_SPACING_MS = 2_000;
+
+const SHA256_HEX = /^[a-f0-9]{64}$/;
+
+/** Hex of a stored file's sha256, which Convex gives as hex or base64. */
+function storedSha256Hex(stored: string): string {
+  if (SHA256_HEX.test(stored.toLowerCase())) return stored.toLowerCase();
+  try {
+    return [...atob(stored)].map((char) => char.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+  } catch {
+    return "";
+  }
+}
+
+/** An upload URL for the Import page's files. Admin only. */
+export const generateUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    await assertAdmin(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Which of these files (by the SHA-256 hex of their bytes) are already in
+ * Import, on any tab, so the page skips them without sending them. A file
+ * that could not be read is not "already here": sending it again reads it
+ * again, as the uploader's does. Null for anyone but an admin.
+ */
+export const importFilesHere = query({
+  args: { hashes: v.array(v.string()) },
+  returns: v.union(v.null(), v.array(v.string())),
+  handler: async (ctx, args) => {
+    if ((await adminOrNull(ctx)) === null) return null;
+    if (args.hashes.length > HASH_CHECK_MAX) {
+      domainError("INVALID_INPUT", `Ask about at most ${HASH_CHECK_MAX} files at once.`);
+    }
+    const here: string[] = [];
+    for (const hash of new Set(args.hashes.map((value) => value.toLowerCase()))) {
+      if (!SHA256_HEX.test(hash)) continue;
+      const rows = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_contentHash", (q) => q.eq("contentHash", hash))
+        .take(10);
+      if (rows.some((row) => row.status !== "failed")) here.push(hash);
+    }
+    return here;
+  },
+});
+
+/** Hash characters a page file's own key adds to its path (pageItemKey). */
+const PAGE_KEY_HASH_CHARS = 12;
+
+/**
+ * The key a file added on the Import page is staged under (2026-11-12). On
+ * the page the same path is the same file only when the bytes are the same
+ * too: two files called "Report.docx", dropped on their own, share a path
+ * but are two files. So the first file with a path keeps the plain key
+ * ("local:<path>"), and a file whose path a row already has with other
+ * bytes gets a row of its own, keyed by its path and the start of its hash.
+ * The row already there is never touched, whatever tab it is on, and the
+ * path and name the admin sees stay as dropped. The same bytes again find
+ * their own row, which says they are already here. The key ends after the
+ * file's type, so no path the uploader sends can ever be one of these.
+ * Null when each key is held by other bytes (in practice never).
+ */
+async function pageItemKey(ctx: MutationCtx, relPath: string, hash: string): Promise<string | null> {
+  const plain = `local:${relPath}`;
+  for (const key of [plain, `${plain}#${hash.slice(0, PAGE_KEY_HASH_CHARS)}`, `${plain}#${hash}`]) {
+    const row = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_driveItemId", (q) => q.eq("driveItemId", key))
+      .unique();
+    if (!row || row.contentHash === hash) return key;
+  }
+  return null;
+}
+
+/** The page's batch, refused unless it is the caller's own. */
+async function ownPageBatch(
+  ctx: MutationCtx,
+  batchId: Id<"importBatches">,
+  admin: string
+): Promise<Doc<"importBatches">> {
+  const batch = await ctx.db.get(batchId);
+  if (!batch || batch.source !== "page" || batch.addedBy !== admin) {
+    domainError("INVALID_INPUT", "These files belong to another upload. Add them again.");
+  }
+  return batch;
+}
+
+function countArg(value: number, max: number): number {
+  return Number.isFinite(value) ? Math.min(Math.max(0, Math.floor(value)), max) : 0;
+}
+
+/**
+ * Starts a batch for files the signed-in admin dropped or picked: how many
+ * the browser will send, and how many it left out as already here.
+ */
+export const startImportBatch = mutation({
+  args: { toSend: v.number(), alreadyHere: v.number() },
+  returns: v.id("importBatches"),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const now = Date.now();
+    const toSend = countArg(args.toSend, PAGE_BATCH_MAX_FILES);
+    return await ctx.db.insert("importBatches", {
+      source: "page",
+      addedBy: admin as Id<"users">,
+      startedAt: now,
+      lastFileAt: now,
+      toSend,
+      sendingDone: toSend === 0,
+      added: 0,
+      alreadyHere: countArg(args.alreadyHere, PAGE_BATCH_MAX_FILES),
+      failed: 0,
+      read: 0,
+      couldNotRead: 0,
+    });
+  },
+});
+
+const stageOutcomeValidator = v.object({
+  path: v.string(),
+  outcome: v.union(v.literal("added"), v.literal("already_here"), v.literal("refused")),
+  reason: v.optional(v.string()),
+});
+
+/**
+ * Stages up to 10 files the browser uploaded into the caller's batch. The
+ * server trusts nothing the browser says. First the stored file must be
+ * this batch's own upload: there, uploaded within the hour and since the
+ * batch started, held by no row and claimed by nobody else. A file that
+ * fails that check is refused and never deleted, whatever else is wrong
+ * with it. Then each path is cleaned, its type, size and junk rules are the
+ * upload route's, and the bytes' SHA-256 must be the one claimed; a file
+ * refused there has its upload deleted. A file whose path and bytes are
+ * already here is skipped and its upload deleted. A different file with a
+ * path a row already has gets a row of its own (pageItemKey). Each file
+ * says what happened to it.
+ */
+export const stageImportFiles = mutation({
+  args: {
+    batchId: v.id("importBatches"),
+    files: v.array(
+      v.object({
+        path: v.string(),
+        storageId: v.id("_storage"),
+        contentHash: v.string(),
+        lastModifiedAt: v.number(),
+      })
+    ),
+  },
+  returns: v.array(stageOutcomeValidator),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const batch = await ownPageBatch(ctx, args.batchId, admin);
+    if (args.files.length > STAGE_FILES_MAX) {
+      domainError("INVALID_INPUT", `Stage at most ${STAGE_FILES_MAX} files at once.`);
+    }
+    const now = Date.now();
+    const groups = new Set<string>();
+    const outcomes: Array<Infer<typeof stageOutcomeValidator>> = [];
+    let added = 0;
+    let alreadyHere = 0;
+    let pdfs = 0;
+    for (const file of args.files) {
+      // Refused, and the stored file left alone: it may not be this batch's.
+      const refuseKeeping = (reason: string) => outcomes.push({ path: file.path, outcome: "refused", reason });
+      const stored = await ctx.db.system.get("_storage", file.storageId);
+      if (!stored || now - stored._creationTime > FRESH_UPLOAD_MS) {
+        refuseKeeping("missing");
+        continue;
+      }
+      // The browser uploads a batch's files after it starts the batch.
+      if (stored._creationTime < batch.startedAt) {
+        refuseKeeping("not_this_batch");
+        continue;
+      }
+      const claim = await uploadClaimFor(ctx, file.storageId);
+      if ((claim && claim.userId !== admin) || (await isStorageReferenced(ctx, file.storageId))) {
+        refuseKeeping("in_use");
+        continue;
+      }
+      // From here the stored file is this batch's own upload: a refused one is deleted.
+      const refuse = async (reason: string) => {
+        await ctx.storage.delete(file.storageId);
+        outcomes.push({ path: file.path, outcome: "refused", reason });
+      };
+      const relPath = sanitizeRelPath(file.path);
+      const hash = file.contentHash.toLowerCase();
+      if (!relPath) {
+        await refuse("path");
+        continue;
+      }
+      if (isJunkPath(relPath)) {
+        await refuse("junk");
+        continue;
+      }
+      const name = relPath.split("/").pop()!;
+      if (!INGEST_EXTENSIONS.has(extensionOf(name))) {
+        await refuse("type");
+        continue;
+      }
+      if (!SHA256_HEX.test(hash)) {
+        await refuse("hash");
+        continue;
+      }
+      if (stored.size === 0) {
+        await refuse("empty");
+        continue;
+      }
+      if (stored.size > MAX_FILE_BYTES) {
+        await refuse("size");
+        continue;
+      }
+      if (storedSha256Hex(stored.sha256) !== hash) {
+        await refuse("hash");
+        continue;
+      }
+      const key = await pageItemKey(ctx, relPath, hash);
+      if (key === null) {
+        await refuse("path_taken");
+        continue;
+      }
+      const fields = { ...uploadUpsertFields(relPath, stored.size, file.lastModifiedAt, hash), driveItemId: key };
+      const id = await upsertDiscovered(ctx, fields, groups, { batchId: args.batchId, now });
+      if (id === null) {
+        // Same path, same bytes: already here. The upload is not needed.
+        await ctx.storage.delete(file.storageId);
+        alreadyHere += 1;
+        outcomes.push({ path: relPath, outcome: "already_here" });
+        continue;
+      }
+      const delay = extensionOf(name) === "pdf" ? pdfs++ * STAGED_PDF_SPACING_MS : 0;
+      await attachStored(ctx, await ctx.db.get(id), file.storageId, delay, groups);
+      added += 1;
+      outcomes.push({ path: relPath, outcome: "added" });
+    }
+    await changeBatch(ctx, args.batchId, { added, alreadyHere }, now, true);
+    // Up to ten files: schedule every pair group they touched.
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return outcomes;
+  },
+});
+
+/**
+ * The browser has finished sending its batch: `failed` files could not be
+ * sent (it keeps them for "Try again", which reopens the batch).
+ */
+export const finishImportBatch = mutation({
+  args: { batchId: v.id("importBatches"), failed: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    await ownPageBatch(ctx, args.batchId, admin);
+    await ctx.db.patch(args.batchId, {
+      sendingDone: true,
+      failed: countArg(args.failed, PAGE_BATCH_MAX_FILES),
+      lastFileAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/** "Try again": the browser sends the files that failed, into the same batch. */
+export const reopenImportBatch = mutation({
+  args: { batchId: v.id("importBatches") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    await ownPageBatch(ctx, args.batchId, admin);
+    await ctx.db.patch(args.batchId, { sendingDone: false, lastFileAt: Date.now() });
+    return null;
+  },
+});
+
+const batchSourceValidator = v.union(v.literal("page"), v.literal("uploader"), v.literal("onedrive"));
+
+/** The person who added a batch, by name; null when none is on record. */
+async function addedByName(ctx: QueryCtx, userId: string | undefined): Promise<string | null> {
+  if (!userId) return null;
+  const id = ctx.db.normalizeId("users", userId);
+  return id ? (chatDisplayName(await ctx.db.get(id)) ?? null) : null;
+}
+
+/** Batches importActivity returns, newest file first. */
+const ACTIVITY_BATCHES = 6;
+
+/**
+ * The latest batches by their last file, for the line under the toolbar:
+ * the page decides with its own clock which one, if any, is still worth a
+ * line (a query has no clock that moves). `mine`: the signed-in admin added it.
+ */
+export const importActivity = query({
+  args: {},
+  returns: v.union(
+    v.null(),
+    v.array(
+      v.object({
+        _id: v.id("importBatches"),
+        source: batchSourceValidator,
+        mine: v.boolean(),
+        addedByName: v.union(v.null(), v.string()),
+        startedAt: v.number(),
+        lastFileAt: v.number(),
+        toSend: v.optional(v.number()),
+        sendingDone: v.boolean(),
+        added: v.number(),
+        alreadyHere: v.number(),
+        failed: v.number(),
+        read: v.number(),
+        couldNotRead: v.number(),
+        lastReadAt: v.optional(v.number()),
+      })
+    )
+  ),
+  handler: async (ctx) => {
+    const me = await adminOrNull(ctx);
+    if (me === null) return null;
+    const batches = await ctx.db.query("importBatches").withIndex("by_lastFileAt").order("desc").take(ACTIVITY_BATCHES);
+    const rows = [];
+    for (const batch of batches) {
+      rows.push(
+        definedFields({
+          _id: batch._id,
+          source: batch.source,
+          mine: batch.addedBy === me,
+          addedByName: await addedByName(ctx, batch.addedBy),
+          startedAt: batch.startedAt,
+          lastFileAt: batch.lastFileAt,
+          toSend: batch.toSend,
+          sendingDone: batch.sendingDone ?? batch.source !== "page",
+          added: batch.added,
+          alreadyHere: batch.alreadyHere,
+          failed: batch.failed,
+          read: batch.read,
+          couldNotRead: batch.couldNotRead,
+          lastReadAt: batch.lastReadAt,
+        })
+      );
+    }
+    return rows;
+  },
+});
+
+/** The most History rows one page asks for ("Show 25 more" asks for 25). */
+const HISTORY_PAGE_MAX = 100;
+/** History cursors: a batches cursor, then (once every batch is listed) where the old sync runs are up to. */
+const HISTORY_BATCHES = "batches:";
+const HISTORY_RUNS = "runs:";
+
+const historyRowValidator = v.object({
+  key: v.string(),
+  startedAt: v.number(),
+  source: batchSourceValidator,
+  who: v.union(v.null(), v.string()),
+  added: v.number(),
+  // Null where nothing counted it (a OneDrive sync run from before batches).
+  alreadyHere: v.union(v.null(), v.number()),
+  couldNotRead: v.union(v.null(), v.number()),
+  notSent: v.number(),
+});
+type HistoryRow = Infer<typeof historyRowValidator>;
+
+/** The old sync runs after `after` (a "startedAt:creationTime" cursor, or "" for the newest), up to `numItems`. */
+async function legacySyncRuns(
+  ctx: QueryCtx,
+  after: string,
+  numItems: number
+): Promise<{ rows: HistoryRow[]; isDone: boolean; continueCursor: string }> {
+  // Runs from before batches all started before the first batch: every run
+  // since has its batch, and is that batch's row (startSync makes both at once).
+  const firstBatch = await ctx.db.query("importBatches").withIndex("by_startedAt").order("asc").first();
+  let bound: { startedAt: number; creationTime: number } | null = null;
+  if (after) {
+    const [startedAt, creationTime] = after.split(":").map(Number);
+    if (!Number.isFinite(startedAt) || !Number.isFinite(creationTime)) throw new Error("InvalidCursor: not a History cursor");
+    bound = { startedAt, creationTime };
+  }
+  const want = numItems + 1;
+  const found: Doc<"oneDriveSyncRuns">[] = [];
+  if (bound) {
+    const { startedAt, creationTime } = bound;
+    // Runs that started at the same time as the last one listed, then older.
+    found.push(
+      ...(await ctx.db
+        .query("oneDriveSyncRuns")
+        .withIndex("by_startedAt", (q) => q.eq("startedAt", startedAt).lt("_creationTime", creationTime))
+        .order("desc")
+        .take(want))
+    );
+  }
+  if (found.length < want) {
+    const below = bound?.startedAt ?? firstBatch?.startedAt;
+    const older =
+      below === undefined
+        ? ctx.db.query("oneDriveSyncRuns").withIndex("by_startedAt")
+        : ctx.db.query("oneDriveSyncRuns").withIndex("by_startedAt", (q) => q.lt("startedAt", below));
+    found.push(...(await older.order("desc").take(want - found.length)));
+  }
+  const page = found.slice(0, numItems);
+  const rows: HistoryRow[] = [];
+  for (const run of page) {
+    if (run.batchId) continue;
+    rows.push({
+      key: run._id,
+      startedAt: run.startedAt,
+      source: "onedrive",
+      who: await addedByName(ctx, run.triggeredBy),
+      added: run.discovered,
+      alreadyHere: null,
+      couldNotRead: null,
+      notSent: 0,
+    });
+  }
+  const last = page.at(-1);
+  return {
+    rows,
+    isDone: found.length <= numItems,
+    continueCursor: last ? `${last.startedAt}:${last._creationTime}` : after,
+  };
+}
+
+/**
+ * The History tab, a page at a time (Greptile fix, 2026-11-17: "Show 25
+ * more" reaches every row, not only the newest 500): one row per batch,
+ * newest first, then the OneDrive sync runs from before batches (the old
+ * page's sync log), which all started before the first batch. Batches are
+ * paged with paginate, so a page keeps its rows while new batches arrive;
+ * the page that lists the last batches also lists the first `numItems` old
+ * runs, so a new batch never pushes one of those out between pages. Rows are
+ * plain: a batch's files are not listed on their own (its files show on To
+ * review, where the New filter shows what arrived lately).
+ */
+export const importHistory = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(historyRowValidator),
+  handler: async (ctx, args) => {
+    if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
+    const { numItems } = boundedPage(args.paginationOpts, HISTORY_PAGE_MAX);
+    const cursor = args.paginationOpts.cursor ?? HISTORY_BATCHES;
+    if (cursor.startsWith(HISTORY_RUNS)) {
+      const runs = await legacySyncRuns(ctx, cursor.slice(HISTORY_RUNS.length), numItems);
+      return { page: runs.rows, isDone: runs.isDone, continueCursor: HISTORY_RUNS + runs.continueCursor };
+    }
+    if (!cursor.startsWith(HISTORY_BATCHES)) throw new Error("InvalidCursor: not a History cursor");
+    const batches = await ctx.db
+      .query("importBatches")
+      .withIndex("by_startedAt")
+      .order("desc")
+      .paginate({ numItems, cursor: cursor.slice(HISTORY_BATCHES.length) || null });
+    const page: HistoryRow[] = [];
+    for (const batch of batches.page) {
+      page.push({
+        key: batch._id,
+        startedAt: batch.startedAt,
+        source: batch.source,
+        who: await addedByName(ctx, batch.addedBy),
+        added: batch.added,
+        alreadyHere: batch.alreadyHere,
+        couldNotRead: batch.couldNotRead,
+        notSent: batch.failed,
+      });
+    }
+    if (!batches.isDone) return { page, isDone: false, continueCursor: HISTORY_BATCHES + batches.continueCursor };
+    const runs = await legacySyncRuns(ctx, "", numItems);
+    return { page: [...page, ...runs.rows], isDone: runs.isDone, continueCursor: HISTORY_RUNS + runs.continueCursor };
+  },
+});
+
+/**
+ * A file is New for 24 hours (2026-11-12): clears the flag on files whose
+ * time is up, through patchItem so the bands' New counts follow, a hundred
+ * a run, scheduling the next run while more are due. A cron starts it.
+ */
+export const clearExpiredNew = internalMutation({
+  args: {},
+  returns: v.object({ cleared: v.number(), more: v.boolean() }),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - NEW_FOR_MS;
+    const rows = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_isNew_and_arrivedAt", (q) => q.eq("isNew", true).lt("arrivedAt", cutoff))
+      .take(NEW_CLEAR_BATCH);
+    for (const row of rows) await patchItem(ctx, row, { isNew: undefined });
+    const more = rows.length === NEW_CLEAR_BATCH;
+    if (more) await ctx.scheduler.runAfter(0, internal.ingestion.clearExpiredNew, {});
+    return { cleared: rows.length, more };
   },
 });
 
@@ -1503,10 +2663,12 @@ export const rebuildImportCompanyCounts = internalMutation({
       const share = countShareOf(item);
       if (!share) continue;
       counts = addShare(counts, share, 1);
-      // The band shows the client name of the latest file written.
-      if (item.clientName !== undefined && item.updatedAt >= displayNameAt) {
+      // The earliest file's spelling (pages run in creation order), used only
+      // when the band has no name yet and no company has its key
+      // (bandDisplayName, 2026-11-11 phase 3b fixes).
+      if (item.clientName !== undefined && displayName === "") {
         displayName = item.clientName;
-        displayNameAt = item.updatedAt;
+        displayNameAt = item._creationTime;
       }
     }
     const scanned = page.page.length;
@@ -1549,13 +2711,16 @@ export const rebuildImportCompanyCounts = internalMutation({
       )
       .take(10);
     for (const extra of rows.slice(1)) await ctx.db.delete(extra._id);
+    // The name: the company's with this key, else the band's own, else the
+    // earliest file's spelling (bandDisplayName).
     await writeImportCompany(
       ctx,
       args.sheetTab,
       args.companyKey,
       rows[0] ?? null,
       counts,
-      displayName === "" ? undefined : displayName
+      displayName === "" ? undefined : displayName,
+      { checkCompany: true }
     );
     return { scanned, done: true, written: true };
   },
