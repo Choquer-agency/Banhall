@@ -365,6 +365,13 @@ export function companyNameVariants(
  * "Quill\u00ADmere" and "Quillmere\u2122" match "Quillmere".
  */
 const SCRUB_SKIPPED = /^[\p{Default_Ignorable_Code_Point}\u2122\u2120\u00AE]$/u;
+/** Every character the scrub reads past, for finding names in the text as a reader sees it. */
+const SCRUB_SKIPPED_ALL = /[\p{Default_Ignorable_Code_Point}\u2122\u2120\u00AE]/gu;
+
+/** The text without the characters the scrub reads past ("Anja\u200Bli" reads "Anjali"). */
+function visibleText(text: string): string {
+  return text.replace(SCRUB_SKIPPED_ALL, "");
+}
 /** A word broken at a line end ("Quill-\nmere"): the hyphen and the break are read past. */
 const SCRUB_LINE_WRAP = /^-[ \t]*\r?\n[ \t]*(?=\p{Ll})/u;
 
@@ -643,7 +650,10 @@ function plausibleCuedPerson(name: string): boolean {
  * or with a middle initial ("Raj K. Patel"). Not found: a name with none of
  * these ("Bob Marlowe wrote the firmware").
  */
-export function peopleNamedByCues(text: string): string[] {
+export function peopleNamedByCues(written: string): string[] {
+  // Names are found in the text as a reader sees it, past invisible
+  // characters ("Anja\u200Bli Verma"); the scrub then hides them as written.
+  const text = visibleText(written);
   const found = new Set<string>();
   const keep = (name: string | undefined, cued = false) => {
     const clean = name?.trim().replace(/[ \t]+/g, " ");
@@ -1107,7 +1117,7 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
   const people = [
     ...new Set([
       ...input.identity.people,
-      ...cleanDocumentWriterNames([...(item.documentWriterNames ?? []), ...writerNamesFromText(text)]),
+      ...cleanDocumentWriterNames([...(item.documentWriterNames ?? []), ...writerNamesFromText(visibleText(text))]),
       ...peopleNamedByCues(text),
     ]),
   ];
