@@ -141,7 +141,6 @@ import {
   buildImportBrainCopy,
   domainStem,
   findIdentityLeak,
-  IMPORT_BRAIN_DEFAULT_WRITER_TIER,
   IMPORT_BRAIN_NOT_COVERED,
   IMPORT_BRAIN_REFUSALS,
   type ImportBrainCopyResult,
@@ -151,6 +150,7 @@ import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboard
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
+import { brainCheckWriterRank, writerWeight } from "../shared/writerWeight";
 import {
   APPROVAL_STALE_MS,
   approvedEditApplies,
@@ -314,8 +314,43 @@ async function settleInitialsWriter(
 }
 
 /** Insert an ingestion item: the one place rows are created. */
+/**
+ * The first of the last three fiscal years by the server's clock (this
+ * year in UTC, minus 2): a PD of that year or later is "recent" in the
+ * Brain check (owner, 2026-11-18).
+ */
+export function brainCheckRecentFromYear(now: number = Date.now()): number {
+  return new Date(now).getUTCFullYear() - 2;
+}
+
+/**
+ * A settled row with its Brain check order (2026-11-18 (second)): while it
+ * waits for its Brain check, its year rank (minus the fiscal year; 0 for no
+ * fiscal year, so it comes last within its writer) and, only when it is not
+ * of the last three fiscal years, its writer rank (minus the writer's
+ * weight times 1000, read from the writer row it has now). A recent PD has
+ * no writer rank: that is what puts it in the Brain check's first part
+ * (review 48, P3-3, P3-4). Otherwise neither. One write path, like the
+ * counts, so every way a file starts or stops waiting, or changes writer,
+ * year or weight while it waits, keeps its place right; the New Year cron
+ * (rerankBrainCheck) moves PDs whose year stopped being recent.
+ */
+async function withBrainCheckOrder(ctx: MutationCtx, fields: IngestionItemFields): Promise<IngestionItemFields> {
+  if (fields.brainCheck !== "waiting") {
+    return { ...fields, brainCheckYearRank: undefined, brainCheckWriterRank: undefined };
+  }
+  const year = fields.fiscalYear;
+  const recent = year !== undefined && year >= brainCheckRecentFromYear();
+  const writer = !recent && fields.writerId ? await ctx.db.get(fields.writerId) : null;
+  return {
+    ...fields,
+    brainCheckYearRank: year !== undefined ? -year : 0,
+    brainCheckWriterRank: recent ? undefined : brainCheckWriterRank(writer?.tier),
+  };
+}
+
 async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promise<Id<"ingestionItems">> {
-  const row = definedFields(await settleWithWriter(ctx, fields));
+  const row = definedFields(await withBrainCheckOrder(ctx, await settleWithWriter(ctx, fields)));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
   await adjustImportFinalPdCounts(ctx, null, row);
@@ -336,7 +371,10 @@ async function patchItem(
   options: { touch?: boolean } = {}
 ): Promise<{ after: Doc<"ingestionItems">; changed: boolean }> {
   const { _id, _creationTime, ...fields } = before;
-  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null);
+  let settled = await withBrainCheckOrder(
+    ctx,
+    await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null)
+  );
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
   if (changed && options.touch) {
@@ -1970,16 +2008,52 @@ const brainCheckRowValidator = v.object({
   scienceCode: v.optional(v.string()),
 });
 
-/** The approved final PDs waiting for a Brain check, company by company, then by year. */
+/** The lowest writer rank (a weight of 1); every older PD's rank is from this to 0. */
+const BRAIN_CHECK_TOP_WRITER_RANK = -1000;
+
+/**
+ * The approved final PDs waiting for a Brain check. Since 2026-11-18
+ * (second, owner) in two parts, each one indexed range of the same index,
+ * so neither reads the other's rows (review 48, P3-3): "recent", the PDs of
+ * the last three fiscal years (no writer rank, see withBrainCheckOrder),
+ * newest year first, then company; then "rest", the other PDs, highest
+ * writer weight first, then newest year, then company, with a PD of no
+ * fiscal year last within its writer. Every page reads at most 25 rows and
+ * returns every row it reads. Which part a PD is in is stored when it is
+ * written, by the server's year; the New Year cron writes them again.
+ * `recentFromYear` is still accepted from older pages and not needed. With
+ * no `part`, company by company, then by year, as before.
+ */
 export const brainCheckFiles = query({
-  args: { paginationOpts: paginationOptsValidator },
+  args: {
+    paginationOpts: paginationOptsValidator,
+    part: v.optional(v.union(v.literal("recent"), v.literal("rest"))),
+    recentFromYear: v.optional(v.number()),
+  },
   returns: paginationResultValidator(brainCheckRowValidator),
   handler: async (ctx, args) => {
     if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
-    const result = await ctx.db
-      .query("ingestionItems")
-      .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
-      .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    let result: { page: Doc<"ingestionItems">[]; isDone: boolean; continueCursor: string };
+    if (args.part === "recent") {
+      result = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", (q) =>
+          q.eq("brainCheck", "waiting").eq("brainCheckWriterRank", undefined)
+        )
+        .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    } else if (args.part === "rest") {
+      result = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", (q) =>
+          q.eq("brainCheck", "waiting").gte("brainCheckWriterRank", BRAIN_CHECK_TOP_WRITER_RANK)
+        )
+        .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    } else {
+      result = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
+        .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    }
     const labelled = await withWriterLabels(ctx, result.page.map(sheetRow));
     return {
       ...result,
@@ -1999,6 +2073,34 @@ export const brainCheckFiles = query({
         })
       ),
     };
+  },
+});
+
+/** Waiting PDs one run of rerankBrainCheck writes again. */
+const BRAIN_CHECK_RERANK_PAGE = 100;
+
+/**
+ * Writes every PD waiting for a Brain check again through patchItem, so it
+ * has its place in the Brain check order (2026-11-18 (second)). Internal,
+ * paged, safe to run again. The New Year cron runs it, so the PDs of the
+ * year that stopped being one of the last three move to the second part;
+ * run it by hand when PDs were already waiting before this change was
+ * deployed (a deploy of the whole Import stack at once has none).
+ */
+export const rerankBrainCheck = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ moved: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
+      .paginate({ cursor: args.cursor ?? null, numItems: BRAIN_CHECK_RERANK_PAGE });
+    let moved = 0;
+    for (const item of page.page) {
+      if ((await patchItem(ctx, item, {})).changed) moved += 1;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.ingestion.rerankBrainCheck, { cursor: page.continueCursor });
+    return { moved, done: page.isDone };
   },
 });
 
@@ -2179,6 +2281,67 @@ export const keepOutOfBrain = mutation({
   },
 });
 
+// ─── Kept out undo (2026-11-18 (second), docs/product-domain.md) ───────────
+
+/** Files one "Put back in Brain check" call takes. */
+export const REOPEN_BRAIN_CHECK_MAX_FILES = 100;
+
+// missing: no longer in Import; not_approved: not on Approved (sent back,
+// say); not_final_pd: only a final PD has a Brain check; not_kept_out: it
+// is waiting, or was added to the Brain (Send back undoes an add).
+const reopenRefusalValidator = v.union(
+  v.literal("missing"),
+  v.literal("not_approved"),
+  v.literal("not_final_pd"),
+  v.literal("not_kept_out")
+);
+
+/**
+ * "Put back in Brain check" (Admins only, owner 2026-11-18): undoes "Keep
+ * out of the Brain". Each approved final PD that was kept out waits for its
+ * Brain check again (`brainCheck` "waiting", who and when cleared), through
+ * patchItem, so the Brain check count and the company bands follow, and
+ * takes its place in the Brain check order. Nothing is added to the Brain:
+ * a person still reads the copy first. One `reopen_brain_check` row in
+ * importFileEvents per file. Any other file is refused by name and left as
+ * it is.
+ */
+export const reopenBrainCheck = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: v.object({
+    reopened: v.array(v.id("ingestionItems")),
+    refused: v.array(v.object({ id: v.id("ingestionItems"), reason: reopenRefusalValidator })),
+  }),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    if (args.ids.length === 0) domainError("INVALID_INPUT", "Select at least one file.");
+    if (args.ids.length > REOPEN_BRAIN_CHECK_MAX_FILES) {
+      domainError("INVALID_INPUT", `Put back up to ${REOPEN_BRAIN_CHECK_MAX_FILES} files at a time.`);
+    }
+    const reopened: Id<"ingestionItems">[] = [];
+    const refused: Array<{ id: Id<"ingestionItems">; reason: Infer<typeof reopenRefusalValidator> }> = [];
+    for (const id of new Set(args.ids)) {
+      const item = await ctx.db.get(id);
+      if (!item) refused.push({ id, reason: "missing" });
+      else if (item.status !== "approved") refused.push({ id, reason: "not_approved" });
+      else if (item.category !== "final_pd") refused.push({ id, reason: "not_final_pd" });
+      else if (item.brainCheck !== "kept_out") refused.push({ id, reason: "not_kept_out" });
+      else {
+        const now = Date.now();
+        await patchItem(ctx, item, {
+          brainCheck: "waiting",
+          brainCheckedBy: undefined,
+          brainCheckedAt: undefined,
+          updatedAt: now,
+        });
+        await ctx.db.insert("importFileEvents", { itemId: id, action: "reopen_brain_check", userId: adminId, at: now });
+        reopened.push(id);
+      }
+    }
+    return { reopened, refused };
+  },
+});
+
 // ─── Send back to review, and edit after approval (2026-11-17) ──────────────
 // Owner decisions of 2026-11-17 (docs/product-domain.md, the fifth entry of
 // that day). Send back to review, Admin only, undoes an approval (a file
@@ -2340,7 +2503,17 @@ async function stopStalledApprovalsHolding(ctx: MutationCtx, item: Doc<"ingestio
 async function sendBackOne(
   ctx: MutationCtx,
   item: Doc<"ingestionItems">,
-  adminId: Id<"users">
+  adminId: Id<"users">,
+  options: {
+    // The Brain audit log's reason for a revoke (2026-11-18 (second): the
+    // old page job names itself).
+    brainReason?: string;
+    // What becomes of the file's Brain copy (2026-11-18 (second), the old
+    // page job): "auto" revokes it unless another approved file still
+    // links it (Send back's rule); "revoke" revokes it; "unlink" never
+    // revokes it, only this file lets go.
+    brainPolicy?: "auto" | "revoke" | "unlink";
+  } = {}
 ): Promise<{
   companyFile: "removed" | "gone";
   brain: "revoked" | "shared" | "already_removed" | "none";
@@ -2349,8 +2522,10 @@ async function sendBackOne(
   readBytes: number;
 }> {
   await stopStalledApprovalsHolding(ctx, item);
+  const brainPolicy = options.brainPolicy ?? "auto";
   const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
-  const other = source && source.status !== "revoked" ? await otherApprovedLink(ctx, source._id, item._id) : null;
+  const other =
+    source && source.status !== "revoked" && brainPolicy !== "revoke" ? await otherApprovedLink(ctx, source._id, item._id) : null;
 
   const companyFileId =
     item.companyFileId ??
@@ -2368,13 +2543,13 @@ async function sendBackOne(
     // file's Send back): nothing more to unlearn, and nothing stays.
     brain = "already_removed";
   } else if (source) {
-    if (other) {
-      // Only this file lets go: the copy stays for the other file, which
-      // retrieval now reads its company from.
+    if (brainPolicy === "unlink" || (brainPolicy === "auto" && other)) {
+      // Only this file lets go: the copy stays (for the other file, which
+      // retrieval now reads its company from, or for the route that made it).
       brain = "shared";
-      if (source.importItemId === item._id) await patchBrainSource(ctx, source, { importItemId: other._id });
+      if (other && source.importItemId === item._id) await patchBrainSource(ctx, source, { importItemId: other._id });
     } else {
-      await revokeBrainSourceRow(ctx, source, adminId, SEND_BACK_BRAIN_REASON, { sentBackItemId: item._id });
+      await revokeBrainSourceRow(ctx, source, adminId, options.brainReason ?? SEND_BACK_BRAIN_REASON, { sentBackItemId: item._id });
       brain = "revoked";
     }
   }
@@ -2470,6 +2645,327 @@ export const sendBackToReview = mutation({
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
     return result;
+  },
+});
+
+// ─── Files approved on the old page (2026-11-18 (second), owner) ────────────
+// Before Approve on Import (2026-11-17, fourth), the old /admin/ingestion
+// page approved files straight into the Brain and put none on a company
+// page. The owner decided (2026-11-18, answer 5) that every such file is
+// sent back to review and approved again through the Brain check before
+// bulk Brain checks start; transcripts and supporting files lose their
+// Brain copy for good, since only final PDs get one now (answer 4).
+//
+// An old-page approval is exactly an approved Import file with no
+// companyFileId and no brainCheck: the old finalizeApproval wrote neither,
+// the new path always writes companyFileId (and brainCheck on a final PD),
+// and nothing but Send back clears companyFileId (deleting a company file
+// by hand leaves the Import row alone).
+//
+// Which copy is revoked (root decision after review 48, P2-2): only a copy
+// the old page's own approval of this file made. The old approval
+// (finalizeApproval on origin/main) called importSource in the same
+// mutation that wrote reviewedBy and reviewedAt: a new copy is a "pd_pair"
+// made by that Admin at that moment, with no importItemId (the field did
+// not exist); a matched copy (dedup by text) was returned as it was, made
+// earlier by another route (a report nomination, writer feedback, a curated
+// import) or by another file's approval, and kept its own status. Every
+// other copy is only unlinked from the file, never revoked; one whose origin
+// cannot be told is unlinked and counted as unknown origin.
+
+/** Approved Import files one step of the old page job reads (each row holds a text preview of up to 8,000 characters). */
+const OLD_APPROVALS_PAGE = 50;
+
+/**
+ * How far apart a copy's createdAt and the file's reviewedAt may be for the
+ * copy to count as made by that approval. The old approval wrote both in one
+ * mutation, so they are the same time or a few milliseconds apart; a copy
+ * made by another route a second earlier is still told apart.
+ */
+export const OLD_PAGE_SAME_APPROVAL_MS = 1000;
+
+/** Approved files read to see whether a copy made by an old-page approval is shared with an Import file approved on the new path. */
+const OLD_COPY_LINKS_READ = 20;
+
+/** The Brain audit log's reason for a copy the old page job revokes. */
+export const OLD_APPROVAL_BRAIN_REASON = "Approved on the old Import page without a scrub; sent back to review";
+
+/** Why a copy is what the job takes it to be, for the owner's report. */
+export type OldCopyDetail =
+  // Made by this file's own old-page approval: revoked.
+  | "made_by_this_approval"
+  // Made by this file's approval, but an Import file approved on the new path shares it: only unlinked.
+  | "shared_with_import_file"
+  // Names another Import file as its own: only unlinked.
+  | "names_another_file"
+  // Not a PD copy (writer feedback, a CRA letter): another route, only unlinked.
+  | "not_an_import_copy"
+  // Made before this file's approval (another route, or another file's approval): only unlinked.
+  | "made_before_this_approval"
+  // The file has no approval time, or the copy's creator or time does not match it: unknown origin, only unlinked.
+  | "no_approval_time"
+  | "creator_or_time_differs"
+  // Nothing to change in the Brain.
+  | "no_copy"
+  | "already_removed"
+  // Held by an approval still moving: not sent back.
+  | "approval_running";
+
+/**
+ * Where an old-page file's Brain copy came from (pure; see above): "own"
+ * when this file's old-page approval made it, "other_route" when the data
+ * shows it came from elsewhere, "unknown" when it cannot be told.
+ */
+export function oldPageCopyOrigin(
+  item: Pick<Doc<"ingestionItems">, "_id" | "reviewedAt" | "reviewedBy">,
+  source: Pick<Doc<"brainSources">, "kind" | "createdAt" | "createdBy" | "importItemId">
+): { origin: "own" | "other_route" | "unknown"; detail: OldCopyDetail } {
+  if (source.importItemId !== undefined && source.importItemId !== item._id) {
+    return { origin: "other_route", detail: "names_another_file" };
+  }
+  if (source.kind !== "pd_pair") return { origin: "other_route", detail: "not_an_import_copy" };
+  if (item.reviewedAt === undefined) return { origin: "unknown", detail: "no_approval_time" };
+  if (source.createdAt < item.reviewedAt - OLD_PAGE_SAME_APPROVAL_MS) {
+    return { origin: "other_route", detail: "made_before_this_approval" };
+  }
+  if (
+    source.createdAt <= item.reviewedAt + OLD_PAGE_SAME_APPROVAL_MS &&
+    item.reviewedBy !== undefined &&
+    source.createdBy === item.reviewedBy
+  ) {
+    return { origin: "own", detail: "made_by_this_approval" };
+  }
+  return { origin: "unknown", detail: "creator_or_time_differs" };
+}
+
+const oldApprovalOutcomeValidator = v.union(
+  v.literal("revoke"),
+  v.literal("unlink_only"),
+  v.literal("unknown_origin"),
+  v.literal("held"),
+  v.literal("skipped")
+);
+type OldApprovalOutcome = Infer<typeof oldApprovalOutcomeValidator>;
+
+const oldApprovalTotalsValidator = v.object({
+  // Old-page approvals found, each counted once (held ones included).
+  found: v.number(),
+  // Sent back to To review (0 in a dry run).
+  sentBack: v.number(),
+  // By outcome (a dry run counts what a real run would do):
+  // its copy revoked with a confirmed erasure (made by this file's approval);
+  revoke: v.number(),
+  // its copy only unlinked (another route made it, or an Import file approved on the new path shares it);
+  unlinkOnly: v.number(),
+  // its copy only unlinked because where it came from cannot be told;
+  unknownOrigin: v.number(),
+  // held by an approval still moving, so not sent back (run again later);
+  held: v.number(),
+  // sent back with no copy to change (none, or already removed from the Brain).
+  skipped: v.number(),
+});
+type OldApprovalTotals = Infer<typeof oldApprovalTotalsValidator>;
+
+const NO_OLD_APPROVALS: OldApprovalTotals = {
+  found: 0,
+  sentBack: 0,
+  revoke: 0,
+  unlinkOnly: 0,
+  unknownOrigin: 0,
+  held: 0,
+  skipped: 0,
+};
+
+function addOldApprovalTotals(a: OldApprovalTotals, b: OldApprovalTotals): OldApprovalTotals {
+  const out = { ...a };
+  for (const key of Object.keys(out) as Array<keyof OldApprovalTotals>) out[key] = a[key] + b[key];
+  return out;
+}
+
+const OUTCOME_TOTAL: Record<OldApprovalOutcome, keyof OldApprovalTotals> = {
+  revoke: "revoke",
+  unlink_only: "unlinkOnly",
+  unknown_origin: "unknownOrigin",
+  held: "held",
+  skipped: "skipped",
+};
+
+// One file's line in a step's report (at most OLD_APPROVALS_PAGE a step).
+const oldApprovalCopyValidator = v.object({
+  itemId: v.id("ingestionItems"),
+  outcome: oldApprovalOutcomeValidator,
+  detail: v.string(),
+  sourceId: v.optional(v.id("brainSources")),
+  kind: v.optional(v.string()),
+  docType: v.optional(v.string()),
+  // When the copy was made, and when the old page approved the file.
+  createdAt: v.optional(v.number()),
+  approvedAt: v.optional(v.number()),
+});
+type OldApprovalCopy = Infer<typeof oldApprovalCopyValidator>;
+
+/** Whether this approved Import file was approved on the old page (see above). */
+export function approvedOnOldPage(item: Pick<Doc<"ingestionItems">, "status" | "companyFileId" | "brainCheck">): boolean {
+  return item.status === "approved" && item.companyFileId === undefined && item.brainCheck === undefined;
+}
+
+/**
+ * Whether an Import file approved on the new path (or more files than are
+ * read) links this copy besides `itemId`: then a copy this file's approval
+ * made is only unlinked. Other old-page files that share it do not keep it:
+ * they are sent back by this job too, and find it already removed.
+ */
+async function sharedWithImportFile(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">,
+  itemId: Id<"ingestionItems">
+): Promise<{ shared: boolean; readBytes: number }> {
+  const rows = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_brainSourceId_and_status", (q) => q.eq("brainSourceId", sourceId).eq("status", "approved"))
+    .take(OLD_COPY_LINKS_READ + 1);
+  const others = rows.filter((row) => row._id !== itemId);
+  return {
+    shared: others.length >= OLD_COPY_LINKS_READ || others.some((row) => !approvedOnOldPage(row)),
+    readBytes: rows.reduce((sum, row) => sum + storedSize(row), 0),
+  };
+}
+
+/**
+ * What the job does with one old-page file (a real run and a dry run alike):
+ * reads its copy and decides by oldPageCopyOrigin and sharedWithImportFile.
+ */
+async function planOldApproval(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems">
+): Promise<{ line: OldApprovalCopy; policy: "revoke" | "unlink"; readBytes: number }> {
+  const base = { itemId: item._id, ...(item.reviewedAt !== undefined ? { approvedAt: item.reviewedAt } : {}) };
+  const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
+  let readBytes = storedSize(source);
+  if (!source) {
+    return { line: { ...base, outcome: "skipped", detail: "no_copy" }, policy: "unlink", readBytes };
+  }
+  const about = { ...base, sourceId: source._id, kind: source.kind, docType: source.docType, createdAt: source.createdAt };
+  if (source.status === "revoked") {
+    return { line: { ...about, outcome: "skipped", detail: "already_removed" }, policy: "unlink", readBytes };
+  }
+  const { origin, detail } = oldPageCopyOrigin(item, source);
+  if (origin === "unknown") return { line: { ...about, outcome: "unknown_origin", detail }, policy: "unlink", readBytes };
+  if (origin === "other_route") return { line: { ...about, outcome: "unlink_only", detail }, policy: "unlink", readBytes };
+  const links = await sharedWithImportFile(ctx, source._id, item._id);
+  readBytes += links.readBytes;
+  if (links.shared) {
+    return { line: { ...about, outcome: "unlink_only", detail: "shared_with_import_file" }, policy: "unlink", readBytes };
+  }
+  return { line: { ...about, outcome: "revoke", detail }, policy: "revoke", readBytes };
+}
+
+/**
+ * Sends back to review every file approved on the old /admin/ingestion page
+ * (internal, owner-run once after the label and writer backfills; the
+ * 2026-11-18 (second) deploy order). Each goes back to To review with its
+ * labels and a send_back event, through Send back's own sendBackOne. Its
+ * Brain copy is revoked as an audited unlearn with a confirmed erasure
+ * (reason OLD_APPROVAL_BRAIN_REASON) only when this file's own old-page
+ * approval made it and no Import file approved on the new path shares it;
+ * every other copy is only unlinked from the file (see above). A later
+ * Brain check of a final PD makes a new, scrubbed copy.
+ *
+ * `actorUserId` names the Admin in the events and the Brain audit log; it is
+ * never an authorization input (the function is internal), and the job
+ * checks at every step that it is still an Admin, stopping and writing
+ * nothing more once it is not. `dryRun: true` writes nothing and reports
+ * what a real run would do. Each step reports, per file, its outcome, why,
+ * and its copy's kind, doc type, creation time and the file's approval time
+ * (at most 50 lines a step, logged), and the counts by outcome; the last step
+ * logs the totals. Pages `by_status` "approved", 50 rows a step; a step stops
+ * at SEND_BACK_READ_BUDGET and runs again from the same page, passing over
+ * the files it already counted there (`passedOnPage`), so no file is counted
+ * twice. A file held by an approval still moving is not sent back; run the
+ * job again later. Safe to run again.
+ */
+export const sendBackOldApprovals = internalMutation({
+  args: {
+    actorUserId: v.id("users"),
+    dryRun: v.boolean(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    totals: v.optional(oldApprovalTotalsValidator),
+    // Files of this page already counted by an earlier step that stopped at the read budget.
+    passedOnPage: v.optional(v.array(v.id("ingestionItems"))),
+  },
+  returns: v.object({
+    step: oldApprovalTotalsValidator,
+    totals: oldApprovalTotalsValidator,
+    copies: v.array(oldApprovalCopyValidator),
+    stopped: v.optional(v.literal("actor_not_admin")),
+    done: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const before = args.totals ?? NO_OLD_APPROVALS;
+    const actor = await ctx.db.get(args.actorUserId);
+    if (!isLoginMember(actor) || actor.role !== "admin") {
+      console.warn("[sendBackOldApprovals] stopped: the actor is not an Admin, so nothing more was sent back", { totals: before });
+      return { step: NO_OLD_APPROVALS, totals: before, copies: [], stopped: "actor_not_admin" as const, done: true };
+    }
+    const cursor = args.cursor ?? null;
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_status", (q) => q.eq("status", "approved"))
+      .paginate({ cursor, numItems: OLD_APPROVALS_PAGE });
+    const passed = new Set(args.passedOnPage ?? []);
+    const step = { ...NO_OLD_APPROVALS };
+    const copies: OldApprovalCopy[] = [];
+    const groups = new Set<string>();
+    let spent = 0;
+    let handled = 0;
+    let finishedPage = true;
+    for (const item of page.page) {
+      if (passed.has(item._id)) continue;
+      spent += storedSize(item);
+      if (!approvedOnOldPage(item)) continue;
+      if (handled > 0 && spent >= SEND_BACK_READ_BUDGET) {
+        finishedPage = false;
+        break;
+      }
+      handled += 1;
+      step.found += 1;
+      if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, item._id))) {
+        step.held += 1;
+        copies.push({ itemId: item._id, outcome: "held", detail: "approval_running" });
+        // It stays on this page: never counted again if the page is read again.
+        passed.add(item._id);
+        continue;
+      }
+      const plan = await planOldApproval(ctx, item);
+      spent += plan.readBytes;
+      step[OUTCOME_TOTAL[plan.line.outcome]] += 1;
+      copies.push(plan.line);
+      if (args.dryRun) {
+        passed.add(item._id);
+        continue;
+      }
+      const done = await sendBackOne(ctx, item, actor._id, { brainReason: OLD_APPROVAL_BRAIN_REASON, brainPolicy: plan.policy });
+      spent += done.readBytes;
+      step.sentBack += 1;
+      for (const key of done.groups) groups.add(key);
+    }
+    if (!args.dryRun) await recomputeGroups(ctx, groups, MANY_ROWS);
+    const totals = addOldApprovalTotals(before, step);
+    const done = finishedPage && page.isDone;
+    console.log(`[sendBackOldApprovals] ${args.dryRun ? "dry run " : ""}step`, { step, copies });
+    if (done) {
+      console.log(`[sendBackOldApprovals] ${args.dryRun ? "dry run " : ""}done`, { totals });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ingestion.sendBackOldApprovals, {
+        actorUserId: actor._id,
+        dryRun: args.dryRun,
+        cursor: finishedPage ? page.continueCursor : cursor,
+        totals,
+        // Sent back files leave the page; the ones counted that stay are passed over next time.
+        passedOnPage: finishedPage ? [] : [...passed],
+      });
+    }
+    return { step, totals, copies, done };
   },
 });
 
@@ -2766,7 +3262,6 @@ export const editApprovedFile = mutation({
     let brain: "relabeled" | "reembedded" | "none" = "none";
     const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
     if (source && source.status !== "revoked" && (changed.has("writer") || changed.has("scienceCode"))) {
-      const tier = newWriter?.tier;
       const result = await relabelImportedSource(
         ctx,
         source,
@@ -2775,8 +3270,7 @@ export const editApprovedFile = mutation({
             ? {
                 // As the Brain copy is made (convex/lib/importBrainCopy.ts): the writer's own name, else its label.
                 writerName: newWriter.name?.trim() || patch.writerName || null,
-                writerTier:
-                  typeof tier === "number" && Number.isFinite(tier) ? Math.max(0, Math.min(1, tier)) : IMPORT_BRAIN_DEFAULT_WRITER_TIER,
+                writerTier: writerWeight(newWriter.tier),
               }
             : {}),
           ...(changed.has("scienceCode") ? { scienceCode: scienceCodeNow ?? null } : {}),
@@ -2802,7 +3296,8 @@ export const editApprovedFile = mutation({
 
 const importFileEventValidator = v.object({
   _id: v.id("importFileEvents"),
-  action: v.union(v.literal("edit"), v.literal("send_back")),
+  // 2026-11-18 (second): "reopen_brain_check", a kept out PD put back in Brain check.
+  action: v.union(v.literal("edit"), v.literal("send_back"), v.literal("reopen_brain_check")),
   at: v.number(),
   by: v.string(),
   changes: v.array(
@@ -2858,6 +3353,102 @@ export const importFileEvents = query({
       );
     }
     return out;
+  },
+});
+
+// ─── Writer weights (2026-11-18 (second), docs/product-domain.md) ───────────
+// An Admin sets a person's writer weight on Team (users.setWriterWeight).
+// Each writer row whose weight changed has its approved files' Brain copies
+// re-tiered here, in scheduled steps: the copy's card and source take the
+// new weight with one `relabel` audit row ("Writer weight changed on
+// Team"), and nothing is embedded again (retrieval reads the weight from
+// the card). A source whose vectors still carry its old weight as
+// importance is embedded once, as relabelImportedSource always does.
+
+/** Approved files of one writer read per step (each row holds a text preview of up to 8,000 characters). */
+const RETIER_PAGE = 50;
+
+/** The Brain audit log's reason for a re-tier made by a weight change on Team. */
+export const RETIER_BRAIN_REASON = "Writer weight changed on Team";
+
+/**
+ * Re-tiers one writer's imported Brain copies to the writer's weight as it
+ * is now (internal; users.setWriterWeight and Link schedule it). Pages the
+ * writer's approved files through `by_writerId_and_sheetTab`. For a file
+ * with a Brain copy it reads the copy's small card first and passes it over
+ * when the card is gone or revoked, already at the weight, or the copy
+ * does not name this file as its own (a copy two files share follows the
+ * file it names; a copy naming no file, from the old page or another
+ * route, is never re-tiered); only then does it read the source, which holds the whole text.
+ * A step stops once it has read SEND_BACK_READ_BUDGET and runs again from
+ * the same page, where the copies it finished are now passed over by their
+ * cards, so every step moves on. A file still waiting in Brain check is
+ * written again through patchItem, so it takes its new place in the Brain
+ * check order (it has no Brain copy yet). Reads the weight afresh each step, so two weight changes in a row end at
+ * the last one; safe to run again.
+ */
+export const retierWriterBrainCopies = internalMutation({
+  args: {
+    writerId: v.id("pdWriters"),
+    cursor: v.union(v.string(), v.null()),
+    // The Admin who changed the weight, named in the Brain audit log.
+    actorId: v.optional(v.id("users")),
+  },
+  returns: v.object({ retiered: v.number(), passedOver: v.number(), waitingMoved: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const writer = await ctx.db.get(args.writerId);
+    if (!writer) return { retiered: 0, passedOver: 0, waitingMoved: 0, done: true };
+    const weight = writerWeight(writer.tier);
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_writerId_and_sheetTab", (q) => q.eq("writerId", writer._id).eq("sheetTab", "approved"))
+      .paginate({ cursor: args.cursor, numItems: RETIER_PAGE });
+    let retiered = 0;
+    let passedOver = 0;
+    let waitingMoved = 0;
+    let spent = 0;
+    let finishedPage = true;
+    for (const item of page.page) {
+      spent += storedSize(item);
+      if (item.status !== "approved") continue;
+      if (item.brainCheck === "waiting" && (await patchItem(ctx, item, {})).changed) waitingMoved += 1;
+      if (!item.brainSourceId) continue;
+      const card = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_sourceId", (q) => q.eq("sourceId", item.brainSourceId!))
+        .first();
+      spent += storedSize(card);
+      // Only a copy that names this file as its own: a Brain check made it
+      // for this file. A copy naming another file follows that file; one
+      // naming no file (made on the old page, or by another route and only
+      // matched) is never a writer's to re-tier (owner answer 2).
+      if (!card || card.status === "revoked" || card.writerTier === weight || card.importItemId !== item._id) {
+        passedOver += 1;
+        continue;
+      }
+      if (retiered > 0 && spent >= SEND_BACK_READ_BUDGET) {
+        finishedPage = false;
+        break;
+      }
+      const source = await ctx.db.get(item.brainSourceId);
+      spent += storedSize(source);
+      if (!source || source.status === "revoked" || source.importItemId !== item._id) {
+        passedOver += 1;
+        continue;
+      }
+      const result = await relabelImportedSource(ctx, source, { writerTier: weight }, args.actorId ?? "system", RETIER_BRAIN_REASON);
+      if (result.changed) retiered += 1;
+      else passedOver += 1;
+    }
+    const done = finishedPage && page.isDone;
+    if (!done) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.retierWriterBrainCopies, {
+        writerId: writer._id,
+        cursor: finishedPage ? page.continueCursor : args.cursor,
+        ...(args.actorId ? { actorId: args.actorId } : {}),
+      });
+    }
+    return { retiered, passedOver, waitingMoved, done };
   },
 });
 

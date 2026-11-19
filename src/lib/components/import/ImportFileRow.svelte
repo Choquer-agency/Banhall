@@ -95,8 +95,8 @@
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
   import { resolve } from "$app/paths";
   import { companiesPath } from "$lib/companies/companies";
-  import { deleteFiles, editApproved, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles, sendBackFiles, type ApprovedEditPatch } from "./importActions";
-  import type { ApprovedEditField } from "./importApproved";
+  import { deleteFiles, editApproved, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles, reopenBrainCheckFile, sendBackFiles, type ApprovedEditPatch } from "./importActions";
+  import { canReopenBrainCheck, type ApprovedEditField } from "./importApproved";
   import ImportApprovedRowMenu from "./ImportApprovedRowMenu.svelte";
   import { BRAIN_STATE_TEXT, NOT_ON_COMPANY_PAGE } from "./importApprove";
   import { useFileView } from "./importFileView";
@@ -206,7 +206,19 @@
   const setCraReviewed = useMutation(api.ingestion.setCraReviewed);
   const editApprovedFile = useMutation(api.ingestion.editApprovedFile);
   const sendBackToReview = useMutation(api.ingestion.sendBackToReview);
+  const reopenBrainCheck = useMutation(api.ingestion.reopenBrainCheck);
   let editing = $state(false);
+
+  /** "Put back in Brain check" on a final PD kept out of the Brain (2026-11-18). */
+  async function reopen() {
+    if (editing) return;
+    editing = true;
+    try {
+      await reopenBrainCheckFile(row._id, reopenBrainCheck);
+    } finally {
+      editing = false;
+    }
+  }
 
   /** One edit to this approved file (2026-11-17): it sets this file alone. */
   async function editThis(field: ApprovedEditField, patch: ApprovedEditPatch): Promise<boolean> {
@@ -869,6 +881,7 @@
             busy={editing}
             onOpen={fileView ? () => fileView.open(row._id) : undefined}
             onCra={(value) => void editThis("craReviewed", { craReviewed: value })}
+            onReopenBrainCheck={canReopenBrainCheck(row) ? () => void reopen() : null}
             onSendBack={() => void leaveWith(sendBack)}
           />
         </span>

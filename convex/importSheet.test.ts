@@ -3572,7 +3572,7 @@ describe("files checked again when the facts change", () => {
     const so = (await writerOf(t, open))!;
     const sam = await addMember(t, "Sam", "Okafor", { initials: "SK" });
     const past = await admin.query(api.users.listPastWriters, {});
-    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, canDelete: false, invitePending: false, sameInitialsAs: null }]);
+    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, canDelete: false, invitePending: false, weight: null, sameInitialsAs: null }]);
 
     await expect(admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam })).resolves.toEqual({ label: "Sam Okafor" });
     for (const id of [open, approved]) expect(await shownWriter(admin, id)).toEqual({ name: "Sam Okafor", hasLogin: true });

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { hasCapability } from "./lib/roleCapabilities";
-import { linkedWriterOf, userDisplayLabel, writerLabelFor } from "./lib/teamRoster";
+import { memberWriterWeight, userDisplayLabel, writerLabelFor, writersOfUser } from "./lib/teamRoster";
 
 /**
  * Round 2 Team page (C1, C2; decisions 47 and 54). Members are read by
@@ -47,6 +47,9 @@ export const listMembers = query({
         }),
         v.null(),
       ),
+      // 2026-11-18 (second): the person's writer weight an Admin set on
+      // Team (0 to 1), or null when they use the default.
+      weight: v.union(v.number(), v.null()),
     }),
   ),
   handler: async (ctx) => {
@@ -68,7 +71,8 @@ export const listMembers = query({
           .query("userActivity")
           .withIndex("by_userId", (q) => q.eq("userId", user._id))
           .unique();
-        const linked = await linkedWriterOf(ctx, user._id);
+        const writers = await writersOfUser(ctx, user._id);
+        const linked = writers.find((row) => row.linkedAt !== undefined) ?? null;
         return {
           _id: user._id,
           name: userDisplayLabel(user),
@@ -90,6 +94,7 @@ export const listMembers = query({
                 fileCount: linked.fileCount,
               }
             : null,
+          weight: memberWriterWeight(writers),
         };
       }),
     );

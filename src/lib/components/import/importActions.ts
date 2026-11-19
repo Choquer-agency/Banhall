@@ -38,10 +38,13 @@ import {
   BRAIN_COPY_UPDATED,
   editedText,
   emptySendBack,
+  REOPEN_REFUSALS,
+  REOPENED_BRAIN_CHECK,
   SEND_BACK_BATCH,
   sentBackDetails,
   sentBackText,
   type ApprovedEditField,
+  type ReopenBrainCheckResult,
   type SendBackResult,
 } from "./importApproved";
 
@@ -263,6 +266,29 @@ export async function sendBackFiles(
     toast(sentBackText(result.sentBack.length), { ...IMPORT_TOAST, description });
   }
   return { result, error };
+}
+
+export type ReopenBrainCheckCall = (args: { ids: FileId[] }) => Promise<ReopenBrainCheckResult>;
+
+/**
+ * "Put back in Brain check" for one kept out final PD (2026-11-18): it waits
+ * for its Brain check again. Says so, or why not, in a toast. True when it
+ * was put back.
+ */
+export async function reopenBrainCheckFile(id: FileId, call: ReopenBrainCheckCall): Promise<boolean> {
+  try {
+    const result = await call({ ids: [id] });
+    if (result.reopened.includes(id)) {
+      toast(REOPENED_BRAIN_CHECK, IMPORT_TOAST);
+      return true;
+    }
+    const refused = result.refused.find((entry) => entry.id === id);
+    toast.error(refused ? REOPEN_REFUSALS[refused.reason] : TRY_AGAIN, IMPORT_TOAST);
+    return false;
+  } catch (error) {
+    toast.error(userErrorMessage(error, TRY_AGAIN), IMPORT_TOAST);
+    return false;
+  }
 }
 
 export type ApprovedEditCall = (args: {

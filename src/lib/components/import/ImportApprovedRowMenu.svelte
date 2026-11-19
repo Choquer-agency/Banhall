@@ -5,13 +5,14 @@
   "Mark as reviewed by CRA" or 'Clear "Reviewed by CRA"', then Send back to
   review, which opens the confirm (ImportSendBackConfirm) under the same
   button once the menu has closed, so focus goes into it. Nothing here
-  moves a file to another company, kind or fiscal year.
+  moves a file to another company, kind or fiscal year. 2026-11-18
+  (second): on a final PD kept out of the Brain, "Put back in Brain check".
 -->
 <script lang="ts">
   import { DropdownMenu, Popover } from "bits-ui";
-  import { ArrowUUpLeftIcon, DotsThreeIcon, FileTextIcon, SealCheckIcon } from "phosphor-svelte";
+  import { ArrowCounterClockwiseIcon, ArrowUUpLeftIcon, DotsThreeIcon, FileTextIcon, SealCheckIcon } from "phosphor-svelte";
   import ImportSendBackConfirm from "./ImportSendBackConfirm.svelte";
-  import { CLEAR_CRA_REVIEWED, MARK_CRA_REVIEWED } from "./importApproved";
+  import { CLEAR_CRA_REVIEWED, MARK_CRA_REVIEWED, REOPEN_BRAIN_CHECK } from "./importApproved";
   import { POPOVER_CARD } from "./sheetLayout";
 
   let {
@@ -21,6 +22,7 @@
     busy = false,
     onOpen,
     onCra,
+    onReopenBrainCheck = null,
     onSendBack,
   }: {
     /** The file, for the button's name. */
@@ -32,6 +34,8 @@
     /** Opens the file view; absent outside the page. */
     onOpen?: () => void;
     onCra: (value: boolean) => void;
+    /** A final PD kept out of the Brain: puts it back in Brain check (2026-11-18). Absent: no item. */
+    onReopenBrainCheck?: (() => void) | null;
     onSendBack: () => void;
   } = $props();
 
@@ -92,6 +96,12 @@
         <DropdownMenu.Item disabled={busy} onSelect={() => onCra(!craReviewed)} data-import-row-action="cra" class={MENU_ITEM}>
           <SealCheckIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
           {craReviewed ? CLEAR_CRA_REVIEWED : MARK_CRA_REVIEWED}
+        </DropdownMenu.Item>
+      {/if}
+      {#if onReopenBrainCheck}
+        <DropdownMenu.Item disabled={busy} onSelect={onReopenBrainCheck} data-import-row-action="reopen-brain-check" class={MENU_ITEM}>
+          <ArrowCounterClockwiseIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
+          {REOPEN_BRAIN_CHECK}
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Separator class="-mx-1 my-1 h-px bg-line-soft" />

@@ -3905,7 +3905,7 @@ export default defineSchema({
     industry: v.string(), // → RAG namespace
     scienceCode: v.optional(v.string()),
     writerName: v.optional(v.string()),
-    writerTier: v.number(), // 0..1 ranking weight, blended after the relevance floor (Tracy 1.0 / next tier ~0.7 / other ~0.4); RAG `importance` is 1 since 2026-11-17
+    writerTier: v.number(), // 0..1 ranking weight, blended after the relevance floor; an imported PD's follows its writer's weight on Team (default 0.7 since 2026-11-18), other routes keep what they stored (nominations and feedback 0.4); RAG `importance` is 1 since 2026-11-17
     docType: v.string(), // "pd" | "transcript" | "cra_letter"
     fiscalYear: v.optional(v.number()),
     craOutcome: v.optional(
@@ -4538,7 +4538,9 @@ export default defineSchema({
   // Brain before, or none).
   importFileEvents: defineTable({
     itemId: v.id("ingestionItems"),
-    action: v.union(v.literal("edit"), v.literal("send_back")),
+    // 2026-11-18 (second) widen: "reopen_brain_check", a final PD kept out
+    // of the Brain that an Admin put back in Brain check.
+    action: v.union(v.literal("edit"), v.literal("send_back"), v.literal("reopen_brain_check")),
     userId: v.id("users"),
     at: v.number(),
     changes: v.optional(
@@ -4819,6 +4821,16 @@ export default defineSchema({
     brainCheck: v.optional(v.union(v.literal("waiting"), v.literal("added"), v.literal("kept_out"))),
     brainCheckedBy: v.optional(v.id("users")),
     brainCheckedAt: v.optional(v.number()),
+    // 2026-11-18 (second) widen (Brain check order): set only while
+    // brainCheck is "waiting", by patchItem, cleared otherwise.
+    // brainCheckYearRank is minus the fiscal year (newest first), 0 for a
+    // PD with no fiscal year (last). brainCheckWriterRank is minus the
+    // writer's weight times 1000, rounded (highest weight first;
+    // shared/writerWeight.ts), and is absent on a PD of the last three
+    // fiscal years: the Brain check lists those first, then the rest by
+    // writer weight. The New Year cron writes them again.
+    brainCheckYearRank: v.optional(v.number()),
+    brainCheckWriterRank: v.optional(v.number()),
     // 2026-11-17 widen: true when the extraction cut the file's text at the
     // import's limit, so the import does not hold its whole text. Set by
     // every extraction; absent on rows read before, which fall back to the
@@ -4839,6 +4851,17 @@ export default defineSchema({
     .index("by_brainSourceId_and_status", ["brainSourceId", "status"])
     // 2026-11-17: the final PDs waiting for a Brain check, company by company.
     .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
+    // 2026-11-18 (second): the Brain check order, both parts from one index.
+    // First the last three fiscal years (no writer rank), newest first;
+    // then the rest, highest writer weight first, then newest year (a PD of
+    // no year last), then company. Named without "_and_" to stay within the
+    // backend's 64 characters.
+    .index("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", [
+      "brainCheck",
+      "brainCheckWriterRank",
+      "brainCheckYearRank",
+      "companyKey",
+    ])
     .index("by_textStorageId", ["textStorageId"])
     .index("by_driveItemId", ["driveItemId"])
     .index("by_status", ["status"])
@@ -4964,9 +4987,11 @@ export default defineSchema({
     // remember it as their reviewer before a pick. Absent: 0.
     reviewCount: v.optional(v.number()),
     // 2026-11-17 widen (Brain copies of imported PDs): the writer's tier,
-    // 0..1, which ranks their PDs' Brain copies (Tracy 1.0; Larry, Emily,
-    // Orel 0.7). Absent: 0.4 (lib/importBrainCopy.ts). Set by an Admin on
-    // Team in a later change; nothing writes it yet.
+    // 0..1, which ranks their PDs' Brain copies. Since 2026-11-18 (second)
+    // the writer weight an Admin sets on Team (users.setWriterWeight), one
+    // per person: a member's own row and the past writer linked to them
+    // carry the same value. Absent: 0.7 (shared/writerWeight.ts; owner:
+    // Tracy 1.0, everyone else 0.7).
     tier: v.optional(v.number()),
   })
     .index("by_initials", ["initials"])

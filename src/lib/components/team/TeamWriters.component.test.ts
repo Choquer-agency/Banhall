@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import { toast } from "svelte-sonner";
+import { ConvexError } from "convex/values";
 import TeamPage from "./TeamPage.svelte";
 import {
   __mutationCalls,
@@ -201,13 +202,13 @@ describe("Team: writers from initials", () => {
     await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
     const items = () => all('[role="menuitem"]').map((node) => text(node));
     await openMenu('[data-past-writer-menu="w-dw"]');
-    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name"]);
+    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name", "Set weight"]);
     await userEvent.keyboard("{Escape}");
     await openMenu('[data-past-writer-menu="w-jordan"]');
-    expect(items()).toEqual(["Link to a team member", "Edit name", "Delete"]);
+    expect(items()).toEqual(["Link to a team member", "Edit name", "Set weight", "Delete"]);
     await userEvent.keyboard("{Escape}");
     await openMenu('[data-past-writer-menu="w-so"]');
-    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name"]);
+    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name", "Set weight"]);
     await userEvent.keyboard("{Escape}");
   });
 
@@ -393,6 +394,97 @@ describe("Team: writers from initials", () => {
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => all("[data-member-row]").length).toBe(4);
     expect(one("[data-past-writers]")).toBeNull();
+  });
+
+  it("sets a member's writer weight from their menu, starting from the weight they have, and refuses one out of range", async () => {
+    seed(ADMIN);
+    __setQueryData("team:listMembers", MEMBERS.map((row) => (row._id === "u-kim" ? { ...row, weight: 0.85 } : { ...row, weight: null })));
+    __setMutationHandler("users:setWriterWeight", (args) => ({ weight: (args as { weight: number | null }).weight }));
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => all("[data-member-row]").length).toBe(4);
+
+    await openMenu('[data-member-menu="u-kim"]');
+    await page.getByRole("menuitem", { name: "Set weight" }).click();
+    const input = page.getByRole("textbox", { name: "Weight" });
+    await expect.element(input).toBeVisible();
+    await expect.poll(() => document.activeElement?.id).toBe("writer-weight");
+    expect(one("#writer-weight")!.classList.contains("field-control")).toBe(true);
+    expect((one("#writer-weight") as HTMLInputElement).value).toBe("0.85");
+    await expect.element(page.getByRole("dialog", { name: "Weight for Kim Tran" })).toBeVisible();
+    expect(text(one("#writer-weight-help"))).toBe(
+      "A number from 0 to 1, with up to 3 decimal places. Leave it empty to use 0.7, the weight for writers with none."
+    );
+
+    await userEvent.fill(input, "1.5");
+    await userEvent.click(one("[data-writer-weight-save]")!);
+    await expect.element(page.getByText("Weight must be a number from 0 to 1, with at most 3 decimal places.")).toBeVisible();
+    expect(__mutationCalls("users:setWriterWeight")).toEqual([]);
+    // More than 3 decimal places is refused too, so a saved weight always reopens exactly as saved.
+    await userEvent.fill(input, "0.1234");
+    await userEvent.click(one("[data-writer-weight-save]")!);
+    await expect.element(page.getByText("Weight must be a number from 0 to 1, with at most 3 decimal places.")).toBeVisible();
+    expect(__mutationCalls("users:setWriterWeight")).toEqual([]);
+    await userEvent.fill(input, "1");
+    await userEvent.click(one("[data-writer-weight-save]")!);
+    await expect.poll(() => __mutationCalls("users:setWriterWeight")).toEqual([{ userId: "u-kim", weight: 1 }]);
+    await expect.poll(() => one('[data-testid="writer-weight-dialog"]')).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith("Weight for Kim Tran saved as 1.");
+
+    // Empty: back to the default.
+    await openMenu('[data-member-menu="u-priya"]');
+    await page.getByRole("menuitem", { name: "Set weight" }).click();
+    expect((one("#writer-weight") as HTMLInputElement).value).toBe("");
+    await userEvent.click(one("[data-writer-weight-save]")!);
+    await expect.poll(() => __mutationCalls("users:setWriterWeight").length).toBe(2);
+    expect(__mutationCalls("users:setWriterWeight")[1]).toEqual({ userId: "u-priya", weight: null });
+    expect(toast.success).toHaveBeenCalledWith("Priya Nair uses the default weight of 0.7 now.");
+  });
+
+  it("sets a past writer's weight, and says the server's refusal in the dialog", async () => {
+    seed(ADMIN, PAST_WRITERS.map((row) => ({ ...row, weight: row._id === "w-so" ? 0.7 : null })));
+    __setMutationHandler("users:setWriterWeight", () => {
+      throw new ConvexError({ code: "INVALID_INPUT", message: "This writer is linked to an account. Unlink it first." });
+    });
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
+    await openMenu('[data-past-writer-menu="w-so"]');
+    await page.getByRole("menuitem", { name: "Set weight" }).click();
+    expect((one("#writer-weight") as HTMLInputElement).value).toBe("0.7");
+    await userEvent.fill(page.getByRole("textbox", { name: "Weight" }), "0,9");
+    await userEvent.click(one("[data-writer-weight-save]")!);
+    await expect.poll(() => __mutationCalls("users:setWriterWeight")).toEqual([{ writerId: "w-so", weight: 0.9 }]);
+    await expect.element(page.getByText("This writer is linked to an account. Unlink it first.")).toBeVisible();
+    expect(one('[data-testid="writer-weight-dialog"]')).not.toBeNull();
+  });
+
+  it("never offers Set weight to a Manager", async () => {
+    seed(MANAGER);
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => all("[data-member-row]").length).toBe(4);
+    expect(all("[data-member-menu], [data-past-writer-menu]")).toEqual([]);
+    expect(page.getByRole("menuitem", { name: "Set weight" }).elements()).toEqual([]);
+  });
+
+  it("captures the weight dialog at 1280 and 1100 wide, inside the window", async () => {
+    seed(ADMIN);
+    for (const width of [1280, 1100]) {
+      document.body.innerHTML = "";
+      await page.viewport(width, 900);
+      await render(TeamPage, { origin: "https://example.com" });
+      await expect.poll(() => all("[data-member-row]").length).toBe(4);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+      await openMenu('[data-member-menu="u-kim"]');
+      await page.getByRole("menuitem", { name: "Set weight" }).click();
+      await expect.poll(() => one('[data-testid="writer-weight-dialog"]')).not.toBeNull();
+      const box = one('[data-testid="writer-weight-dialog"]')!.getBoundingClientRect();
+      expect(box.left, `${width}`).toBeGreaterThanOrEqual(0);
+      expect(box.right, `${width}`).toBeLessThanOrEqual(width);
+      // Every line of the dialog is whole: nothing is cut off sideways.
+      for (const node of all('[data-testid="writer-weight-dialog"] p')) expect(node.scrollWidth, `${width}`).toBeLessThanOrEqual(node.clientWidth + 1);
+      await page.screenshot({ path: `${CAPTURES}/team-weight-${width}.png` });
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => one('[data-testid="writer-weight-dialog"]')).toBeNull();
+    }
   });
 
   it("captures the Team page with members and Past writers lined up at 1440 and 1100 wide, and the initials dialog", async () => {

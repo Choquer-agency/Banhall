@@ -8,7 +8,8 @@
   PD), PD title (the shared Input, saved with Save or Enter) and "Reviewed
   by CRA" (a final PD). Each change is saved on its own (editApprovedFile)
   and sets this file alone. Then "Send back to review", which shows its
-  confirm in place; once the file is sent back the view closes.
+  confirm in place; once the file is sent back the view closes. On a final
+  PD kept out of the Brain, "Put back in Brain check" (2026-11-18) beside it.
 -->
 <script lang="ts">
   import { useMutation } from "convex-svelte";
@@ -21,8 +22,16 @@
   import ImportPickerPopover from "./ImportPickerPopover.svelte";
   import ImportSendBackConfirm from "./ImportSendBackConfirm.svelte";
   import ImportWriterList from "./ImportWriterList.svelte";
-  import { editApproved, sendBackFiles, type ApprovedEditPatch } from "./importActions";
-  import { APPROVED_EDIT_NOTE, approvedEdits, CRA_REVIEWED, PD_TITLE_MAX, type ApprovedEditField } from "./importApproved";
+  import { editApproved, reopenBrainCheckFile, sendBackFiles, type ApprovedEditPatch } from "./importActions";
+  import {
+    APPROVED_EDIT_NOTE,
+    approvedEdits,
+    canReopenBrainCheck,
+    CRA_REVIEWED,
+    PD_TITLE_MAX,
+    REOPEN_BRAIN_CHECK,
+    type ApprovedEditField,
+  } from "./importApproved";
   import { scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
   import type { SheetFileRow } from "./importFormat";
   import { CHOICE_ROW, SHEET_SMALL } from "./sheetLayout";
@@ -44,12 +53,14 @@
       | "scienceCodeSource"
       | "pdTitle"
       | "craReviewed"
+      | "brain"
     >;
     onSentBack: () => void;
   } = $props();
 
   const editApprovedFile = useMutation(api.ingestion.editApprovedFile);
   const sendBackToReview = useMutation(api.ingestion.sendBackToReview);
+  const reopenBrainCheck = useMutation(api.ingestion.reopenBrainCheck);
 
   const can = $derived(approvedEdits(file));
   let busy = $state(false);
@@ -80,6 +91,16 @@
     } finally {
       busy = false;
       confirming = false;
+    }
+  }
+
+  async function reopen() {
+    if (busy) return;
+    busy = true;
+    try {
+      await reopenBrainCheckFile(file._id, reopenBrainCheck);
+    } finally {
+      busy = false;
     }
   }
 
@@ -225,9 +246,16 @@
         class="mt-1.5 flex min-h-8 w-full items-center justify-center rounded-md text-[0.8125rem] leading-[calc(18/13)] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
       >Keep it approved</button>
     {:else}
-      <Button type="button" variant="secondary" size="xs" disabled={busy} onclick={() => (confirming = true)} data-import-approved-send-back>
-        Send back to review
-      </Button>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary" size="xs" disabled={busy} onclick={() => (confirming = true)} data-import-approved-send-back>
+          Send back to review
+        </Button>
+        {#if canReopenBrainCheck(file)}
+          <Button type="button" variant="secondary" size="xs" disabled={busy} onclick={() => void reopen()} data-import-approved-reopen-brain-check>
+            {REOPEN_BRAIN_CHECK}
+          </Button>
+        {/if}
+      </div>
     {/if}
   </div>
 </section>

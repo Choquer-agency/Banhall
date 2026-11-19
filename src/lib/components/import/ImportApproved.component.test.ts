@@ -339,6 +339,50 @@ describe("Send back to review", () => {
   });
 });
 
+describe("Put back in Brain check (2026-11-18 (second))", () => {
+  it("offers it only on a final PD kept out of the Brain, and puts it back from the row's menu", async () => {
+    seed();
+    __setMutationHandler("ingestion:reopenBrainCheck", (args) => ({ reopened: (args as { ids: string[] }).ids, refused: [] }));
+    await mount();
+    for (const name of ["PD 1 Route planning engine", "PD 2 Yard map solver", "PD 4 Shelf gap finder"]) {
+      await userEvent.click(page.getByRole("button", { name: `More for ${name}` }));
+      await expect.poll(() => one('[data-import-row-action="send-back"]')).not.toBeNull();
+      expect(one('[data-import-row-action="reopen-brain-check"]'), name).toBeNull();
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => one("[data-import-row-menu-content]")).toBeNull();
+    }
+    await userEvent.click(page.getByRole("button", { name: "More for PD 3 Label vision check" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Put back in Brain check" }));
+    await expect.poll(() => __mutationCalls("ingestion:reopenBrainCheck")).toEqual([{ ids: ["a3"] }]);
+    await expect.element(page.getByText("Back in Brain check. Read its copy there to add it.")).toBeVisible();
+  });
+
+  it("says why when the server refuses it", async () => {
+    seed();
+    __setMutationHandler("ingestion:reopenBrainCheck", (args) => ({
+      reopened: [],
+      refused: (args as { ids: string[] }).ids.map((id) => ({ id, reason: "not_kept_out" })),
+    }));
+    await mount();
+    await userEvent.click(page.getByRole("button", { name: "More for PD 3 Label vision check" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Put back in Brain check" }));
+    await expect.element(page.getByText("This PD is not kept out of the Brain any more.")).toBeVisible();
+  });
+
+  it("is in the file view beside Send back to review", async () => {
+    seed();
+    seedFile("a3");
+    __setMutationHandler("ingestion:reopenBrainCheck", (args) => ({ reopened: (args as { ids: string[] }).ids, refused: [] }));
+    await mount();
+    await userEvent.click(one('[data-import-file-open="a3"]')!);
+    await expect.poll(() => one("[data-import-approved-reopen-brain-check]")).not.toBeNull();
+    expect(text(one("[data-import-approved-reopen-brain-check]"))).toBe("Put back in Brain check");
+    await userEvent.click(one("[data-import-approved-reopen-brain-check]")!);
+    await expect.poll(() => __mutationCalls("ingestion:reopenBrainCheck")).toEqual([{ ids: ["a3"] }]);
+    await page.screenshot({ path: `${CAPTURES}/reopen-brain-check-file-view.png` });
+  });
+});
+
 describe("an approved row while a change saves", () => {
   it("turns its writer, reviewer and science code pickers off until the save ends", async () => {
     seed();

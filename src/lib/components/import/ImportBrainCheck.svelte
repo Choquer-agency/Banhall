@@ -2,8 +2,11 @@
   The Brain check tab on the Import page (2026-11-17, Approve on Import):
   an approved final PD's scrubbed Brain copy, one PD at a time, so a person
   reads it before any Brain copy is made (the 2026-11-17 Brain copy
-  amendment's condition). The PDs wait company by company (brainCheckFiles,
-  25 at a time); "2 of 12" with Previous and Next moves between them.
+  amendment's condition). Since 2026-11-18 (second, owner) the PDs come in
+  two parts (brainCheckFiles, 25 at a time): the last three fiscal years
+  first, newest first, then the rest, highest writer weight first. The
+  rest is read once the recent part is all loaded; "2 of 12" with Previous
+  and Next runs over both.
 
   For the PD shown: its company, PD number, title, fiscal year, writer and
   science code; the copy as the Brain would hold it (previewBrainCopy), with
@@ -47,13 +50,49 @@
   type Row = FunctionReturnType<typeof api.ingestion.brainCheckFiles>["page"][number];
   type Preview = FunctionReturnType<typeof api.ingestion.previewBrainCopy>;
 
-  const listQ = usePaginatedQuery(api.ingestion.brainCheckFiles, () => ({}), () => ({ initialNumItems: 25 }));
-  const rows = $derived(listQ.results as Row[]);
+  // The last three fiscal years: this year in UTC and the two before. The
+  // server stores which part each PD is in; the year is still sent, as
+  // pages before review 48 did, and the server does not need it.
+  const recentFromYear = new Date().getUTCFullYear() - 2;
+  const recentQ = usePaginatedQuery(
+    api.ingestion.brainCheckFiles,
+    () => ({ part: "recent" as const, recentFromYear }),
+    () => ({ initialNumItems: 25 })
+  );
+  const recentDone = $derived(recentQ.status === "Exhausted");
+  const restQ = usePaginatedQuery(
+    api.ingestion.brainCheckFiles,
+    () => (recentDone ? { part: "rest" as const, recentFromYear } : "skip"),
+    () => ({ initialNumItems: 25 })
+  );
+  // Each PD once: one whose weight changed between two reads may show in both parts.
+  const rows = $derived.by(() => {
+    const seen = new Set<string>();
+    return [...(recentQ.results as Row[]), ...(recentDone ? (restQ.results as Row[]) : [])].filter((row) =>
+      seen.has(row._id) ? false : (seen.add(row._id), true)
+    );
+  });
+  const loadingFirst = $derived(
+    recentQ.status === "LoadingFirstPage" || (recentDone && rows.length === 0 && restQ.status === "LoadingFirstPage")
+  );
+  /** More PDs wait past the ones loaded. */
+  const canLoadMore = $derived(recentQ.status === "CanLoadMore" || (recentDone && restQ.status === "CanLoadMore"));
+
+  function loadMore() {
+    if (recentQ.status === "CanLoadMore") recentQ.loadMore(25);
+    else if (recentDone && restQ.status === "CanLoadMore") restQ.loadMore(25);
+  }
   let index = $state(0);
   // The list moves under it when a PD is added or kept out: stay in range.
   const at = $derived(rows.length === 0 ? 0 : Math.min(index, rows.length - 1));
   const current = $derived(rows[at] ?? null);
   const waiting = $derived(Math.max(total ?? 0, rows.length));
+
+  // Past the loaded rows (Next at the end, or nothing loaded yet) while more
+  // wait: read the next page, until a PD comes or none is left.
+  $effect(() => {
+    if (!loadingFirst && index >= rows.length && canLoadMore) untrack(loadMore);
+  });
 
   const preview = useAction(api.ingestion.previewBrainCopy);
   const add = useAction(api.ingestion.addToBrain);
@@ -163,10 +202,10 @@
 <section data-import-brain-check aria-label="Brain check" class="flex flex-col gap-4">
   <p class="max-w-[46rem] text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
     Approved final PDs wait here before any copy goes into the Brain. Read each copy with the company's names hidden, then add it or keep it out.
-    The PD stays on its company's page either way.
+    The PD stays on its company's page either way. The last three fiscal years come first, then the writers with the highest weight.
   </p>
 
-  {#if listQ.status === "LoadingFirstPage"}
+  {#if loadingFirst || (!current && canLoadMore)}
     <div role="status" aria-label="Loading the Brain check" class="flex flex-col gap-2">
       {#each [0, 1, 2] as row (row)}<span class="h-4 w-2/3 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none"></span>{/each}
     </div>
@@ -190,10 +229,9 @@
         <Button
           variant="secondary"
           size="xs"
-          disabled={at >= rows.length - 1 && listQ.status !== "CanLoadMore"}
+          disabled={at >= rows.length - 1 && !canLoadMore}
           data-import-brain-next
           onclick={() => {
-            if (at >= rows.length - 1 && listQ.status === "CanLoadMore") listQ.loadMore(25);
             index = at + 1;
           }}
         >Next</Button>

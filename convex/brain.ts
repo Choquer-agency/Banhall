@@ -913,7 +913,10 @@ export async function relabelImportedSource(
   ctx: MutationCtx,
   s: Doc<"brainSources">,
   change: ImportedSourceRelabel,
-  actor: string
+  actor: string,
+  // 2026-11-18 (second): the audit row's reason; a writer weight changed on
+  // Team says so ("Writer weight changed on Team").
+  reason = "Changed on Import after approval"
 ): Promise<{ changed: boolean; reembed: boolean }> {
   const patch: Partial<Doc<"brainSources">> = {};
   const said: string[] = [];
@@ -945,7 +948,7 @@ export async function relabelImportedSource(
     action: "relabel",
     sourceId: s._id,
     actorId: actor,
-    reason: `Changed on Import after approval: ${said.join("; ")}`,
+    reason: `${reason}: ${said.join("; ")}`,
     at: Date.now(),
   });
   if (reembed) await scheduleEmbed(ctx, s._id);

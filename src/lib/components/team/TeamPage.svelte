@@ -31,6 +31,8 @@
   import WriterNameDialog from "./WriterNameDialog.svelte";
   import LinkWriterDialog from "./LinkWriterDialog.svelte";
   import WriterConfirmDialog from "./WriterConfirmDialog.svelte";
+  import WriterWeightDialog from "./WriterWeightDialog.svelte";
+  import { DEFAULT_WRITER_WEIGHT, writerWeightText } from "../../../../shared/writerWeight";
 
   let { origin = typeof window === "undefined" ? "" : window.location.origin }: { origin?: string } = $props();
 
@@ -64,6 +66,7 @@
   const linkPastWriter = useMutation(api.users.linkPastWriter);
   const unlinkPastWriter = useMutation(api.users.unlinkPastWriter);
   const deletePastWriter = useMutation(api.users.deletePastWriter);
+  const setWriterWeight = useMutation(api.users.setWriterWeight);
 
   // Relative times ("12 min ago") move on without a refetch.
   let now = $state(Date.now());
@@ -87,6 +90,9 @@
   let linkOpen = $state(false);
   let deleteTarget = $state<PastWriter | null>(null);
   let deleteOpen = $state(false);
+  /** Whose writer weight the weight dialog sets (2026-11-18): a member or a past writer. */
+  let weightTarget = $state<{ kind: "member"; member: TeamMember } | { kind: "writer"; writer: PastWriter } | null>(null);
+  let weightOpen = $state(false);
   let unlinkTarget = $state<TeamMember | null>(null);
   let unlinkOpen = $state(false);
   /** The members a past writer may be linked to: none linked to them yet. */
@@ -230,6 +236,39 @@
     toast.success(`${writer.label} is linked to ${result.label}. Their past PDs show under them now.`);
   }
 
+  // ─── Writer weights (2026-11-18 (second)) ───────────────────────────────
+
+  function askMemberWeight(member: TeamMember) {
+    weightTarget = { kind: "member", member };
+    weightOpen = true;
+  }
+
+  function askWriterWeight(writer: PastWriter) {
+    weightTarget = { kind: "writer", writer };
+    weightOpen = true;
+  }
+
+  const weightName = $derived(
+    weightTarget?.kind === "member" ? weightTarget.member.name : weightTarget?.kind === "writer" ? weightTarget.writer.label : "",
+  );
+  const weightNow = $derived(
+    (weightTarget?.kind === "member" ? weightTarget.member.weight : weightTarget?.kind === "writer" ? weightTarget.writer.weight : null) ?? null,
+  );
+
+  async function saveWeight(weight: number | null) {
+    const target = weightTarget!;
+    const result = await setWriterWeight(
+      target.kind === "member"
+        ? { userId: target.member._id as Id<"users">, weight }
+        : { writerId: target.writer._id as Id<"pdWriters">, weight },
+    );
+    toast.success(
+      result.weight === null
+        ? `${weightName} uses the default weight of ${writerWeightText(DEFAULT_WRITER_WEIGHT)} now.`
+        : `Weight for ${weightName} saved as ${writerWeightText(result.weight)}.`,
+    );
+  }
+
   function askDelete(writer: PastWriter) {
     deleteTarget = writer;
     deleteOpen = true;
@@ -293,6 +332,7 @@
           onChangeRole={changeMemberRole}
           onSetPassword={askPassword}
           onEditInitials={askInitials}
+          onSetWeight={askMemberWeight}
           onUnlinkWriter={askUnlink}
         />
       {/if}
@@ -316,6 +356,7 @@
           onInvite={askInvite}
           onEditName={askName}
           onLink={askLink}
+          onSetWeight={askWriterWeight}
           onDelete={askDelete}
         />
       {/if}
@@ -363,6 +404,9 @@
     sameInitialsAs={linkTarget.sameInitialsAs?.canLink ? linkTarget.sameInitialsAs : null}
     onSubmit={saveLink}
   />
+{/if}
+{#if isAdminViewer && weightTarget}
+  <WriterWeightDialog bind:open={weightOpen} name={weightName} weight={weightNow} onSubmit={saveWeight} />
 {/if}
 {#if isAdminViewer && deleteTarget}
   <WriterConfirmDialog

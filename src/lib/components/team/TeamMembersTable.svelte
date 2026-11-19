@@ -43,6 +43,8 @@
     initials: string | null;
     /** The past writer an Admin linked to this account, if any. */
     linkedWriter: { writerId: string; label: string; initials: string | null; fileCount: number } | null;
+    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Shown only in its dialog. */
+    weight?: number | null;
   };
 
   let {
@@ -52,6 +54,7 @@
     onChangeRole,
     onSetPassword,
     onEditInitials,
+    onSetWeight,
     onUnlinkWriter,
   }: {
     members: TeamMember[];
@@ -60,6 +63,7 @@
     onChangeRole: (member: TeamMember, role: Role) => void;
     onSetPassword: (member: TeamMember) => void;
     onEditInitials: (member: TeamMember) => void;
+    onSetWeight: (member: TeamMember) => void;
     onUnlinkWriter: (member: TeamMember) => void;
   } = $props();
 </script>
@@ -99,6 +103,7 @@
               onChangeRole={(role) => onChangeRole(member, role)}
               onSetPassword={() => onSetPassword(member)}
               onEditInitials={() => onEditInitials(member)}
+              onSetWeight={() => onSetWeight(member)}
               onUnlinkWriter={member.linkedWriter ? () => onUnlinkWriter(member) : null}
             />
           </span>

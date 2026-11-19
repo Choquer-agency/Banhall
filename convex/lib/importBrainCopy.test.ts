@@ -410,10 +410,10 @@ describe("the copy's fields", () => {
     if (!newWithout.ok) expect(newWithout.reason).toBe(IMPORT_BRAIN_REFUSALS.no_industry);
   });
 
-  test("writer tier: the writer's when set, 0.4 when not, clamped to 0..1", () => {
+  test("writer tier: the writer's when set, 0.7 when not (2026-11-18), clamped to 0..1", () => {
     const unset = buildImportBrainCopy(input({ writer: { name: "Dana Whitlock" } }), PD);
     expect(unset.ok && unset.fields.writerTier).toBe(IMPORT_BRAIN_DEFAULT_WRITER_TIER);
-    expect(IMPORT_BRAIN_DEFAULT_WRITER_TIER).toBe(0.4);
+    expect(IMPORT_BRAIN_DEFAULT_WRITER_TIER).toBe(0.7);
     expect(unset.ok && unset.fields.writerName).toBe("Dana Whitlock");
     const gold = buildImportBrainCopy(input({ writer: { name: "Dana Whitlock", tier: 1 } }), PD);
     expect(gold.ok && gold.fields.writerTier).toBe(1);
