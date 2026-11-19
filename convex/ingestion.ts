@@ -2873,7 +2873,6 @@ export const sendBackOldApprovals = internalMutation({
     const step = { ...NO_OLD_APPROVALS };
     const copies: OldApprovalCopy[] = [];
     const groups = new Set<string>();
-    const fileApprovals = await movingFileApprovals(ctx);
     let spent = 0;
     let handled = 0;
     let finishedPage = true;
@@ -2887,7 +2886,7 @@ export const sendBackOldApprovals = internalMutation({
       }
       handled += 1;
       step.found += 1;
-      if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, fileApprovals, item._id))) {
+      if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, item._id))) {
         step.held += 1;
         copies.push({ itemId: item._id, outcome: "held", detail: "approval_running" });
         // It stays on this page: never counted again if the page is read again.
