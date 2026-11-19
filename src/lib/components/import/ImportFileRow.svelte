@@ -716,7 +716,7 @@
               <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
             </button>
           {:else}
-            <button {...props} type="button" aria-label={writerLabel} data-import-writer-edit class={CELL_BUTTON}>
+            <button {...props} type="button" aria-label={writerLabel} data-import-writer-edit disabled={approved && editing} class={CELL_BUTTON}>
               {#if cells.writer}
                 <span
                   data-import-writer-tone={cells.writer.tone}
@@ -750,7 +750,7 @@
     {#if can.reviewer}
       <ImportPickerPopover label="Reviewer">
         {#snippet trigger({ props })}
-          <button {...props} type="button" aria-label={reviewerLabel} data-import-reviewer-edit class={CELL_BUTTON}>
+          <button {...props} type="button" aria-label={reviewerLabel} data-import-reviewer-edit disabled={approved && editing} class={CELL_BUTTON}>
             {#if cells.reviewer && !cells.reviewer.missing}
               <!-- Cut on a narrow window: the whole name on hover. -->
               <span
@@ -801,6 +801,7 @@
                   type="button"
                   aria-label={codeLabel}
                   data-import-code-edit
+                  disabled={approved && editing}
                   class={`${CELL_BUTTON} gap-1.5 overflow-hidden`}
                 >
                   {@render codeWords(false)}
