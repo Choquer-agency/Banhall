@@ -525,6 +525,17 @@ function labelGoesOnByHand(label: string, row: Doc<"ingestionItems">, categoryAf
   return ["final_pd", "draft", "review_copy"].includes(categoryAfter);
 }
 
+/**
+ * Whether a reviewer can be set on a row (2026-11-17), written out here: a
+ * final PD, draft or review copy that was read and waits on To review, or
+ * one on Deleted. Never an approved file or one still being read.
+ */
+function reviewerGoesOnByHand(row: Doc<"ingestionItems">): boolean {
+  if (!["final_pd", "draft", "review_copy"].includes(row.category ?? "unknown")) return false;
+  if (tabByHand(row.status) === "review") return row.status === "pending_review";
+  return tabByHand(row.status) === "deleted";
+}
+
 function needsCheckByHand(row: Doc<"ingestionItems">): boolean {
   return checkReasonsByHand(row).length > 0;
 }
@@ -669,8 +680,29 @@ async function expectWriterCountsMatchRecount(t: T, items: Array<Doc<"ingestionI
     // An approved file given its writer by the backfill keeps the stored name it had (maybe none).
     if (item.status !== "approved") expect(item.writerName, `${label}: ${item.path} writer name`).toBeTruthy();
   }
+  // 2026-11-17: the files that name it as their reviewer, and the files that
+  // remember it (as writer or reviewer) from before a pick, by hand too.
+  const reviewedByHand = new Map<string, number>();
+  const heldByHand = new Map<string, number>();
+  const bump = (map: Map<string, number>, id: string | undefined) => {
+    if (id !== undefined) map.set(id, (map.get(id) ?? 0) + 1);
+  };
+  for (const item of items) {
+    bump(reviewedByHand, item.reviewerId);
+    bump(heldByHand, item.writerBeforePick?.writerId);
+    bump(heldByHand, item.reviewerBeforePick?.reviewerId);
+    if (item.reviewerId !== undefined) {
+      expect(writers.some((writer) => writer._id === item.reviewerId), `${label}: ${item.path} reviewer is there`).toBe(true);
+    }
+    for (const held of [item.writerBeforePick?.writerId, item.reviewerBeforePick?.reviewerId]) {
+      if (held !== undefined) expect(writers.some((writer) => writer._id === held), `${label}: ${item.path} remembered writer is there`).toBe(true);
+    }
+  }
   for (const writer of writers) {
-    expect(writer.fileCount, `${label}: files of writer ${writer.name ?? writer.initials ?? writer.userId}`).toBe(byHand.get(writer._id) ?? 0);
+    const who = writer.name ?? writer.initials ?? writer.userId;
+    expect(writer.fileCount, `${label}: files of writer ${who}`).toBe(byHand.get(writer._id) ?? 0);
+    expect(writer.reviewCount ?? 0, `${label}: files reviewed by ${who}`).toBe(reviewedByHand.get(writer._id) ?? 0);
+    expect(writer.heldCount ?? 0, `${label}: files remembering ${who}`).toBe(heldByHand.get(writer._id) ?? 0);
   }
 }
 
@@ -692,12 +724,13 @@ function seeded(seed: number) {
 const RANDOM_PATHS = [
   `${CEDARLINE_FY}/To be submitted/${PD_NAME}`,
   `${CEDARLINE_FY}/WIP/Technical/Audio/interview.txt`,
-  `${CEDARLINE_FY}/Drafts/03 CedarlineSystems 2025-03-31 R2.PN SensorDraft.docx`,
+  // Reviewer initials too (2026-11-17): DW reviewed this draft, PN the Halden PD.
+  `${CEDARLINE_FY}/Drafts/03 CedarlineSystems 2025-03-31 R2.PN.DW SensorDraft.docx`,
   "Cedarline Systems/2024 - Dec 31/In Review/notes.docx",
   // Same company key as Cedarline Systems, written another way.
   "cedarline  systems/2024/Financials/budget.pdf",
   "Cedarline Systems/glossary.docx",
-  "Halden Foods/2025 - Jun 30/Submitted/02 HaldenFoods 2025-06-30 S1.SO Fermentation.docx",
+  "Halden Foods/2025 - Jun 30/Submitted/02 HaldenFoods 2025-06-30 S1.SO.PN Fermentation.docx",
   "Halden Foods/FY2023/Audio/call.vtt",
   "Northgate Labs/Contracts/nda.pdf",
   "Northgate Labs/2024 - Sep 30/To be submitted/pd.docx",
@@ -756,7 +789,7 @@ describe("importCompanies counts", () => {
         (await rows()).filter((row) => statuses.includes(row.status));
 
       /** Writer steps that changed something (2026-11-16), so the run is known to reach them. */
-      const writerSteps = { linked: 0, unlinked: 0, renamed: 0, undone: 0 };
+      const writerSteps = { linked: 0, unlinked: 0, renamed: 0, undone: 0, reviewersPicked: 0, reviewersSet: 0, craSet: 0 };
       const steps: Array<[string, () => Promise<unknown>]> = [
         ["insert", async () => {
           const id = `d${driveIds.length}`;
@@ -897,6 +930,8 @@ describe("importCompanies counts", () => {
           ]);
           const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer: choice });
           await runWriterWalk(t);
+          // The pick named a person: files with the initials as their reviewer's follow it too (2026-11-17).
+          if ((await rows()).some((row) => row.reviewerSource === "pick" && row.reviewerInitials === initials)) writerSteps.reviewersPicked += 1;
           await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer: result.previous });
           await runWriterWalk(t);
           expect(await writerState(t)).toEqual(before);
@@ -938,6 +973,35 @@ describe("importCompanies counts", () => {
           const users = await t.run((ctx) => ctx.db.query("users").collect());
           await admin.mutation(api.users.setUserInitials, { userId: pick(users)._id, initials: pick(["DW", "PN", "SO", ""]) });
           await runWriterWalk(t);
+        }],
+        ["set reviewer", async () => {
+          // A person sets the reviewer of some files alone (2026-11-17): it wins for them.
+          const all = await rows();
+          if (all.length === 0) return;
+          const chosen = [...new Set([pick(all), pick(all)])];
+          const users = await t.run((ctx) => ctx.db.query("users").collect());
+          const reviewer = pick([
+            { kind: "name" as const, name: "Priya Nair" },
+            { kind: "user" as const, userId: pick(users)._id },
+          ]);
+          const result = await admin.mutation(api.ingestion.setFileReviewers, { ids: chosen.map((row) => row._id), reviewer });
+          for (const row of chosen) {
+            const takes = reviewerGoesOnByHand(row);
+            expect(result.skipped.some((entry) => entry.id === row._id), `${row.path} skipped`).toBe(!takes);
+            if (takes) expect((await getItem(t, row._id)).reviewerSource).toBe("person");
+          }
+          if (result.changed > 0) writerSteps.reviewersSet += 1;
+        }],
+        ["reviewed by CRA", async () => {
+          const all = await rows();
+          if (all.length === 0) return;
+          // Mostly final PDs, so the mark is set along the way; any file at times, which is skipped.
+          const finals = all.filter((row) => row.category === "final_pd");
+          const row = pick(finals.length > 0 && rand() < 0.8 ? finals : all);
+          const result = await admin.mutation(api.ingestion.setCraReviewed, { ids: [row._id], reviewed: rand() < 0.7 });
+          const takes = row.category === "final_pd" && reviewerGoesOnByHand(row);
+          expect(result.skipped.length, row.path).toBe(takes ? 0 : 1);
+          if (result.changed > 0) writerSteps.craSet += 1;
         }],
         ["delete many", async () => {
           const all = await rows();
@@ -987,6 +1051,10 @@ describe("importCompanies counts", () => {
       expect(writerSteps.unlinked).toBeGreaterThan(0);
       expect(writerSteps.renamed).toBeGreaterThan(0);
       expect(writerSteps.undone).toBeGreaterThan(0);
+      // Reviewers followed a pick and were set by a person; CRA marks were set (2026-11-17).
+      expect(writerSteps.reviewersPicked).toBeGreaterThan(0);
+      expect(writerSteps.reviewersSet).toBeGreaterThan(0);
+      expect(writerSteps.craSet).toBeGreaterThan(0);
       // Some file needed a check for two reasons at once, and some read file gave no text.
       expect(twoReasonsSeen).toBe(true);
       expect(reasonsSeen.has("no_text")).toBe(true);
@@ -1464,6 +1532,12 @@ describe("sheet queries", () => {
       writerHasLogin: false,
       writerInitials: "DW",
       reviewerInitials: "PN",
+      // Its reviewer comes from PN by the same check (2026-11-17): a new
+      // writer with no login, just "PN", and no check reason for it.
+      reviewerId: expect.any(String),
+      reviewerName: "PN",
+      reviewerHasLogin: false,
+      reviewerSource: "initials",
       editedLabels: [],
       needsCheck: true,
       checkReasons: ["no_science_code"],
@@ -2931,7 +3005,14 @@ async function ownWriterOf(t: T, userId: Id<"users">) {
 /** Every file's writer and source, and every pick: what Link and Unlink never change. */
 async function writerPointers(t: T) {
   return await t.run(async (ctx) => ({
-    files: (await ctx.db.query("ingestionItems").collect()).map((row) => [row._id, row.writerId ?? null, row.writerNameSource ?? null]),
+    files: (await ctx.db.query("ingestionItems").collect()).map((row) => [
+      row._id,
+      row.writerId ?? null,
+      row.writerNameSource ?? null,
+      // 2026-11-17: the reviewer never moves on a Link or Unlink either.
+      row.reviewerId ?? null,
+      row.reviewerSource ?? null,
+    ]),
     picks: (await ctx.db.query("pdWriterPicks").collect()).map((pick) => [pick.initials, pick.writerId]),
   }));
 }
@@ -2945,6 +3026,10 @@ async function writerState(t: T) {
       row.writerNameSource ?? null,
       row.writerName ?? null,
       row.writerBeforePick ?? null,
+      // 2026-11-17: a pick and its Undo put the reviewer back exactly too.
+      row.reviewerId ?? null,
+      row.reviewerSource ?? null,
+      row.reviewerBeforePick ?? null,
     ]),
     picks: (await ctx.db.query("pdWriterPicks").collect()).map((pick) => [pick.initials, pick.writerId]),
   }));
@@ -3245,7 +3330,8 @@ describe("matchWriterInitials", () => {
     expect(result).toMatchObject({ changed: 100, more: true });
     const named = async () => (await t.run((ctx) => ctx.db.query("ingestionItems").collect())).filter((row) => row.writerName === "Kim Tran").length;
     expect(await named()).toBe(100);
-    expect(await runWriterWalk(t)).toMatchObject({ applyWriterInitials: 2 });
+    // The rest of To review, then Deleted; then the reviewers' To review and Deleted (2026-11-17).
+    expect(await runWriterWalk(t)).toMatchObject({ applyWriterInitials: 4 });
     expect(await named()).toBe(120);
     await expectCountsMatchRecount(t, "after 120 files");
     const { stored } = await countsNowAndRecount(t);
@@ -3293,8 +3379,9 @@ describe("files checked again when the facts change", () => {
     // Nothing moves in the call itself: the files follow in scheduled pages of 100.
     expect((await getItem(t, review[0])).writerId).toBeUndefined();
     const runs = await runWriterWalk(t);
-    // KT: To review in two pages, then Deleted; JE: To review, then Deleted.
-    expect(runs).toMatchObject({ applyWriterInitials: 5 });
+    // KT: To review in two pages, then Deleted; JE: To review, then Deleted;
+    // and for each, the reviewers' To review and Deleted (2026-11-17).
+    expect(runs).toMatchObject({ applyWriterInitials: 9 });
     const kimWriter = (await ownWriterOf(t, kim))!;
     for (const id of [...review, deleted]) expect((await getItem(t, id)).writerId, id).toBe(kimWriter._id);
     // An approved file keeps what it was approved with (no writer).

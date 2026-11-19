@@ -15,6 +15,7 @@ const PD_FIELDS = [
   "versionNumber",
   "writerInitials",
   "reviewerInitials",
+  "initialsGroups",
   "pdTitle",
 ] as const;
 
@@ -591,6 +592,7 @@ describe("labelsForItemPath", () => {
         "companyKey",
         "fiscalYearEnd",
         "fiscalYearEndAssumed",
+        "initialsGroups",
         "pdNumber",
         "pdTitle",
         "reviewerInitials",

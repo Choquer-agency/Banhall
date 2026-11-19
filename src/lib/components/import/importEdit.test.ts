@@ -45,13 +45,15 @@ describe("rowAbilities", () => {
       pdNumber: true,
       version: true,
       writer: true,
+      reviewer: true,
+      craReviewed: true,
       scienceCode: true,
       menu: true,
       remove: true,
       putBack: false,
       select: true,
     });
-    expect(rowAbilities(row("pending_review", "draft"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, scienceCode: false });
+    expect(rowAbilities(row("pending_review", "draft"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, reviewer: true, craReviewed: false, scienceCode: false });
     expect(rowAbilities(row("pending_review", "review_copy"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, scienceCode: false });
     for (const category of ["transcript", "supporting", "company_file", "unknown"]) {
       expect(rowAbilities(row("pending_review", category), "review"), category).toMatchObject({
@@ -59,6 +61,8 @@ describe("rowAbilities", () => {
         pdNumber: false,
         version: false,
         writer: false,
+        reviewer: false,
+        craReviewed: false,
         scienceCode: false,
       });
     }
@@ -83,13 +87,30 @@ describe("rowAbilities", () => {
     expect(rowAbilities(row("deleted", "draft", "deleted"), "deleted")).toMatchObject({ edit: false, menu: false, putBack: true, select: true });
     expect(rowAbilities(row("rejected", "draft", "rejected"), "deleted")).toMatchObject({ edit: false, menu: false, putBack: true, select: true });
     for (const status of ["rejected", "deleted"]) {
-      expect(rowAbilities(row(status, "draft", "removed_in_onedrive"), "deleted"), status).toMatchObject({ putBack: false, select: false });
+      // Never put back; selectable only for the bar's reviewer and CRA actions.
+      expect(rowAbilities(row(status, "transcript", "removed_in_onedrive"), "deleted"), status).toMatchObject({ putBack: false, select: false });
+      expect(rowAbilities(row(status, "draft", "removed_in_onedrive"), "deleted"), status).toMatchObject({ putBack: false, select: true });
     }
+    // A final PD removed in OneDrive can still be selected and marked Reviewed by CRA.
+    expect(rowAbilities(row("deleted", "final_pd", "removed_in_onedrive"), "deleted")).toMatchObject({
+      putBack: false,
+      reviewer: true,
+      craReviewed: true,
+      select: true,
+    });
+    // 2026-11-17: the reviewer can be set on Deleted too, and the CRA mark on a deleted final PD.
+    expect(rowAbilities(row("deleted", "draft", "removed_in_onedrive"), "deleted")).toMatchObject({ reviewer: true, craReviewed: false });
+    expect(rowAbilities(row("deleted", "final_pd", "deleted"), "deleted")).toMatchObject({ reviewer: true, craReviewed: true });
+    expect(rowAbilities(row("deleted", "transcript", "deleted"), "deleted")).toMatchObject({ reviewer: false, craReviewed: false });
+    // Being read: neither.
+    expect(rowAbilities(row("fetched", "final_pd"), "review")).toMatchObject({ reviewer: false, craReviewed: false });
     expect(rowAbilities(row("approved", "final_pd"), "approved")).toEqual({
       edit: false,
       pdNumber: false,
       version: false,
       writer: false,
+      reviewer: false,
+      craReviewed: false,
       scienceCode: false,
       menu: false,
       remove: false,
@@ -270,6 +291,30 @@ describe("what a bar action takes", () => {
     );
     expect(leftOutText(splitForChange("delete", mixed).leftOut)).toBe("1 final PD was left out: it is still being read.");
     expect(leftOutText(splitForChange("category", mixed).leftOut)).toBe("");
+  });
+
+  it("sends the reviewer and the CRA mark only to the files they go on, on To review and Deleted (2026-11-17)", () => {
+    expect(taken("reviewer")).toEqual(["pd", "draft"]);
+    expect(taken("craReviewed")).toEqual(["pd"]);
+    const deleted = [file("gone-pd", "deleted", "final_pd"), file("gone-draft", "rejected", "draft"), file("gone-notes", "deleted", "supporting")];
+    expect(splitForChange("reviewer", deleted).taken.map((row) => row._id)).toEqual(["gone-pd", "gone-draft"]);
+    expect(splitForChange("craReviewed", deleted).taken.map((row) => row._id)).toEqual(["gone-pd"]);
+    expect(leftOutText(splitForChange("reviewer", mixed.slice(1)).leftOut)).toBe(
+      "3 transcripts were left out: a reviewer only goes on a final PD, draft or review copy. 1 final PD was left out: it is still being read. 1 supporting file was left out: it could not be read."
+    );
+    expect(leftOutText(splitForChange("craReviewed", mixed.slice(0, 2)).leftOut)).toBe(
+      "1 draft was left out: only a final PD is marked as reviewed by CRA."
+    );
+  });
+
+  it("names the reviewer and CRA changes in plain words (2026-11-17)", () => {
+    const reviewer: BarChange = { kind: "reviewer", reviewer: { kind: "name", name: "Priya Nair" }, reviewerName: "Priya Nair" };
+    expect(confirmLine(reviewer, 6)).toBe("Set the reviewer to Priya Nair for 6 files");
+    expect(changedText(reviewer, 1)).toBe("Reviewer set to Priya Nair for 1 file");
+    expect(confirmLine({ kind: "craReviewed", reviewed: true }, 3)).toBe("Mark 3 files as reviewed by CRA");
+    expect(changedText({ kind: "craReviewed", reviewed: true }, 3)).toBe("3 files marked as reviewed by CRA");
+    expect(confirmLine({ kind: "craReviewed", reviewed: false }, 2)).toBe('Clear "Reviewed by CRA" on 2 files');
+    expect(changedText({ kind: "craReviewed", reviewed: false }, 2)).toBe('Cleared "Reviewed by CRA" on 2 files');
   });
 
   it("names the files a call skipped, by reason", () => {

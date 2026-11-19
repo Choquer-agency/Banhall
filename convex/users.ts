@@ -20,6 +20,7 @@ import {
   membersWithInitials,
   userDisplayLabel,
   writerLabelFor,
+  writerInUse,
 } from "./lib/teamRoster";
 import { cleanWriterName } from "./lib/ingestionSheet";
 import { hasCapability } from "./lib/roleCapabilities";
@@ -466,7 +467,7 @@ const pastWriterValidator = v.object({
   // by a person: Team says "From a PD" beside it.
   nameFromDocument: v.boolean(),
   fileCount: v.number(),
-  // No file points at it, and none remembers it from before a pick: Delete is offered.
+  // No file points at it as writer or reviewer, and none remembers it from before a pick: Delete is offered.
   canDelete: v.boolean(),
   // 2026-11-17: an Admin invited this person from Team and the invite is
   // still waiting (pending, not expired): Team says "Invite sent" and does
@@ -520,7 +521,8 @@ export const listPastWriters = query({
         label: writerLabelFor(writer, null),
         nameFromDocument: Boolean(writer.name) && writer.nameSource === "document",
         fileCount: writer.fileCount,
-        canDelete: writer.fileCount === 0 && (writer.heldCount ?? 0) === 0,
+        // Since 2026-11-17 a file that names it as its reviewer counts too.
+        canDelete: !writerInUse(writer),
         invitePending: (await waitingWriterInvite(ctx, writer._id)) !== null,
         sameInitialsAs,
       });
@@ -623,7 +625,8 @@ export const unlinkPastWriter = mutation({
 });
 
 /**
- * Deletes a past writer no file points at, or remembers from before a pick
+ * Deletes a past writer no file points at (as its writer or, since
+ * 2026-11-17, its reviewer), or remembers from before a pick
  * (Team, "Delete", after a confirm). Admin only. A person's pick that named
  * it goes too, so files with those initials and no writer go back to the
  * check.
@@ -634,7 +637,7 @@ export const deletePastWriter = mutation({
   handler: async (ctx, args) => {
     await requireRole(ctx, ["admin"]);
     const writer = await pastWriterOrRefuse(ctx, args.writerId);
-    if (writer.fileCount > 0 || (writer.heldCount ?? 0) > 0) {
+    if (writerInUse(writer)) {
       domainError("INVALID_INPUT", "Files still point at this writer, so it cannot be deleted.");
     }
     const picks = await ctx.db

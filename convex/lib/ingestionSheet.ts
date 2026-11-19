@@ -252,6 +252,94 @@ export function writerBeforePickFields(
   };
 }
 
+// ─── Reviewers from initials (2026-11-17) ───────────────────────────────────
+// A PD's file name gives its reviewer's initials after the writer's
+// ("T1.DW.PN": reviewer PN). The reviewer (ingestionItems.reviewerId, a
+// pdWriters row) comes from them by the writer's own check and freeze rule
+// (initialsWriterStep): a person's pick for the initials for the whole firm
+// first (a pick names a person, so it applies to both roles), else, only
+// while the file has no reviewer, the check. A person setting the reviewer
+// on the file wins for it. Unlike the writer, a reviewer has no stored name
+// and a missing one is never a check reason.
+
+type ReviewerInput = Pick<
+  IngestionItemFields,
+  "status" | "category" | "reviewerInitials" | "reviewerId" | "reviewerSource" | "reviewerBeforePick"
+>;
+
+/** Whether a person set the file's reviewer on the file itself (its cell, or the bar). */
+export function reviewerSetByPerson(row: Pick<IngestionItemFields, "reviewerSource">): boolean {
+  return row.reviewerSource === "person";
+}
+
+/** Whether a row takes a reviewer from its initials at all: it has them, and its category takes a writer. */
+export function takesInitialsReviewer(row: Pick<IngestionItemFields, "category" | "reviewerInitials">): boolean {
+  return (
+    writerInitialsKey(row.reviewerInitials) !== null && row.category !== undefined && categoryTakes("writerName", row.category)
+  );
+}
+
+/**
+ * Whether a row's reviewer follows its file name's reviewer initials: not
+ * approved, not set by a person, and it takes a reviewer from its initials
+ * or has one from them (followsRememberedWriter's rule).
+ */
+export function followsRememberedReviewer(row: ReviewerInput): boolean {
+  if (row.status === "approved" || reviewerSetByPerson(row)) return false;
+  return takesInitialsReviewer(row) || row.reviewerSource === "initials" || row.reviewerSource === "pick";
+}
+
+/** What a write does to a row's reviewer from its initials: initialsWriterStep's steps, for the reviewer. */
+export function initialsReviewerStep(
+  row: ReviewerInput,
+  facts: { hasPick: boolean; initialsChanged: boolean }
+): InitialsWriterStep {
+  if (!followsRememberedReviewer(row)) return "none";
+  if (!takesInitialsReviewer(row)) return "clear";
+  if (facts.hasPick) return "pick";
+  if (row.reviewerSource === "pick" || facts.initialsChanged) return "fill";
+  return row.reviewerId !== undefined ? "keep" : "fill";
+}
+
+/** The reviewer fields of a row that takes `writer` from its reviewer initials (null: none), from `source`. */
+export function initialsReviewerFields(
+  writer: InitialsWriter | null,
+  source: "initials" | "pick"
+): Partial<IngestionItemFields> {
+  return writer
+    ? { reviewerId: writer.id, reviewerSource: source, reviewerBeforePick: undefined }
+    : { reviewerId: undefined, reviewerSource: undefined, reviewerBeforePick: undefined };
+}
+
+/**
+ * The reviewer fields of a row that follows a pick (pickWriterFields for
+ * the reviewer): a row that starts to follow it remembers the reviewer it
+ * had; one already following a pick keeps what it remembered.
+ */
+export function pickReviewerFields(
+  row: Pick<IngestionItemFields, "reviewerId" | "reviewerSource" | "reviewerBeforePick">,
+  pick: InitialsWriter,
+  initialsChanged: boolean
+): Partial<IngestionItemFields> {
+  const reviewerBeforePick =
+    row.reviewerSource === "pick" && !initialsChanged
+      ? (row.reviewerBeforePick ?? {})
+      : initialsChanged
+        ? {}
+        : definedFields({ reviewerId: row.reviewerId, reviewerSource: row.reviewerSource });
+  return { reviewerId: pick.id, reviewerSource: "pick", reviewerBeforePick };
+}
+
+/** The reviewer a row that followed a pick that is gone goes back to (writerBeforePickFields for the reviewer). */
+export function reviewerBeforePickFields(
+  row: Pick<IngestionItemFields, "reviewerSource" | "reviewerBeforePick">,
+  initialsChanged: boolean
+): Partial<IngestionItemFields> | null {
+  const before = row.reviewerSource === "pick" && !initialsChanged ? row.reviewerBeforePick : undefined;
+  if (!before?.reviewerId) return null;
+  return { reviewerId: before.reviewerId, reviewerSource: before.reviewerSource, reviewerBeforePick: undefined };
+}
+
 /** Categories whose rows are ordered by fiscal year, PD number and version. */
 const NUMBERED_CATEGORIES: ReadonlySet<IngestionCategory> = new Set([
   "final_pd",
@@ -423,6 +511,8 @@ export type DerivedFields = {
   writerNameSource: IngestionItemFields["writerNameSource"];
   writerId: IngestionItemFields["writerId"];
   writerBeforePick: IngestionItemFields["writerBeforePick"];
+  reviewerSource: IngestionItemFields["reviewerSource"];
+  reviewerBeforePick: IngestionItemFields["reviewerBeforePick"];
   sheetTab: SheetTab;
   needsCheck: boolean;
   checkReasons: CheckReason[];
@@ -458,6 +548,13 @@ export function derivedFields(row: IngestionItemFields & { category: IngestionCa
     writerBeforePick:
       row.writerNameSource === "pick" && row.writerName !== undefined && row.status !== "approved"
         ? row.writerBeforePick
+        : undefined,
+    // The reviewer (2026-11-17): its source only with a reviewer, and what
+    // it had before a pick only while it follows one (not once approved).
+    reviewerSource: row.reviewerId === undefined ? undefined : row.reviewerSource,
+    reviewerBeforePick:
+      row.reviewerSource === "pick" && row.reviewerId !== undefined && row.status !== "approved"
+        ? row.reviewerBeforePick
         : undefined,
     sheetTab: sheetTabForStatus(row.status),
     needsCheck: checkReasons.length > 0,

@@ -252,6 +252,9 @@ describe("file rows", () => {
       fiscalYear: { text: "2025", tone: "ink", tooltip: "Year ended Mar 31, 2025" },
       version: "T2",
       writer: { text: "Dana Whitlock", tone: "ink", initials: "DW", remembered: false },
+      // No reviewer and no reviewer initials (2026-11-17): quiet, never amber.
+      reviewer: { text: "", tone: "muted", initials: null, remembered: false, missing: true },
+      craReviewed: false,
       scienceCode: {
         kind: "code",
         code: "2.02.09",
@@ -266,6 +269,24 @@ describe("file rows", () => {
       title: "Information technology and bioinformatics",
       fromDocument: false,
     });
+  });
+
+  it("shows the reviewer from its initials as plain words, and a missing one quietly, never amber (2026-11-17)", () => {
+    const named = fileCells(row({ reviewerName: "Priya Nair", reviewerInitials: "PN", reviewerSource: "initials" }));
+    expect(named.reviewer).toEqual({ text: "Priya Nair", tone: "ink", initials: "PN", remembered: true, missing: false });
+    expect(fileCells(row({ reviewerName: "Priya Nair", reviewerSource: "person" })).reviewer).toMatchObject({ remembered: false });
+    // Initials that could be more than one person: no reviewer, and no check reason.
+    expect(fileCells(row({ reviewerInitials: "PN" })).reviewer).toEqual({ text: "PN", tone: "muted", initials: "PN", remembered: false, missing: true });
+    // A draft and a review copy take a reviewer; a transcript does not; a file being read shows nothing.
+    expect(fileCells(row({ category: "draft", reviewerName: "PN" })).reviewer?.text).toBe("PN");
+    expect(fileCells(row({ category: "transcript", reviewerName: "PN" })).reviewer).toBeNull();
+    expect(fileCells(row({ status: "fetched", reviewerName: "PN" })).reviewer).toBeNull();
+  });
+
+  it("shows Reviewed by CRA on final PDs only (2026-11-17)", () => {
+    expect(fileCells(row({ craReviewed: true })).craReviewed).toBe(true);
+    expect(fileCells(row({ category: "draft", craReviewed: true })).craReviewed).toBe(false);
+    expect(fileCells(row({})).craReviewed).toBe(false);
   });
 
   it("shows initials no person has matched in amber on a final PD that needs a writer, muted where none is needed", () => {

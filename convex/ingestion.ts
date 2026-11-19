@@ -23,9 +23,11 @@ import {
   extensionOf,
   INGEST_EXTENSIONS,
   isJunkPath,
+  labelsForItemPath,
   MAX_FILE_BYTES,
   sanitizeRelPath,
   uploadUpsertFields,
+  type IngestionCategory,
 } from "./lib/ingestionClassify";
 import {
   changedFields,
@@ -35,8 +37,14 @@ import {
   hasReadText,
   isBeingRead,
   labelPatchFields,
+  initialsReviewerFields,
+  initialsReviewerStep,
   initialsWriterFields,
   initialsWriterStep,
+  followsRememberedReviewer,
+  pickReviewerFields,
+  reviewerBeforePickFields,
+  takesInitialsReviewer,
   mergeEditedLabels,
   pairGroupsTouched,
   pathFieldsFor,
@@ -107,10 +115,12 @@ import { industrySlug } from "../shared/industries";
 import {
   canDelete,
   canPutBack,
+  craReviewedApplies,
   DELETED_IN_ONEDRIVE_NOTE,
   deletedReasonFor,
   labelApplies,
   looksLikeEmail,
+  reviewerApplies,
   type BatchSkipReason,
 } from "../shared/importSheetRules";
 
@@ -165,10 +175,42 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
 async function settleWithWriter(
   ctx: MutationCtx,
   row: IngestionItemFields,
+  previousInitials?: string | null,
+  previousReviewerInitials?: string | null
+): Promise<IngestionItemFields> {
+  const withWriter = await settleInitialsWriter(ctx, row, previousInitials);
+  const settled = await settleInitialsReviewer(ctx, withWriter, previousReviewerInitials);
+  return await withDocumentName(ctx, { ...settled, ...previewWriterNames(settled) });
+}
+
+/**
+ * The row with the reviewer its reviewer initials give (2026-11-17): the
+ * writer's steps (initialsReviewerStep), with the same pick and the same
+ * check (writerForInitials), so "PN" is one person whether PN wrote a PD or
+ * reviewed it. A missing reviewer is never a check reason.
+ */
+async function settleInitialsReviewer(
+  ctx: MutationCtx,
+  settled: IngestionItemFields,
   previousInitials?: string | null
 ): Promise<IngestionItemFields> {
-  const settled = await settleInitialsWriter(ctx, row, previousInitials);
-  return await withDocumentName(ctx, { ...settled, ...previewWriterNames(settled) });
+  const initials = writerInitialsKey(settled.reviewerInitials);
+  const initialsChanged = previousInitials !== undefined && writerInitialsKey(previousInitials) !== initials;
+  const pick = initials === null ? null : await pickedWriter(ctx, initials);
+  const step = initialsReviewerStep(settled, { hasPick: pick !== null, initialsChanged });
+  let fields: Partial<IngestionItemFields> | null = null;
+  if (step === "clear") fields = initialsReviewerFields(null, "initials");
+  else if (step === "pick") fields = pickReviewerFields(settled, pick!, initialsChanged);
+  else if (step === "fill") {
+    const before = reviewerBeforePickFields(settled, initialsChanged);
+    fields =
+      before && (await liveWriter(ctx, before.reviewerId))
+        ? before
+        : initialsReviewerFields(await writerForInitials(ctx, initials!), "initials");
+  }
+  if (fields === null) return settled;
+  const changed = Object.keys(changedFields(settled, { ...settled, ...fields })).length > 0;
+  return changed ? settleItem({ ...settled, ...fields }) : settled;
 }
 
 /**
@@ -233,7 +275,7 @@ async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promis
   const row = definedFields(await settleWithWriter(ctx, fields));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
-  await adjustWriterFiles(ctx, null, row.writerId, null, row.writerBeforePick?.writerId);
+  await adjustWriterFiles(ctx, null, row);
   await scheduleNamesRead(ctx, null, { _id: id, _creationTime: 0, ...row });
   return id;
 }
@@ -250,7 +292,7 @@ async function patchItem(
   options: { touch?: boolean } = {}
 ): Promise<{ after: Doc<"ingestionItems">; changed: boolean }> {
   const { _id, _creationTime, ...fields } = before;
-  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null);
+  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null);
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
   if (changed && options.touch) {
@@ -260,7 +302,7 @@ async function patchItem(
   if (changed) await ctx.db.patch(_id, changes);
   const after = { _id, _creationTime, ...definedFields(settled) } as Doc<"ingestionItems">;
   await adjustImportCompanyCounts(ctx, before, after);
-  await adjustWriterFiles(ctx, before.writerId, after.writerId, before.writerBeforePick?.writerId, after.writerBeforePick?.writerId);
+  await adjustWriterFiles(ctx, before, after);
   await scheduleNamesRead(ctx, before, after);
   return { after, changed };
 }
@@ -452,6 +494,15 @@ const sheetRowFields = {
   writerHasLogin: v.optional(v.boolean()),
   writerInitials: v.optional(v.string()),
   reviewerInitials: v.optional(v.string()),
+  // 2026-11-17: the writer who reviewed the PD, its label as it is now
+  // (withWriterLabels), whether it has a login, and where it came from
+  // ("initials", "pick" or "person", as writerNameSource).
+  reviewerId: v.optional(v.id("pdWriters")),
+  reviewerName: v.optional(v.string()),
+  reviewerHasLogin: v.optional(v.boolean()),
+  reviewerSource: v.optional(writerNameSourceValidator),
+  // 2026-11-17: an Admin marked this final PD "Reviewed by CRA" (final PDs only).
+  craReviewed: v.optional(v.boolean()),
   scienceCode: v.optional(v.string()),
   scienceCodeSource: v.optional(scienceCodeSourceValidator),
   editedLabels: v.array(editableLabelValidator),
@@ -491,6 +542,9 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     writerId: item.writerId,
     writerInitials: item.writerInitials,
     reviewerInitials: item.reviewerInitials,
+    reviewerId: item.reviewerId,
+    reviewerSource: item.reviewerSource,
+    craReviewed: item.craReviewed === true && item.category === "final_pd" ? true : undefined,
     scienceCode: item.scienceCode,
     scienceCodeSource: item.scienceCodeSource,
     editedLabels: item.editedLabels ?? [],
@@ -514,14 +568,24 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
 async function withWriterLabels<R extends SheetRow>(ctx: QueryCtx, rows: R[]): Promise<R[]> {
   const labels = new Map<Id<"pdWriters">, { label: string; hasLogin: boolean } | null>();
   for (const row of rows) {
-    if (!row.writerId || labels.has(row.writerId)) continue;
-    const writer = await liveWriter(ctx, row.writerId);
-    const user = writer?.userId ? await ctx.db.get(writer.userId) : null;
-    labels.set(row.writerId, writer ? { label: writerLabelFor(writer, user), hasLogin: isLoginMember(user) } : null);
+    for (const id of [row.writerId, row.reviewerId]) {
+      if (!id || labels.has(id)) continue;
+      const writer = await liveWriter(ctx, id);
+      const user = writer?.userId ? await ctx.db.get(writer.userId) : null;
+      labels.set(id, writer ? { label: writerLabelFor(writer, user), hasLogin: isLoginMember(user) } : null);
+    }
   }
   return rows.map((row) => {
     const found = row.writerId ? labels.get(row.writerId) : null;
-    return found ? { ...row, writerName: found.label, writerHasLogin: found.hasLogin } : row;
+    const reviewer = row.reviewerId ? labels.get(row.reviewerId) : null;
+    const withWriter = found ? { ...row, writerName: found.label, writerHasLogin: found.hasLogin } : row;
+    // The reviewer (2026-11-17) has no stored name: a gone one shows as none.
+    if (!row.reviewerId) return withWriter;
+    if (!reviewer) {
+      const { reviewerId: _gone, reviewerSource: _source, ...rest } = withWriter;
+      return rest as R;
+    }
+    return { ...withWriter, reviewerName: reviewer.label, reviewerHasLogin: reviewer.hasLogin };
   });
 }
 
@@ -1371,6 +1435,7 @@ export const setSheetLabels = mutation({
         patch.versionNumber = read.versionNumber;
         patch.writerInitials = read.writerInitials;
         patch.reviewerInitials = read.reviewerInitials;
+        patch.initialsGroups = read.initialsGroups;
         patch.pdTitle = read.pdTitle;
       }
       if (patch.category === "final_pd" && item.category !== "final_pd") {
@@ -1383,6 +1448,94 @@ export const setSheetLabels = mutation({
       for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
+    return outcome.result();
+  },
+});
+
+// ─── Reviewers and "Reviewed by CRA" (2026-11-17) ──────────────────────────
+
+/** Why a file was left out of a reviewer or CRA change: missing, approved, still being read, or it does not take it. */
+function reviewerSkip(
+  item: Doc<"ingestionItems"> | null,
+  applies: (row: { status: Doc<"ingestionItems">["status"]; category: IngestionCategory }) => boolean
+): BatchSkipReason | null {
+  if (!item) return "missing";
+  if (item.status === "approved") return "approved";
+  if (isBeingRead(item.status)) return "being_read";
+  const category = item.category ?? "unknown";
+  return applies({ status: item.status, category }) ? null : "does_not_apply";
+}
+
+/**
+ * Sets the reviewer of up to 100 files alone (2026-11-17: a file's own
+ * Reviewer cell, when its reviewer does not follow its initials, or the
+ * selection bar): a team member, a writer, or a typed name, as the writer
+ * picker gives (writerForChoice). Admin only. It wins for those files
+ * (reviewerSource "person"): a pick for their initials, a change of a
+ * member's initials and a later read never move it. Read final PDs, drafts
+ * and review copies on To review, and those on Deleted
+ * (shared/importSheetRules.ts reviewerApplies); every other file is skipped
+ * with its reason. A file that already has that reviewer from a person is
+ * in neither list. Counts move through patchItem.
+ */
+export const setFileReviewers = mutation({
+  args: { ids: v.array(v.id("ingestionItems")), reviewer: writerChoiceValidator },
+  returns: batchResultValidator,
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Change up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    if (ids.length === 0) return outcome.result();
+    const chosen = await writerForChoice(ctx, args.reviewer, { by: admin });
+    for (const id of ids) {
+      const item = await ctx.db.get(id);
+      const skip = reviewerSkip(item, reviewerApplies);
+      if (skip || !item) {
+        outcome.skip(id, skip ?? "missing");
+        continue;
+      }
+      const result = await patchItem(
+        ctx,
+        item,
+        { reviewerId: chosen._id, reviewerSource: "person", reviewerBeforePick: undefined },
+        { touch: true }
+      );
+      if (result.changed) outcome.changed(id);
+    }
+    return outcome.result();
+  },
+});
+
+/**
+ * Marks up to 100 final PDs as reviewed by CRA, or clears the mark
+ * (2026-11-17). Admin only, by hand only: no AI path sets it, and it is
+ * never written into any craOutcome field (that one steers retrieval).
+ * Final PDs on To review that were read, and final PDs on Deleted
+ * (craReviewedApplies); every other file is skipped with its reason. Who
+ * set it and when are kept with it; clearing takes all three away.
+ */
+export const setCraReviewed = mutation({
+  args: { ids: v.array(v.id("ingestionItems")), reviewed: v.boolean() },
+  returns: batchResultValidator,
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Change up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    const now = Date.now();
+    for (const id of ids) {
+      const item = await ctx.db.get(id);
+      const skip = reviewerSkip(item, craReviewedApplies);
+      if (skip || !item) {
+        outcome.skip(id, skip ?? "missing");
+        continue;
+      }
+      if ((item.craReviewed === true) === args.reviewed) continue;
+      const patch: Partial<IngestionItemFields> = args.reviewed
+        ? { craReviewed: true, craReviewedBy: admin, craReviewedAt: now }
+        : { craReviewed: undefined, craReviewedBy: undefined, craReviewedAt: undefined };
+      const result = await patchItem(ctx, item, patch, { touch: true });
+      if (result.changed) outcome.changed(id);
+    }
     return outcome.result();
   },
 });
@@ -1416,27 +1569,50 @@ type WriterMatchTab = (typeof WRITER_MATCH_TABS)[number];
 const writerMatchTabValidator = v.union(v.literal("review"), v.literal("deleted"));
 
 /**
- * One page of the files on `tab` whose name gave `initials`, each settled
- * again (patchItem: a file following a pick takes it, a file with no writer
- * is filled, a file with a writer from the check keeps it). Counts move
- * through patchItem; pairing does not read the writer, but a row written for
- * the first time since the labels may move group, so the groups touched are
- * recomputed.
+ * Which initials a walk follows (2026-11-17): the files whose name gave
+ * them as the writer's, or as the reviewer's. A pick names a person, so it
+ * moves both.
+ */
+type WriterMatchRole = "writer" | "reviewer";
+const writerMatchRoleValidator = v.union(v.literal("writer"), v.literal("reviewer"));
+
+/** A walk's steps in order: To review for both roles, then Deleted for both. */
+const WRITER_MATCH_PHASES: ReadonlyArray<{ role: WriterMatchRole; tab: WriterMatchTab }> = [
+  { role: "writer", tab: "review" },
+  { role: "reviewer", tab: "review" },
+  { role: "writer", tab: "deleted" },
+  { role: "reviewer", tab: "deleted" },
+];
+
+/**
+ * One page of the files on `tab` whose name gave `initials` for `role`,
+ * each settled again (patchItem settles both the writer and the reviewer:
+ * a file following a pick takes it, a file with none is filled, a file
+ * with one from the check keeps it). Counts move through patchItem;
+ * pairing does not read the writer, but a row written for the first time
+ * since the labels may move group, so the groups touched are recomputed.
  */
 async function applyWriterPage(
   ctx: MutationCtx,
   initials: string,
-  tab: WriterMatchTab,
+  phase: { role: WriterMatchRole; tab: WriterMatchTab },
   cursor: string | null
 ): Promise<{ changed: number; isDone: boolean; continueCursor: string }> {
-  const page = await ctx.db
-    .query("ingestionItems")
-    .withIndex("by_sheetTab_and_writerInitials", (q) => q.eq("sheetTab", tab).eq("writerInitials", initials))
-    .paginate({ cursor, numItems: WRITER_MATCH_BATCH });
+  const { role, tab } = phase;
+  const page =
+    role === "writer"
+      ? await ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_and_writerInitials", (q) => q.eq("sheetTab", tab).eq("writerInitials", initials))
+          .paginate({ cursor, numItems: WRITER_MATCH_BATCH })
+      : await ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_and_reviewerInitials", (q) => q.eq("sheetTab", tab).eq("reviewerInitials", initials))
+          .paginate({ cursor, numItems: WRITER_MATCH_BATCH });
   let changed = 0;
   const groups = new Set<string>();
   for (const item of page.page) {
-    if (!followsRememberedWriter(item)) continue;
+    if (!(role === "writer" ? followsRememberedWriter(item) : followsRememberedReviewer(item))) continue;
     const result = await patchItem(ctx, item, {}, { touch: true });
     if (!result.changed) continue;
     changed += 1;
@@ -1446,18 +1622,48 @@ async function applyWriterPage(
   return { changed, isDone: page.isDone, continueCursor: page.continueCursor };
 }
 
-/** Schedules the rest of a match's walk: the next page of `tab`, else the next tab. */
+/**
+ * The first 100 files on To review whose reviewer initials these are,
+ * settled again (matchWriterInitials, which has paginated once already).
+ * `more` when there are others after them.
+ */
+async function applyReviewerFirstFiles(ctx: MutationCtx, initials: string): Promise<{ changed: number; more: boolean }> {
+  const items = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_sheetTab_and_reviewerInitials", (q) => q.eq("sheetTab", "review").eq("reviewerInitials", initials))
+    .take(WRITER_MATCH_BATCH + 1);
+  let changed = 0;
+  const groups = new Set<string>();
+  for (const item of items.slice(0, WRITER_MATCH_BATCH)) {
+    if (!followsRememberedReviewer(item)) continue;
+    const result = await patchItem(ctx, item, {}, { touch: true });
+    if (!result.changed) continue;
+    changed += 1;
+    for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+  }
+  await recomputeGroups(ctx, groups, MANY_ROWS);
+  return { changed, more: items.length > WRITER_MATCH_BATCH };
+}
+
+/** The step after `phase`, or null at the end of the walk. */
+function nextWriterPhase(phase: { role: WriterMatchRole; tab: WriterMatchTab }) {
+  const at = WRITER_MATCH_PHASES.findIndex((entry) => entry.role === phase.role && entry.tab === phase.tab);
+  return WRITER_MATCH_PHASES[at + 1] ?? null;
+}
+
+/** Schedules the rest of a match's walk: the next page of this step, else the next step. */
 async function continueWriterMatch(
   ctx: MutationCtx,
   initials: string,
-  tab: WriterMatchTab,
+  phase: { role: WriterMatchRole; tab: WriterMatchTab },
   page: { isDone: boolean; continueCursor: string }
 ): Promise<void> {
-  const next = page.isDone ? WRITER_MATCH_TABS[WRITER_MATCH_TABS.indexOf(tab) + 1] : tab;
-  if (next === undefined) return;
+  const next = page.isDone ? nextWriterPhase(phase) : phase;
+  if (next === null) return;
   await ctx.scheduler.runAfter(0, internal.ingestion.applyWriterInitials, {
     initials,
-    tab: next,
+    tab: next.tab,
+    role: next.role,
     cursor: page.isDone ? null : page.continueCursor,
   });
 }
@@ -1471,13 +1677,18 @@ async function continueWriterMatch(
  * the pick, whatever writer it had, and remembers that writer
  * (writerBeforePick); when the pick goes, each file gets exactly the writer
  * it had before (or, if it had none, what the check gives), so a pick then
- * its Undo leaves every file as it was. The first 100
- * files with the initials on To review follow in this call; the rest of To
- * review, then Deleted, follow in scheduled runs of 100. Returns the writer
- * and its label, the pick before as a choice an Undo can send back (it still
- * works when that writer was a bare one that has been removed since), how
- * many files changed now, and whether more To review files are still to
- * follow. Refusals are ConvexErrors.
+ * its Undo leaves every file as it was. Since 2026-11-17 the pick names a
+ * person, so it applies to reviewers too: every file whose reviewer
+ * initials they are, and whose reviewer no person set on the file, follows
+ * it the same way (reviewerBeforePick), and the Undo gives each its
+ * reviewer back exactly. The first 100 files with the initials as the
+ * writer's on To review follow in this call, then, when those were all,
+ * the first 100 with them as the reviewer's (applyReviewerFirstFiles); the
+ * rest of To review, then Deleted, follow in scheduled runs of 100. Returns the writer and its
+ * label, the pick before as a choice an Undo can send back (it still works
+ * when that writer was a bare one that has been removed since), how many
+ * files changed now, and whether more To review files are still to follow.
+ * Refusals are ConvexErrors.
  */
 export const matchWriterInitials = mutation({
   args: { initials: v.string(), writer: v.union(writerChoiceValidator, v.null()) },
@@ -1505,15 +1716,27 @@ export const matchWriterInitials = mutation({
       await ctx.db.patch(pick._id, { writerId: chosen._id, setBy: admin, updatedAt: Date.now() });
     }
     forgetWriterMatches(ctx);
-    const page = await applyWriterPage(ctx, initials, "review", null);
-    await continueWriterMatch(ctx, initials, "review", page);
+    // To review now: the writers' first page, then, when that was all of
+    // them, the first 100 files with the initials as the reviewer's. One
+    // function may paginate once, so those are read with take, and the
+    // reviewers' scheduled walk starts from the first page again (the
+    // files done here change nothing then).
+    const page = await applyWriterPage(ctx, initials, WRITER_MATCH_PHASES[0], null);
+    let changed = page.changed;
+    let more = !page.isDone;
+    if (page.isDone) {
+      const reviewed = await applyReviewerFirstFiles(ctx, initials);
+      changed += reviewed.changed;
+      more = reviewed.more;
+    }
+    await continueWriterMatch(ctx, initials, WRITER_MATCH_PHASES[0], page);
     return {
       initials,
       writerId: chosen?._id ?? null,
       writerName: chosen ? await writerLabel(ctx, chosen) : null,
       previous,
-      changed: page.changed,
-      more: !page.isDone,
+      changed,
+      more,
     };
   },
 });
@@ -1523,19 +1746,27 @@ export const matchWriterInitials = mutation({
  * other change of the facts for some initials (users.setUserInitials, a
  * writer linked or unlinked, a pick deleted with its writer): one page,
  * then it schedules the next. Under the freeze rule it moves only files
- * that follow a pick, and fills only files with no writer yet (for example
- * initials two people shared, once only one member has them).
+ * that follow a pick, and fills only files with no writer or reviewer yet
+ * (for example initials two people shared, once only one member has them).
+ * `role` (2026-11-17): which initials the page follows; absent is the
+ * writer's, and a walk started for the writer goes on to the reviewer.
  */
 export const applyWriterInitials = internalMutation({
-  args: { initials: v.string(), tab: writerMatchTabValidator, cursor: v.union(v.string(), v.null()) },
+  args: {
+    initials: v.string(),
+    tab: writerMatchTabValidator,
+    role: v.optional(writerMatchRoleValidator),
+    cursor: v.union(v.string(), v.null()),
+  },
   returns: v.object({ changed: v.number(), done: v.boolean() }),
   handler: async (ctx, args) => {
     const initials = writerInitialsKey(args.initials);
     if (initials === null) return { changed: 0, done: true };
+    const phase = { role: args.role ?? "writer", tab: args.tab };
     // The facts as they are now: a later pick or an Undo meanwhile wins.
-    const page = await applyWriterPage(ctx, initials, args.tab, args.cursor);
-    await continueWriterMatch(ctx, initials, args.tab, page);
-    return { changed: page.changed, done: page.isDone && args.tab === WRITER_MATCH_TABS[WRITER_MATCH_TABS.length - 1] };
+    const page = await applyWriterPage(ctx, initials, phase, args.cursor);
+    await continueWriterMatch(ctx, initials, phase, page);
+    return { changed: page.changed, done: page.isDone && nextWriterPhase(phase) === null };
   },
 });
 
@@ -1761,9 +1992,27 @@ async function writerForTypedName(
  * writer for its stored name whenever it has one (so it shows what it was
  * approved as, even when its initials stand for someone else now), else the
  * pick or the check for its initials. Its stored name is never rewritten (the sheet
- * shows the writer's label as it is now). 100 files a run; it schedules the
- * rest. Safe to run again.
+ * shows the writer's label as it is now). Since 2026-11-17 it gives every
+ * file its reviewer the same way (settled on To review and Deleted; an
+ * approved file gains only the reference, from the pick or the check for
+ * its reviewer initials). 100 files a run; it schedules the rest. Safe to
+ * run again.
  */
+/**
+ * The reviewer initials of an approved file, for the writers backfill: the
+ * stored ones, or, for a file approved before reviewers were read (its
+ * stored initials empty), the ones its file name gives now. Read only: the
+ * labels saved at approval stay as they were.
+ */
+function reviewerInitialsOfApproved(item: Doc<"ingestionItems">): string | null {
+  if (takesInitialsReviewer(item)) return writerInitialsKey(item.reviewerInitials);
+  if (item.reviewerInitials !== undefined || item.category === undefined) return null;
+  const read = labelsForItemPath(item.path, item.name);
+  return takesInitialsReviewer({ category: item.category, reviewerInitials: read.reviewerInitials })
+    ? writerInitialsKey(read.reviewerInitials)
+    : null;
+}
+
 export const backfillImportWriters = internalMutation({
   args: { tab: writerBackfillTabValidator, cursor: v.union(v.string(), v.null()) },
   returns: v.object({ changed: v.number(), done: v.boolean() }),
@@ -1789,6 +2038,17 @@ export const backfillImportWriters = internalMutation({
         const initials = writerInitialsKey(item.writerInitials)!;
         const writer = (await pickedWriter(ctx, initials)) ?? (await writerForInitials(ctx, initials));
         if (writer) patch = { writerId: writer.id };
+      }
+      const approvedReviewerInitials = item.status === "approved" ? reviewerInitialsOfApproved(item) : null;
+      if (item.reviewerId === undefined && approvedReviewerInitials !== null) {
+        // 2026-11-17: an approved file gains only a reviewer reference too,
+        // the pick or the check for its reviewer initials. Files on To
+        // review and Deleted get theirs when they are settled below.
+        const initials = approvedReviewerInitials;
+        const reviewer = (await pickedWriter(ctx, initials)) ?? (await writerForInitials(ctx, initials));
+        // Only the reference, as for the writer: no source, since an
+        // approved file follows neither a pick nor the check any more.
+        if (reviewer) patch = { ...patch, reviewerId: reviewer.id };
       }
       if (item.status === "approved" && Object.keys(patch).length === 0) continue;
       const result = await patchItem(ctx, item, patch);

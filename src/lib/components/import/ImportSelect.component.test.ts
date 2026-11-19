@@ -164,19 +164,19 @@ describe("selecting files on the Import page", () => {
     await mount();
     await openCedarline();
     const header = () => all('[data-import-sheet-header] [role="columnheader"]');
-    const fixedBefore = header().slice(-4).map(left);
+    const fixedBefore = header().slice(-5).map(left);
     const yearBefore = left(one('[data-import-file="pd1"] [data-import-cell="fiscal-year"]'));
     expect(one("[data-import-file-select]")).toBeNull();
 
     await selectOn();
     expect(page.getByRole("button", { name: "Select", exact: true }).element().getAttribute("aria-pressed")).toBe("true");
     // The header, the company, each section and each file row get one.
-    expect(header()).toHaveLength(6);
+    expect(header()).toHaveLength(7);
     expect(bandBox()).not.toBeNull();
     expect(all("[data-import-section-select]").map((node) => node.dataset.importSectionSelect)).toEqual(["final_pd", "supporting", "company_file"]);
     expect(all("[data-import-file-select]").map((node) => node.dataset.importFileSelect)).toEqual(["pd1", "pd2", "pd3", "pd4", "pd5"]);
     // No other column moves: the fixed columns keep their rules.
-    expect(header().slice(-4).map(left)).toEqual(fixedBefore);
+    expect(header().slice(-5).map(left)).toEqual(fixedBefore);
     expect(left(one('[data-import-file="pd1"] [data-import-cell="fiscal-year"]'))).toBeCloseTo(yearBefore, 0);
     // Every box lines up at the sheet's left, however deep its row.
     const boxes = [bandBox(), sectionBox("final_pd"), fileBox("pd1")].map(left);
@@ -530,7 +530,7 @@ describe("selecting files on the Import page", () => {
     await userEvent.click(fileBox("pd1"));
     await userEvent.click(fileBox("pd4"));
     await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
-    expect(all("[data-import-bar-more-choice]").map((node) => text(node))).toEqual(["Company", "Writer", "PD number", "Science code"]);
+    expect(all("[data-import-bar-more-choice]").map((node) => text(node))).toEqual(["Company", "Writer", "Reviewer", "PD number", "Science code", "Reviewed by CRA"]);
     await userEvent.click(one('[data-import-bar-more-choice="writer"]')!);
     await userEvent.click(one('[data-import-name-option="user:u2"]')!);
     // The picked one is checked in the list.
@@ -817,14 +817,16 @@ describe("selecting files on the Import page", () => {
     await userEvent.click(one('[data-import-put-back="d1"]')!);
     await expect.poll(() => __mutationCalls("ingestion:restoreItems")).toEqual([{ ids: ["d1"] }]);
     await expect.element(page.getByText("1 file put back")).toBeVisible();
-    // Select here offers only Put back and the X.
+    // Select here offers Put back, More (the reviewer and the CRA mark, 2026-11-17) and the X.
     await selectOn();
-    expect(one('[data-import-file-select="d3"]')).toBeNull();
+    // A file removed in OneDrive is selectable for the reviewer and the CRA mark, never put back.
+    expect(one('[data-import-file-select="d3"]')).not.toBeNull();
     await userEvent.click(one('[data-import-section-select="draft"]')!);
-    await expect.poll(barCount).toBe("3 files selected");
+    await expect.poll(barCount).toBe("4 files selected");
     const toolbar = page.getByRole("toolbar", { name: "Selected files" });
     expect([...toolbar.element().querySelectorAll("button")].map((node) => node.getAttribute("aria-label") ?? text(node))).toEqual([
       "Put back 3 files",
+      "More",
       "Clear selection",
     ]);
     // The toast from before sits above the bar now.

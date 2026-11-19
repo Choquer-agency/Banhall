@@ -171,7 +171,7 @@
         />
       </div>
     {/if}
-    <div role="cell" aria-colspan={5} class="flex min-w-0 flex-1 items-center gap-2">
+    <div role="cell" aria-colspan={6} class="flex min-w-0 flex-1 items-center gap-2">
       <button
         type="button"
         aria-expanded={open}
@@ -212,7 +212,7 @@
     <div id={filesId} data-import-section-files>
       {#if filesQ.error && rows.length === 0}
         <div role="row" class={`flex h-11 items-center border-t border-line-soft ${selecting ? "pl-[3.75rem]" : "pl-6"}`}>
-          <div role="cell" aria-colspan={selecting ? 6 : 5} class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">These files could not be loaded.</div>
+          <div role="cell" aria-colspan={selecting ? 7 : 6} class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">These files could not be loaded.</div>
         </div>
       {:else if loadingFirst}
         {#each Array.from({ length: Math.min(firstPage, 3) }, (_, index) => index) as index (index)}
@@ -227,7 +227,7 @@
       {/if}
       {#if hasMore}
         <div role="row" class={`flex h-10 items-center border-t border-line-soft ${selecting ? "pl-[3.75rem]" : "pl-6"}`}>
-          <div role="cell" aria-colspan={selecting ? 6 : 5}>
+          <div role="cell" aria-colspan={selecting ? 7 : 6}>
             <button
               type="button"
               data-import-show-more-files

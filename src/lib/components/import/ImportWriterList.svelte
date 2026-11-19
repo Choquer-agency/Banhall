@@ -11,6 +11,9 @@
   is only an email address or "Unknown team member" is left out by the
   server. A typed email address is refused in words (the server refuses it
   too, cleanWriterName).
+
+  The Reviewer cell and bar (2026-11-17) use the same list with
+  role="reviewer": a reviewer is one of the same people.
 -->
 <script lang="ts" module>
   import type { FunctionArgs } from "convex/server";
@@ -44,14 +47,23 @@
   let {
     currentWriterId = null,
     currentValue = null,
+    role = "writer",
     onPick,
   }: {
     /** The file's writer now, checked in the list. */
     currentWriterId?: Id<"pdWriters"> | null;
     /** Or an option already picked (the selection bar), by its value. */
     currentValue?: string | null;
+    /** Whom the list picks: the file's writer or its reviewer (2026-11-17); only the words differ. */
+    role?: "writer" | "reviewer";
     onPick: (picked: PickedWriter) => void;
   } = $props();
+
+  const words = $derived(
+    role === "reviewer"
+      ? { label: "Reviewer", placeholder: "Find or type a reviewer", hint: "Type the reviewer's name.", email: "Type the reviewer's name, not an email address." }
+      : { label: "Writer", placeholder: "Find or type a writer", hint: "Type the writer's name.", email: "Type the writer's name, not an email address." }
+  );
 
   const choicesQ = useQuery(api.ingestion.writerChoices, () => ({}));
 
@@ -109,14 +121,14 @@
 </script>
 
 <ImportNameList
-  label="Writer"
-  placeholder="Find or type a writer"
+  label={words.label}
+  placeholder={words.placeholder}
   options={entries}
   {current}
   loading={choicesQ.data === undefined && !choicesQ.error}
-  hint="Type the writer's name."
+  hint={words.hint}
   newText={(typed) => `Use "${typed}"`}
-  refuseTyped={(typed) => (looksLikeEmail(typed) ? "Type the writer's name, not an email address." : null)}
+  refuseTyped={(typed) => (looksLikeEmail(typed) ? words.email : null)}
   onPick={pick}
   onNew={(typed) =>
     onPick({ choice: { kind: "name", name: typed }, label: typed, value: null, current: false, nameFromDocument: false })}

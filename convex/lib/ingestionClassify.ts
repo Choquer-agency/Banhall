@@ -61,6 +61,12 @@ export type Classified = {
   versionNumber?: number;
   writerInitials?: string;
   reviewerInitials?: string;
+  /**
+   * 2026-11-17: every initials group of a version token with three or four
+   * ("T0.DW.PN.KT"), which then gives no writer or reviewer initials until
+   * the client confirms what the later groups mean (shared/pdFilename.ts).
+   */
+  initialsGroups?: string[];
   pdTitle?: string;
 };
 
@@ -262,6 +268,7 @@ export function classify(
     if (parsed.revision !== undefined) classified.versionNumber = Number(parsed.revision);
     if (parsed.writerInitials !== undefined) classified.writerInitials = parsed.writerInitials;
     if (parsed.reviewerInitials !== undefined) classified.reviewerInitials = parsed.reviewerInitials;
+    if (parsed.initialsGroups !== undefined) classified.initialsGroups = parsed.initialsGroups;
     if (parsed.title !== undefined) classified.pdTitle = parsed.title;
   }
   return classified;
@@ -279,6 +286,7 @@ export type IngestionLabels = Pick<
   | "versionNumber"
   | "writerInitials"
   | "reviewerInitials"
+  | "initialsGroups"
   | "pdTitle"
 >;
 
@@ -329,6 +337,7 @@ export function labelsOf(c: Classified): IngestionLabels {
     versionNumber: c.versionNumber,
     writerInitials: c.writerInitials,
     reviewerInitials: c.reviewerInitials,
+    initialsGroups: c.initialsGroups,
     pdTitle: c.pdTitle,
   };
 }

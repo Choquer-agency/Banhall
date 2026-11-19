@@ -459,8 +459,8 @@ export function choiceForUndo(writer: WriterDoc): WriterChoice {
 }
 
 /**
- * Whether a writer can go once nothing points at it (no file, no file
- * remembering it from before a pick, no person's pick): only a bare one the
+ * Whether a writer can go once nothing points at it (no file as its writer
+ * or reviewer, no file remembering it from before a pick, no person's pick): only a bare one the
  * check made that no person ever named, linked or unlinked, and that no
  * waiting invite was sent for. It is made again
  * if a file needs it, and an Undo that named it gets an equal one
@@ -468,7 +468,8 @@ export function choiceForUndo(writer: WriterDoc): WriterChoice {
  * Import, one at 0 after Unlink) stays until an Admin deletes it.
  */
 async function removableWhenUnused(ctx: Ctx, writer: WriterDoc): Promise<boolean> {
-  if (!untouchedBareWriter(writer) || writer.fileCount > 0 || (writer.heldCount ?? 0) > 0) return false;
+  // A writer some file names as its reviewer (2026-11-17) stays too.
+  if (!untouchedBareWriter(writer) || writerInUse(writer)) return false;
   const pick = await ctx.db
     .query("pdWriterPicks")
     .withIndex("by_writerId", (q) => q.eq("writerId", writer._id))
@@ -556,11 +557,17 @@ export async function linkWriterFromInvite(
   return true;
 }
 
+/** What a file points at that the writers' counts follow (adjustWriterFiles). */
+export type WriterRefs = Pick<IngestionItemFields, "writerId" | "writerBeforePick" | "reviewerId" | "reviewerBeforePick">;
+
+type CountField = "fileCount" | "heldCount" | "reviewCount";
+
 /**
- * Moves the counts when a file's writer, or the writer it remembers from
- * before a pick, changes (insertItem and patchItem; null for none). A bare
- * writer the check made goes when nothing points at it any more
- * (removableWhenUnused).
+ * Moves the counts when a file's writer or reviewer, or the one it
+ * remembers from before a pick, changes (insertItem and patchItem; null for
+ * no file): fileCount for the writer, reviewCount (2026-11-17) for the
+ * reviewer, heldCount for either one remembered. A bare writer the check
+ * made goes when nothing points at it any more (removableWhenUnused).
  *
  * Not sharded: every file staged for one writer writes that writer's row,
  * so a large sync whose files share one writer serializes on it. Convex
@@ -570,14 +577,17 @@ export async function linkWriterFromInvite(
  */
 export async function adjustWriterFiles(
   ctx: MutationCtx,
-  before: Id<"pdWriters"> | undefined | null,
-  after: Id<"pdWriters"> | undefined | null,
-  heldBefore?: Id<"pdWriters"> | null,
-  heldAfter?: Id<"pdWriters"> | null
+  before: WriterRefs | null,
+  after: WriterRefs | null
 ): Promise<void> {
-  const moves: Array<[Id<"pdWriters"> | undefined | null, "fileCount" | "heldCount", number]> = [];
-  if ((before ?? null) !== (after ?? null)) moves.push([after, "fileCount", 1], [before, "fileCount", -1]);
-  if ((heldBefore ?? null) !== (heldAfter ?? null)) moves.push([heldAfter, "heldCount", 1], [heldBefore, "heldCount", -1]);
+  const moves: Array<[Id<"pdWriters"> | undefined | null, CountField, number]> = [];
+  const move = (field: CountField, from: Id<"pdWriters"> | undefined, to: Id<"pdWriters"> | undefined) => {
+    if ((from ?? null) !== (to ?? null)) moves.push([to, field, 1], [from, field, -1]);
+  };
+  move("fileCount", before?.writerId, after?.writerId);
+  move("heldCount", before?.writerBeforePick?.writerId, after?.writerBeforePick?.writerId);
+  move("reviewCount", before?.reviewerId, after?.reviewerId);
+  move("heldCount", before?.reviewerBeforePick?.reviewerId, after?.reviewerBeforePick?.reviewerId);
   const lowered = new Set<Id<"pdWriters">>();
   for (const [id, field, by] of moves) {
     if (!id) continue;
@@ -593,4 +603,9 @@ export async function adjustWriterFiles(
       forgetWriterMatches(ctx);
     }
   }
+}
+
+/** Whether any import file points at this writer, as writer or reviewer, or remembers it from before a pick. */
+export function writerInUse(writer: Pick<WriterDoc, "fileCount" | "heldCount" | "reviewCount">): boolean {
+  return writer.fileCount > 0 || (writer.heldCount ?? 0) > 0 || (writer.reviewCount ?? 0) > 0;
 }

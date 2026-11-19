@@ -159,7 +159,7 @@
         />
       </div>
     {/if}
-    <div role="cell" aria-colspan={4} class="col-span-4 flex min-w-0 items-center gap-2">
+    <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2">
       <button
         type="button"
         aria-expanded={open}
