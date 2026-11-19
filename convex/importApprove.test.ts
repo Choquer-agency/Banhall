@@ -12,7 +12,7 @@ import { classify } from "./lib/ingestionClassify";
 import { addShare, countShareOf, countsOf, emptyImportCounts } from "./lib/importCompanyCounts";
 import type { ImportCounts } from "./lib/ingestionSheetValidators";
 import { IMPORT_BRAIN_LEAK_LOG_REASON, IMPORT_BRAIN_NOT_COVERED } from "./lib/importBrainCopy";
-import { BRAIN_CHECK_GONE, BRAIN_COPY_CHANGED, BRAIN_COPY_DIFFERS, FILE_TEXT_PAGE_CHARS, OLD_APPROVE_OFF } from "./ingestion";
+import { BRAIN_CHECK_GONE, BRAIN_COPY_CHANGED, BRAIN_COPY_DIFFERS, BRAIN_COPY_LABELS_DIFFER, FILE_TEXT_PAGE_CHARS, OLD_APPROVE_OFF } from "./ingestion";
 import { importSource } from "./brain";
 import schema from "./schema";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
@@ -857,6 +857,39 @@ describe("the Brain check", () => {
     expect(await item(t, bAgain)).toMatchObject({ brainCheck: "waiting" });
     expect(await t.run((ctx) => ctx.db.query("brainSources").collect())).toHaveLength(1);
     expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toHaveLength(2);
+  });
+
+  it("never reuses an approved Brain source with the same text but other labels (Greptile, 2026-11-19)", async () => {
+    const { t, admin } = await setup();
+    const pd = await waitingPd(t, admin);
+    const plain = await admin.action(api.ingestion.previewBrainCopy, { itemId: pd, alsoRemove: [] });
+    if (!plain.ok) throw new Error("no preview");
+    const added = await admin.action(api.ingestion.addToBrain, { itemId: pd, alsoRemove: [], seen: plain.seen });
+    if (!added.ok) throw new Error("not added");
+    // The approved source now holds other labels, as another company's PD
+    // that scrubbed to the same text would.
+    const before = (await t.run((ctx) => ctx.db.get(added.sourceId)))!;
+    await t.run((ctx) => ctx.db.patch(added.sourceId, { industry: "finance", writerName: "Another Writer", writerTier: 0.9 }));
+    const b = await stage(t, `${FY}/Submitted/04 CedarlineSystems 2025-03-31 T2.DW.PN ColdChainSensorDrift B.docx`, "bytes-b");
+    await read(t, b, PD_TEXT, { scienceCode: "2.02.09" });
+    await approve(t, admin, [b]);
+    const forB = await admin.action(api.ingestion.previewBrainCopy, { itemId: b, alsoRemove: [] });
+    if (!forB.ok) throw new Error("no preview");
+    expect(forB.industry).toBe("manufacturing");
+    expect(await admin.action(api.ingestion.addToBrain, { itemId: b, alsoRemove: [], seen: forB.seen })).toEqual({
+      ok: false,
+      reason: BRAIN_COPY_LABELS_DIFFER,
+    });
+    expect(await item(t, b)).toMatchObject({ brainCheck: "waiting" });
+    expect((await item(t, b)).brainSourceId).toBeUndefined();
+    expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toHaveLength(1);
+    // With the labels back as read, it is reused.
+    await t.run((ctx) => ctx.db.patch(added.sourceId, { industry: before.industry, writerName: before.writerName, writerTier: before.writerTier }));
+    expect(await admin.action(api.ingestion.addToBrain, { itemId: b, alsoRemove: [], seen: forB.seen })).toMatchObject({
+      ok: true,
+      outcome: "matched",
+      sourceId: added.sourceId,
+    });
   });
 
   it("keeps a PD out of the Brain when the person says so, and remembers it", async () => {

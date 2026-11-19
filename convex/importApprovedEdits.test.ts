@@ -14,7 +14,7 @@ import { addShare, countShareOf, countsOf, emptyImportCounts } from "./lib/impor
 import type { ImportCounts } from "./lib/ingestionSheetValidators";
 import { pathFieldsFor } from "./lib/ingestionSheet";
 import { patchBrainSource } from "./ai/brain/rag";
-import { NOT_APPROVED_ANY_MORE, SEND_BACK_BRAIN_REASON, SEND_BACK_READ_BUDGET } from "./ingestion";
+import { NOT_APPROVED_ANY_MORE, SEND_BACK_BRAIN_REASON, SEND_BACK_READ_BUDGET, WRITER_CHECK_INCOMPLETE } from "./ingestion";
 import schema from "./schema";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -632,6 +632,53 @@ describe("Send back to review", () => {
   });
 });
 
+describe("Send back and approvals it must see (Greptile, 2026-11-19)", () => {
+  it("finds a file still waiting in a newer approval behind 60 other running ones", async () => {
+    const { t, admin, adminId } = await setup();
+    const draft = await stageRead(t, `${FY}/Drafts/Sensor notes.docx`, "Draft text");
+    await approve(t, admin, [draft]);
+    const base = { startedBy: adminId, status: "running" as const, total: 1, done: 0, approved: 0, refused: 0 };
+    await t.run(async (ctx) => {
+      // Older running approvals: stalled picked files and other companies' runs.
+      for (let index = 0; index < 60; index += 1) {
+        const stalled = index % 2 === 0;
+        await ctx.db.insert("importApprovals", {
+          ...base,
+          startedAt: Date.now() - 60_000 + index,
+          updatedAt: stalled ? Date.now() - 6 * 60 * 1000 : Date.now(),
+          scope: stalled ? "files" : "company",
+          ...(stalled ? {} : { companyKey: `other company ${index}`, companyName: `Other Company ${index}` }),
+        });
+      }
+      const approvalId = await ctx.db.insert("importApprovals", { ...base, startedAt: Date.now(), updatedAt: Date.now(), scope: "files" });
+      await ctx.db.insert("importApprovalFiles", { approvalId, itemId: draft, position: 0, state: "waiting", name: "Sensor notes.docx" });
+    });
+    expect((await sendBack(admin, [draft])).refused).toEqual([{ id: draft, reason: "approval_running" }]);
+    expect(await item(t, draft)).toMatchObject({ status: "approved" });
+  });
+
+  it("refuses safely when the file waits in more stalled approvals than one call reads", async () => {
+    const { t, admin, adminId } = await setup();
+    const draft = await stageRead(t, `${FY}/Drafts/Sensor notes.docx`, "Draft text");
+    await approve(t, admin, [draft]);
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 20; index += 1) {
+        const approvalId = await ctx.db.insert("importApprovals", {
+          startedBy: adminId, startedAt: index, updatedAt: Date.now() - 6 * 60 * 1000, scope: "files", status: "running", total: 1, done: 0, approved: 0, refused: 0,
+        });
+        await ctx.db.insert("importApprovalFiles", { approvalId, itemId: draft, position: 0, state: "waiting", name: "Sensor notes.docx" });
+      }
+    });
+    expect((await sendBack(admin, [draft])).refused).toEqual([{ id: draft, reason: "approval_running" }]);
+    // With fewer than that, stalled ones no longer block.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("importApprovalFiles").withIndex("by_itemId_and_state", (q) => q.eq("itemId", draft).eq("state", "waiting")).first();
+      await ctx.db.patch(row!._id, { state: "already" });
+    });
+    expect((await sendBack(admin, [draft])).sentBack).toEqual([draft]);
+  });
+});
+
 describe("approving again after Send back", () => {
   it("works like a first approval: a new company file, a Brain check, and a new Brain copy beside the revoked one", async () => {
     const { t, admin } = await setup();
@@ -890,6 +937,31 @@ describe("editing an approved file", () => {
       changed: ["writer"],
       brainUpdated: true,
     });
+  });
+
+  it("checks the writer against the same live projects the Brain copy hides, past projects awaiting deletion (Greptile, 2026-11-19)", async () => {
+    const { t, admin, adminId } = await setup();
+    const { pd } = await approvedPdInBrain(t, admin);
+    const clientId = (await t.run((ctx) => ctx.db.query("clients").collect())).find((client) => client.name === CEDARLINE)!._id;
+    const project = (title: string, extra: Record<string, unknown> = {}) => ({
+      title, clientName: CEDARLINE, clientId, dashboardCompanyKey: "cedarline systems", status: "review" as const,
+      createdBy: adminId, shareToken: `${title}-token`, createdAt: 1, updatedAt: 1, ...extra,
+    });
+    await t.run(async (ctx) => {
+      // The interviewee's live project, then 60 newer ones awaiting deletion.
+      await ctx.db.insert("projects", project("Freezer sensors", { interviewees: ["Morgan Vale"] }));
+      for (let index = 0; index < 60; index += 1) await ctx.db.insert("projects", project(`Deleting ${index}`, { deletionStartedAt: 1 }));
+    });
+    expect(await errorOf(admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Morgan Vale" } } }))).toBe(
+      "That writer's name is a person the company's projects interviewed, so it cannot go on this PD's Brain copy. Choose the writer by their own name."
+    );
+    // More rows awaiting deletion than the check reads: refused, not checked in part.
+    await t.run(async (ctx) => {
+      for (let index = 60; index < 1000; index += 1) await ctx.db.insert("projects", project(`Deleting ${index}`, { deletionStartedAt: 1 }));
+    });
+    expect(await errorOf(admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Morgan Hale" } } }))).toBe(
+      WRITER_CHECK_INCOMPLETE
+    );
   });
 
   it("keeps a reviewer cleared by a person cleared through Send back and the next approval", async () => {

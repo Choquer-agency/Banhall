@@ -820,9 +820,10 @@ describe("selecting files on the Import page", () => {
     await expect.element(page.getByText("1 file put back")).toBeVisible();
     // Select here offers Put back, More (the reviewer and the CRA mark, 2026-11-17) and the X.
     await selectOn();
-    expect(one('[data-import-file-select="d3"]')).toBeNull();
+    // A file removed in OneDrive is selectable for the reviewer and the CRA mark, never put back.
+    expect(one('[data-import-file-select="d3"]')).not.toBeNull();
     await userEvent.click(one('[data-import-section-select="draft"]')!);
-    await expect.poll(barCount).toBe("3 files selected");
+    await expect.poll(barCount).toBe("4 files selected");
     const toolbar = page.getByRole("toolbar", { name: "Selected files" });
     expect([...toolbar.element().querySelectorAll("button")].map((node) => node.getAttribute("aria-label") ?? text(node))).toEqual([
       "Put back 3 files",

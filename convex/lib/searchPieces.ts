@@ -210,9 +210,6 @@ export type CompanyPieceHit = Omit<PieceHit, "documentId" | "category"> & {
   fiscalYear?: number;
 };
 
-/** Hits one company search gathers before collapsing version families, per hit it returns. */
-const FAMILY_GATHER = 3;
-
 /**
  * A company's pieces a keyword search finds, best first (Phase C): only
  * files the company holds now, not archived, and pieces cut from their
@@ -246,14 +243,10 @@ export async function searchCompanyPieces(
   const files = new Map<string, Doc<"companyFiles"> | null>();
   const perFileCount = new Map<string, number>();
   const gathered: Array<CompanyPieceHit & { family: string; final: boolean }> = [];
-  // Review (2026-11-17): the gathering stopped before the scan's end, so
-  // collapsing families may leave fewer hits than a full read would.
-  let stoppedEarly = false;
+  // Review (2026-11-19): every piece of the bounded scan is checked before
+  // families collapse, so a final PD found after its drafts or review
+  // copies still takes its family's first place.
   for (const piece of scanned) {
-    if (gathered.length >= limit * FAMILY_GATHER) {
-      stoppedEarly = true;
-      break;
-    }
     const companyFileId = piece.companyFileId;
     if (!companyFileId || (args.onlyFileIds && !args.onlyFileIds.has(companyFileId))) continue;
     let file = files.get(companyFileId);
@@ -294,6 +287,6 @@ export async function searchCompanyPieces(
     .query("companyFiles")
     .withIndex("by_clientId_and_searchPiecesDue", (q) => q.eq("clientId", args.clientId).eq("searchPiecesDue", true))
     .first();
-  const scanComplete = hits.length >= limit || (!stoppedEarly && scanned.length < scanCap);
+  const scanComplete = hits.length >= limit || scanned.length < scanCap;
   return { hits, complete: notIndexed === null && scanComplete };
 }
