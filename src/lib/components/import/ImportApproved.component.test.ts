@@ -384,6 +384,31 @@ describe("Put back in Brain check (2026-11-18 (second))", () => {
 });
 
 describe("the file view of an approved file", () => {
+  it("confirms the science code the document gave when it is chosen again", async () => {
+    seed();
+    seedFile("a1", { scienceCode: "2.02.09", scienceCodeSource: "document" });
+    await mount();
+    await userEvent.click(one('[data-import-file-open="a1"]')!);
+    await expect.poll(() => one("[data-import-approved-details]")).not.toBeNull();
+    await userEvent.click(one("[data-import-approved-code]")!);
+    await userEvent.fill(page.getByRole("combobox", { name: "Science code" }), "2.02.09");
+    await userEvent.click(await vi.waitFor(() => one('[data-science-code="2.02.09"]')!));
+    await expect.poll(() => __mutationCalls("ingestion:editApprovedFile")).toEqual([{ id: "a1", patch: { scienceCode: "2.02.09" } }]);
+  });
+
+  it("does not save the science code a person already chose when it is chosen again", async () => {
+    seed();
+    seedFile("a1", { scienceCode: "2.02.09", scienceCodeSource: "person" });
+    await mount();
+    await userEvent.click(one('[data-import-file-open="a1"]')!);
+    await expect.poll(() => one("[data-import-approved-details]")).not.toBeNull();
+    await userEvent.click(one("[data-import-approved-code]")!);
+    await userEvent.fill(page.getByRole("combobox", { name: "Science code" }), "2.02.09");
+    await userEvent.click(await vi.waitFor(() => one('[data-science-code="2.02.09"]')!));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__mutationCalls("ingestion:editApprovedFile")).toEqual([]);
+  });
+
   it("changes its details and sends it back, each with its own call", async () => {
     seed();
     seedFile("a1", { craReviewed: false });
