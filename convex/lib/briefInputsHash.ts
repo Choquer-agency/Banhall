@@ -3,6 +3,7 @@ import { sha256 } from "./contracts";
 import { readsFactPacks } from "./seedFacts";
 import { FACTS_VERSION } from "./transcriptFacts";
 import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
+import { PREVIOUS_YEAR_CATEGORY } from "../../shared/previousYear";
 
 /**
  * Compute the input hash for a Brief, using the contentHash of every frozen
@@ -25,6 +26,22 @@ import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
  * draft that reads the transcripts, nor the other way round. Without packs
  * the hash is exactly what it was.
  */
+/**
+ * 2026-11-18 (third, review): a Brief made while last year's imported final
+ * PD read as background is never reused for a draft that reads it as the
+ * project's previous-year report (a company file row labelled
+ * `previous_pd:`), nor the other way round, though its text is the same.
+ * The marker names those rows by their content hashes; without such a row
+ * the hash is exactly what it was.
+ */
+function previousYearCompanyFileMarker(sources: ReadonlyArray<{ kind: string; label: string; contentHash: string }>): string {
+  const marked = sources
+    .filter((s) => s.kind === "company_file" && s.label.startsWith(`${PREVIOUS_YEAR_CATEGORY}:`))
+    .map((s) => s.contentHash)
+    .sort();
+  return marked.length > 0 ? `|previousYearCompanyFile:${marked.join(",")}` : "";
+}
+
 export async function briefInputsHash(
   sources: Array<Omit<SourceRowWithText, "_id" | "_creationTime">>
 ): Promise<string> {
@@ -51,7 +68,8 @@ export async function briefInputsHash(
     // rule is never reused for one that did not, nor the other way round,
     // even for the same content (a client's copy of the document has no
     // rule). Without such a document the hash is exactly what it was.
-    (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "");
+    (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "") +
+    previousYearCompanyFileMarker(relevantSources);
   // Phase D, step 1 (2026-10-28, sixth, review): no marker for a Brief
   // chosen by relevance. A Brief made before is still reused for the same
   // sources, writers' edits included; its quotes are all in the sources.

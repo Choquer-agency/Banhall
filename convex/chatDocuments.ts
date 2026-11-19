@@ -26,6 +26,9 @@ import {
   nonFinalHistoryCompanyFilesNewestFirst,
   pinnedFinalPdsOfYear,
   pinnedYears,
+  previousYearCompanyFileId,
+  previousYearPdOf,
+  projectHasOwnPreviousYearReport,
   type CompanyDraftSubject,
 } from "./lib/briefEvidence";
 import { isCompanyHistoryCategory } from "./lib/companyEvidence";
@@ -209,10 +212,23 @@ export async function chatCompanyFilesFor(
   projectId: Id<"projects">,
   userId: Id<"users"> | undefined,
   /** 2026-11-17: told of every company file row read (the chat's read budget charges them). */
-  meter?: ReadCounter
+  meter?: ReadCounter,
+  /**
+   * 2026-11-18 (third): whether the project has its own previous-year file
+   * (`hasOwnPreviousYearReport`), for a caller that already holds its file
+   * rows; read here only when a listed final PD could count otherwise.
+   */
+  ownPreviousYearReport?: boolean
 ): Promise<ChatCompanyFile[]> {
   const clientId = await chatCompanyScope(ctx, projectId, userId);
-  return clientId ? await listedCompanyFiles(ctx, clientId, companyDraftSubject(await ctx.db.get(projectId)), meter) : [];
+  return clientId
+    ? await listedCompanyFiles(ctx, clientId, await chatCompanySubject(ctx, projectId, clientId), projectId, meter, ownPreviousYearReport)
+    : [];
+}
+
+/** What the chat chooses company files for: as a draft does, with the company's names (2026-11-18, third). */
+async function chatCompanySubject(ctx: QueryCtx, projectId: Id<"projects">, clientId: Id<"clients">): Promise<CompanyDraftSubject> {
+  return companyDraftSubject(await ctx.db.get(projectId), await ctx.db.get(clientId));
 }
 
 /** At most this many final PDs head the chat's company file list (2026-11-17). */
@@ -240,12 +256,12 @@ export function importFiledAs(file: { category?: string | null; fiscalYear?: num
   return typeof file.fiscalYear === "number" ? `${words}, FY ${file.fiscalYear}` : words;
 }
 
-function listedFile(file: Doc<"companyFiles">): ChatCompanyFile {
+function listedFile(file: Doc<"companyFiles">, previousYear: boolean): ChatCompanyFile {
   const filedAs = importFiledAs(file);
   return {
     companyFileId: file._id,
     fileName: file.fileName,
-    category: companyFileCategory(file.category),
+    category: companyFileCategory(file.category, previousYear),
     textLength: file.textLength,
     ...(filedAs ? { filedAs } : {}),
     ...(file.labels?.title && labelsCurrent(file, file.textHash) ? { title: file.labels.title } : {}),
@@ -271,12 +287,18 @@ function listedFile(file: Doc<"companyFiles">): ChatCompanyFile {
  * Every read is bounded and indexed, and `meter.mayRead` is asked before
  * each row: once the chat's read budget has no room for one more row, the
  * list ends with what it has (review, 2026-11-17).
+ *
+ * 2026-11-18 (third): last year's final PD a draft reads as the project's
+ * previous-year report (`previousYearPdOf`) is listed in that category, so
+ * chat and drafts agree.
  */
 async function listedCompanyFiles(
   ctx: QueryCtx,
   clientId: Id<"clients">,
   subject: CompanyDraftSubject,
-  meter?: ReadCounter
+  projectId: Id<"projects">,
+  meter?: ReadCounter,
+  ownPreviousYearReport?: boolean
 ): Promise<ChatCompanyFile[]> {
   const listed: Doc<"companyFiles">[] = [];
   const seen = new Set<Id<"companyFiles">>();
@@ -285,9 +307,19 @@ async function listedCompanyFiles(
     seen.add(file._id);
     listed.push(file);
   };
+  let previousYearId: Id<"companyFiles"> | null = null;
   for (const year of pinnedYears(subject)) {
-    const rows = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
-    for (const file of pinnedFinalPdsOfYear(rows, year, subject)) add(file);
+    const { rows, complete } = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
+    const pinned = pinnedFinalPdsOfYear(rows, year, subject);
+    if (year === subject.fiscalYear! - 1) {
+      // A read the budget stopped early never makes a PD the year's only one.
+      const candidate = previousYearPdOf(pinned, rows, subject, false, complete);
+      // Null (the read of the project's rows stopped early) counts nothing.
+      if (candidate && (ownPreviousYearReport ?? (await projectHasOwnPreviousYearReport(ctx, projectId, meter))) === false) {
+        previousYearId = candidate._id;
+      }
+    }
+    for (const file of pinned) add(file);
   }
   // The other final PDs, newest fiscal year first (no year: never listed
   // here), from at most CHAT_FINAL_PD_ROWS_READ rows read.
@@ -321,7 +353,7 @@ async function listedCompanyFiles(
       add(file);
     }
   }
-  return listed.slice(0, MAX_CHAT_COMPANY_FILES).map(listedFile);
+  return listed.slice(0, MAX_CHAT_COMPANY_FILES).map((file) => listedFile(file, file._id === previousYearId));
 }
 
 /** An active transcript of the project: not removed, not replaced, not empty. */
@@ -515,6 +547,14 @@ export const readCompanyFileForChat = internalQuery({
     const file = await ctx.db.get(args.companyFileId);
     if (!clientId || !file || file.clientId !== clientId || file.archived) return { status: "not_found" };
     if (!file.hasText) return { status: "no_text", fileName: file.fileName };
+    // 2026-11-18 (third): last year's final PD reads as the project's
+    // previous-year report here too when the list and drafts read it so.
+    const subject = await chatCompanySubject(ctx, scope.projectId, clientId);
+    const previousYear =
+      file.category === "final_pd" &&
+      subject.fiscalYear !== null &&
+      file.fiscalYear === subject.fiscalYear - 1 &&
+      (await previousYearCompanyFileId(ctx, clientId, subject, scope.projectId)) === file._id;
     const totalChars = file.textLength;
     if (args.start >= totalChars) return { status: "past_end", fileName: file.fileName, totalChars };
     // As readDocumentTextSafeRange: a window one character wider, so a range
@@ -528,7 +568,7 @@ export const readCompanyFileForChat = internalQuery({
     return {
       status: "ok",
       fileName: file.fileName,
-      category: companyFileCategory(file.category),
+      category: companyFileCategory(file.category, previousYear),
       totalChars,
       start: range.start + windowStart,
       end: range.end + windowStart,
