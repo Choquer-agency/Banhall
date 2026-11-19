@@ -2502,16 +2502,17 @@ async function changeBatch(
 
 /**
  * The fields of a file that just arrived: New from now, in its batch, which
- * waits for its reading. A file that was still waiting in another batch
- * stops waiting there (that batch counts it as done), so no batch waits on
- * a file that left it.
+ * waits for its reading. A file that was still waiting stops waiting for its
+ * earlier copy (that copy's batch counts it as done), so no batch waits on a
+ * copy that was replaced. Since 2026-11-19 this holds in the same batch too:
+ * both arrivals count in `added`, so each needs its own done.
  */
 async function arrivalFields(
   ctx: MutationCtx,
   existing: Doc<"ingestionItems"> | null,
   arrival: Arrival
 ): Promise<Partial<IngestionItemFields>> {
-  if (existing?.batchReadPending && existing.batchId && existing.batchId !== arrival.batchId) {
+  if (existing?.batchReadPending && existing.batchId) {
     await changeBatch(ctx, existing.batchId, { read: 1 }, arrival.now, false);
   }
   return {
