@@ -275,7 +275,7 @@ describe("a merge moves every file, in steps", () => {
     expect(await preview(s, "acme", ["borealis"])).toMatchObject({ companyFileCount: 0, moreCompanyFiles: false, tooManyCompanyFiles: false });
     await merge(s, "acme", ["borealis"]);
     expect((await client(s, s.borealis.clientId))?.companyFilesMovingTo).toBeUndefined();
-    expect(await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).toEqual([]);
+    expect(await s.t.run(async (ctx) => bounded(await ctx.db.system.query("_scheduled_functions").take(FIXTURE_ROWS)))).toEqual([]);
   });
 
   test("500 files: the preview counts them, the first 100 move at once, the rest in steps, then the mark clears", async () => {
@@ -553,7 +553,7 @@ describe("review fixes (2026-11-18)", () => {
     await merge(s, "acme", ["borealis"]);
     // The scheduled step never ran (a crash): nothing moves on by itself.
     await s.t.run(async (ctx) => {
-      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) await ctx.scheduler.cancel(job._id);
+      for (const job of bounded(await ctx.db.system.query("_scheduled_functions").take(FIXTURE_ROWS))) await ctx.scheduler.cancel(job._id);
     });
     const stale = Date.now() - STALLED_MOVE_MS - 1_000;
     await s.t.run((ctx) => ctx.db.patch(s.borealis.clientId, { companyFilesMoveAt: stale }));
@@ -589,7 +589,7 @@ describe("review fixes (2026-11-18)", () => {
   test("P3-3: the project copy cron schedules the stalled-move sweep in its own transaction", async () => {
     const s = await setup();
     await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
-    const jobs = await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const jobs = await s.t.run(async (ctx) => bounded(await ctx.db.system.query("_scheduled_functions").take(FIXTURE_ROWS)));
     expect(jobs.map((job) => job.name)).toContain("clients:resumeStalledCompanyFileMoves");
   });
 
