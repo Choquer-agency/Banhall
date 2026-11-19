@@ -326,6 +326,13 @@ describe("people the scrub must not miss (Greptile, 2026-11-19)", () => {
     );
   });
 
+  test("a name with invisible characters inside it is still found and hidden", () => {
+    const text = "Reviewed by Anja\u200Bli Ver\u00ADma. Prepared by Tom\u2060asz Brightwater.";
+    expect(peopleNamedByCues(text)).toEqual(["Anjali Verma", "Tomasz Brightwater"]);
+    const result = copyFor("Quillmere Analytics", text);
+    expect(result.ok && result.fields.content).toBe("Reviewed by [redacted]. Prepared by [redacted].");
+  });
+
   test("a full name with common words is kept after a clear cue; a common word alone is not hidden", () => {
     const text = "Reviewed by John Smith. We met with Grace Hall, CTO.\nSincerely,\n\nRose Brown\nSmith and Grace stay as words.";
     expect(peopleNamedByCues(text)).toEqual(["Rose Brown", "John Smith", "Grace Hall"]);
