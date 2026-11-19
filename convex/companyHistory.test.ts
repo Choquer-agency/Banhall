@@ -1142,10 +1142,12 @@ describe("review fixes (2026-11-17)", () => {
     expect(rows.map((row) => [row.label, row.fiscalYear])).toEqual([["background:notes-2024.txt", 2024]]);
   });
 
-  it("a company search that stops gathering early with fewer hits than asked is not complete", async () => {
+  it("a company search that stops at its scan bound with fewer hits than asked is not complete", async () => {
     const s = await setup();
-    // 20 versions of one PD: the search gathers 3 hits a place asked, then collapses them to 2.
-    for (let index = 0; index < 20; index += 1) {
+    // 40 versions of one PD: the search reads its 32 matches (8 a place
+    // asked), then collapses them to 2. Since 2026-11-19 it reads the whole
+    // bounded scan, so only the scan bound leaves it not complete.
+    for (let index = 0; index < 40; index += 1) {
       await addFile(s, `draft-${index}.docx`, "The cobalt seat held.", { category: "draft", fiscalYear: 2024, pdNumber: "04", pieces: true });
     }
     const found = await s.t.run(async (ctx) => searchCompanyPieces(ctx, { clientId: s.clientId, query: "cobalt seat", limit: 4, perFile: 1 }));
@@ -1166,6 +1168,19 @@ describe("review fixes, round 2 (2026-11-17)", () => {
     const finalId = await addFile(s, "final.docx", "The tungsten gland held.", { category: "final_pd", fiscalYear: 2024, pdNumber: "04", pieces: true });
     const found = await s.t.run(async (ctx) => searchCompanyPieces(ctx, { clientId: s.clientId, query: "tungsten gland", limit: 1, perFile: 2 }));
     expect(found.hits.map((hit) => hit.companyFileId)).toEqual([finalId]);
+  });
+
+  it("a company search with one place left still finds a final PD after three of its drafts (2026-11-19)", async () => {
+    const s = await setup();
+    // Three drafts cut before the final PD: they once filled the 3 hits a
+    // place gathered, so the final PD was never checked.
+    for (let index = 0; index < 3; index += 1) {
+      await addFile(s, `draft-${index}.docx`, "The tungsten gland held.", { category: "draft", fiscalYear: 2024, pdNumber: "04", pieces: true });
+    }
+    const finalId = await addFile(s, "final.docx", "The tungsten gland held.", { category: "final_pd", fiscalYear: 2024, pdNumber: "04", pieces: true });
+    const found = await s.t.run(async (ctx) => searchCompanyPieces(ctx, { clientId: s.clientId, query: "tungsten gland", limit: 1, perFile: 2 }));
+    expect(found.hits.map((hit) => hit.companyFileId)).toEqual([finalId]);
+    expect(found.complete).toBe(true);
   });
 
   it("many final PDs without text never make the chat list read the whole range", async () => {

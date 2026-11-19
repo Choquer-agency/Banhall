@@ -4662,6 +4662,28 @@ describe("inviting a past writer (2026-11-17)", () => {
     await expect(admin.mutation(api.invites.resendInvite, { inviteId: two.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
   });
 
+  it("refuses sign-up when an email has two live invites, so it never links the wrong past writer", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const pn = (await writerOf(t, await pdBy(t, "PN", 2)))!;
+    const forA = await inviteFor(admin, dw._id, "sam@example.com");
+    // Made before the resend rule, say: a second live invite for the same email.
+    const forB = await t.run(async (ctx) => {
+      const a = (await ctx.db.get(forA.inviteId))!;
+      const { _id, _creationTime, ...rest } = a;
+      return await ctx.db.insert("invites", { ...rest, token: "second-token", pdWriterId: pn._id });
+    });
+    await expect(acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera")).rejects.toThrow(
+      "This email has more than one invite waiting"
+    );
+    expect((await t.run((ctx) => ctx.db.get(dw._id)))?.userId).toBeUndefined();
+    expect((await t.run((ctx) => ctx.db.get(pn._id)))?.userId).toBeUndefined();
+    // Once the extra one is revoked, the link that is left works.
+    await admin.mutation(api.invites.revokeInvite, { inviteId: forB });
+    const sam = await acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: sam._id });
+  });
+
   it("links on acceptance only while the Admin who sent the invite is still an Admin", async () => {
     const { t, admin } = await setup();
     const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
@@ -5301,6 +5323,25 @@ async function rowsWithPath(t: T, path: string) {
 async function storedFile(t: T, id: Id<"_storage">) {
   return await t.run((ctx) => ctx.db.system.get("_storage", id));
 }
+
+describe("a file sent again with new bytes before it was read (Greptile, 2026-11-19)", () => {
+  it("counts the replaced copy as done even in the same batch, so nothing is left unread", async () => {
+    const { t } = await setup();
+    vi.setSystemTime(Date.UTC(2026, 10, 12, 9, 0));
+    const path = `${CEDARLINE_FY}/Drafts/plan.docx`;
+    const send = (hash: string) =>
+      t.mutation(internal.ingestion.upsertDiscoveredItem, { ...discoveredArgs(path, { driveItemId: `local:${path}`, contentHash: hash }), via: "uploader" });
+    await send("h1");
+    vi.advanceTimersByTime(2 * 60_000);
+    // Changed bytes within the uploader's ten minutes: the same batch.
+    await send("h2");
+    const row = await itemAt(t, path);
+    expect(await batchOf(t, row.batchId!)).toMatchObject({ added: 2, read: 1 });
+    await markRead(t, row._id);
+    expect(await batchOf(t, row.batchId!)).toMatchObject({ added: 2, read: 2, couldNotRead: 0 });
+    expect((await getItem(t, row._id)).batchReadPending).toBeUndefined();
+  });
+});
 
 describe("a file added on the page with a path a row already has", () => {
   it("skips the same path and bytes as already here, and the row keeps what a person set", async () => {
