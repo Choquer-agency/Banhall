@@ -4448,6 +4448,28 @@ describe("inviting a past writer (2026-11-17)", () => {
     await expect(admin.mutation(api.invites.resendInvite, { inviteId: two.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
   });
 
+  it("refuses sign-up when an email has two live invites, so it never links the wrong past writer", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const pn = (await writerOf(t, await pdBy(t, "PN", 2)))!;
+    const forA = await inviteFor(admin, dw._id, "sam@example.com");
+    // Made before the resend rule, say: a second live invite for the same email.
+    const forB = await t.run(async (ctx) => {
+      const a = (await ctx.db.get(forA.inviteId))!;
+      const { _id, _creationTime, ...rest } = a;
+      return await ctx.db.insert("invites", { ...rest, token: "second-token", pdWriterId: pn._id });
+    });
+    await expect(acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera")).rejects.toThrow(
+      "This email has more than one invite waiting"
+    );
+    expect((await t.run((ctx) => ctx.db.get(dw._id)))?.userId).toBeUndefined();
+    expect((await t.run((ctx) => ctx.db.get(pn._id)))?.userId).toBeUndefined();
+    // Once the extra one is revoked, the link that is left works.
+    await admin.mutation(api.invites.revokeInvite, { inviteId: forB });
+    const sam = await acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: sam._id });
+  });
+
   it("links on acceptance only while the Admin who sent the invite is still an Admin", async () => {
     const { t, admin } = await setup();
     const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
