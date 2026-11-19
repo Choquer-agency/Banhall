@@ -112,6 +112,9 @@ export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
   "ingestion:setSheetLabels",
   "ingestion:removeItems",
   "ingestion:restoreItems",
+  // 2026-11-17: the old import page shows a revoked Brain match's words
+  // beside Approve.
+  "ingestion:approveItem",
 ]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */

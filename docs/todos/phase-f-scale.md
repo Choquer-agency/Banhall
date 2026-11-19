@@ -36,7 +36,7 @@ Done 2026-10-27 (decision entry "2026-10-27 (eighth)"), with the refusal while c
 
 ## F3. Brain filters and the Voyage comparison
 
-Waits for the owner (questions below). The comparison also needs a card on the Voyage account; without it the free tier's 3 requests a minute make re-embedding a test set impractical.
+Waits for the owner (questions below). The comparison also needed a card on the Voyage account, since the free tier's 3 requests a minute made re-embedding a test set impractical. As of 2026-11-17 a card is on file (owner confirmed).
 
 ## F4. The exclusion-conflict fixture
 

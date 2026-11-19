@@ -6,8 +6,7 @@
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { Tabs } from "bits-ui";
   import { goToLogin } from "$lib/auth/goToLogin";
-  import { useQuery } from "convex-svelte";
-  import { useStableQuery } from "$lib/stableQuery.svelte";
+  import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
@@ -15,6 +14,9 @@
   import FeedbackRow from "$lib/components/admin/FeedbackRow.svelte";
 
   type Tab = "pending" | "approved" | "revoked" | "feedback" | "audit";
+
+  /** Sources per page of the list (2026-11-17: the list loads in pages). */
+  const PAGE = 50;
 
   const ACTION_LABEL: Record<string, string> = {
     ingest: "Imported",
@@ -38,12 +40,16 @@
   const statsQ = useQuery(api.brain.brainStats, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  // Stable across tab switches so pending→approved doesn't flash a spinner.
-  const sourcesQ = useStableQuery(api.brain.listBrainSources, () =>
-    auth.isAuthenticated &&
-    (tab === "pending" || tab === "approved" || tab === "revoked")
-      ? { status: tab }
-      : "skip"
+  // Pages of list cards. Kept across tab switches so the old rows stay
+  // until the new tab's first page arrives (no spinner flash).
+  const sourcesQ = usePaginatedQuery(
+    api.brain.listBrainSources,
+    () =>
+      auth.isAuthenticated &&
+      (tab === "pending" || tab === "approved" || tab === "revoked")
+        ? { status: tab }
+        : "skip",
+    { initialNumItems: PAGE, keepPreviousData: true }
   );
   const feedbackQ = useQuery(api.brain.listFeedbackQueue, () =>
     auth.isAuthenticated && tab === "feedback" ? {} : "skip"
@@ -59,7 +65,13 @@
   });
 
   const stats = $derived(statsQ.data);
-  const sources = $derived(sourcesQ.data);
+  // undefined until the first page arrives, as the list's spinner expects.
+  const sources = $derived(
+    sourcesQ.isLoading && sourcesQ.results.length === 0 ? undefined : sourcesQ.results
+  );
+  const canLoadMore = $derived(
+    sourcesQ.status === "CanLoadMore" || sourcesQ.status === "LoadingMore"
+  );
   const feedback = $derived(feedbackQ.data);
   const audit = $derived(auditQ.data);
 
@@ -146,6 +158,19 @@
               {#each sources as r (r._id)}
                 <SourceRow row={r} {onChanged} />
               {/each}
+              {#if canLoadMore}
+                <div class="flex justify-center border-t border-gray-50 py-3">
+                  <button
+                    type="button"
+                    data-brain-show-more
+                    disabled={sourcesQ.status === "LoadingMore"}
+                    onclick={() => sourcesQ.loadMore(PAGE)}
+                    class="inline-flex h-9 items-center rounded-md px-3 text-sm text-gray-500 transition-colors hover:bg-primary-wash hover:text-gray-700 disabled:opacity-50"
+                  >
+                    {sourcesQ.status === "LoadingMore" ? "Loading..." : "Show more"}
+                  </button>
+                </div>
+              {/if}
             {/if}
           {:else if tab === "feedback"}
             {#if feedback === undefined}

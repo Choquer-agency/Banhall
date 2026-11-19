@@ -10,7 +10,7 @@ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 import {
-  __activeQueryArgs, __activeQueryCount, __resetConvexStub, __setQueryData,
+  __activeQueryArgs, __activeQueryCount, __resetConvexStub, __setPaginatedRows, __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 const AUDIT = "brain:listBrainAudit";
@@ -67,7 +67,8 @@ beforeEach(async () => {
   __setQueryData("users:getCurrentUser", { role: "admin", name: "Test Admin", isOwner: true, isAnonymous: false });
   __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
   __setQueryData(STATS, { approved: 0, pending: 0, byIndustry: {} });
-  __setQueryData(SOURCES, []);
+  // 2026-11-17: the list is a paginated read.
+  __setPaginatedRows(SOURCES, []);
   __setQueryData(AUDIT, audit);
   await page.viewport(1440, 900);
 });

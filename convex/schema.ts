@@ -3865,13 +3865,84 @@ export default defineSchema({
     sourceProjectId: v.optional(v.id("projects")), // if promoted from a live project
     createdBy: v.string(),
     createdAt: v.number(),
+    // 2026-11-17 widen (Brain reads at volume): the import file this source
+    // was made from, and that file's `ingestionItems.contentHash`, so a file
+    // approved again matches its source by bytes, not only by text.
+    importItemId: v.optional(v.id("ingestionItems")),
+    importContentHash: v.optional(v.string()),
+    // The status a revoke moved it from: "pending" is a rejection, "approved"
+    // a removal. Absent on rows revoked before 2026-11-17.
+    revokedFromStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"))),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
     .index("by_hash", ["sourceHash"])
     .index("by_ragKey", ["ragKey"])
     .index("by_industry", ["industry"])
-    .index("by_scienceCode", ["scienceCode"]),
+    .index("by_scienceCode", ["scienceCode"])
+    .index("by_importItemId", ["importItemId"])
+    .index("by_importContentHash", ["importContentHash"]),
+
+  // 2026-11-17 (Brain reads at volume): every import file linked to a
+  // source, by its `ingestionItems.contentHash`, whether it matched by bytes
+  // or by text. Dedup looks a file's bytes up here first, so a later copy of
+  // any linked file finds its source even when its text is read differently.
+  // Written and deleted only through `convex/ai/brain/rag.ts`
+  // (`linkBrainSourceImportFile`, `deleteBrainSource`). Kept on revoke, so a
+  // revoked source still refuses every file linked to it.
+  brainSourceImportFiles: defineTable({
+    contentHash: v.string(),
+    sourceId: v.id("brainSources"),
+    importItemId: v.id("ingestionItems"),
+  })
+    .index("by_contentHash_and_sourceId", ["contentHash", "sourceId"])
+    .index("by_sourceId", ["sourceId"]),
+
+  // 2026-11-17 (Brain reads at volume): one small row per `brainSources` row
+  // with what /admin/brain lists, so the list pages without reading any
+  // source's text. Kept in step with its source in one place
+  // (`convex/ai/brain/rag.ts`, writeBrainSource helpers); built for older
+  // rows by `brain:backfillBrainSourceCards`.
+  brainSourceCards: defineTable({
+    sourceId: v.id("brainSources"),
+    kind: v.union(
+      v.literal("pd_pair"),
+      v.literal("cra_letter"),
+      v.literal("writer_feedback")
+    ),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("revoked")
+    ),
+    title: v.string(),
+    industry: v.string(),
+    scienceCode: v.optional(v.string()),
+    writerName: v.optional(v.string()),
+    writerTier: v.number(),
+    docType: v.string(),
+    craOutcome: v.optional(
+      v.union(v.literal("approved"), v.literal("rejected"), v.literal("disputed"))
+    ),
+    ragEntryId: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_sourceId", ["sourceId"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_status_and_createdAt", ["status", "createdAt"]),
+
+  // 2026-11-17 (Brain reads at volume): stored counts behind `brain:brainStats`.
+  // `scope` "status" counts every source by status; `scope` "industry" counts
+  // approved sources by industry. Changed only with `brainSourceCards`, so the
+  // counts always equal a recount of the cards. A count that reaches 0 is
+  // deleted. `scope` "meta", key "cards_ready": written by the card
+  // backfill's last page (its `count` is the sources it synced); the paged
+  // re-embed refuses to start without it.
+  brainSourceCounts: defineTable({
+    scope: v.union(v.literal("status"), v.literal("industry"), v.literal("meta")),
+    key: v.string(),
+    count: v.number(),
+  }).index("by_scope_and_key", ["scope", "key"]),
 
   // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
   // One row per review run. The uploaded PD lives in projectDocuments

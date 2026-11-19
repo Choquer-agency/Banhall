@@ -53,6 +53,9 @@ export const domainErrorCodes = [
   // 2026-10-14 saved clients: a client with the same key already exists
   // (create or a merge rename); carries `existingName` and `existingKey`.
   "CLIENT_EXISTS",
+  // 2026-11-17 Brain reads at volume: an import matched a Brain source an
+  // Admin revoked, so it is not reused or approved; carries `sourceId`.
+  "BRAIN_SOURCE_REVOKED",
 ] as const;
 
 export type DomainErrorCode = (typeof domainErrorCodes)[number];
