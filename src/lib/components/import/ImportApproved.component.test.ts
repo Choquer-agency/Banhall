@@ -339,6 +339,24 @@ describe("Send back to review", () => {
   });
 });
 
+describe("an approved row while a change saves", () => {
+  it("turns its writer, reviewer and science code pickers off until the save ends", async () => {
+    seed();
+    let finish: (value: unknown) => void = () => {};
+    __setMutationHandler("ingestion:editApprovedFile", () => new Promise((resolve) => (finish = resolve)));
+    await mount();
+    await userEvent.click(inRow("a3", "[data-import-code-edit]"));
+    await userEvent.fill(page.getByRole("combobox", { name: "Science code" }), "2.02.09");
+    await userEvent.click(await vi.waitFor(() => one('[data-science-code="2.02.09"]')!));
+    await expect.poll(() => __mutationCalls("ingestion:editApprovedFile").length).toBe(1);
+    for (const selector of ["[data-import-code-edit]", "[data-import-writer-edit]", "[data-import-reviewer-edit]"]) {
+      expect((inRow("a3", selector) as HTMLButtonElement).disabled, selector).toBe(true);
+    }
+    finish({ changed: ["scienceCode"], brainUpdated: true });
+    await expect.poll(() => (inRow("a3", "[data-import-code-edit]") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe("the file view of an approved file", () => {
   it("confirms the science code the document gave when it is chosen again", async () => {
     seed();
