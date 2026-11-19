@@ -80,6 +80,8 @@ export type ImportBrainCopyResult =
 
 /** The leak refusal for the audit log, without the word that leaked. */
 export const IMPORT_BRAIN_LEAK_LOG_REASON = "The Brain copy would still name the company, so it was not made.";
+/** The person leak refusal for the audit log, without the name (2026-11-19). */
+export const IMPORT_BRAIN_PERSON_LEAK_LOG_REASON = "The Brain copy would still name a person, so it was not made.";
 
 /** What a query reads for one import file (see `importBrainCopyFor` in convex/ingestion.ts). */
 export type ImportBrainCopyInput = {
@@ -546,8 +548,17 @@ const ROLE_WORDS = new Set([
 ]);
 /** Cues after which a name is taken only when a comma, a role or the end of the clause follows. */
 const STRICT_PERSON_CUE = /(?<![\p{L}\p{N}])(?:led by|contact(?:ed)?|according to)(?:[ \t]*:)?[ \t]+/giu;
+/**
+ * Clear cues before a person's name. The name may follow on the same line,
+ * or on a later line as in a cover table (Greptile 2026-11-19): after a
+ * colon and up to three line breaks ("Reviewed by:\n\nAnjali Verma"), or
+ * after a blank line. A single line break with no colon is a line that
+ * wrapped, so the name there is not taken.
+ */
 const PERSON_CUE =
-  /(?<![\p{L}\p{N}])(?:prepared by|written by|reviewed by|authored by|managed by|supervised by|directed by|coordinated by|spoke with|spoken with|speaking with|interviews? with|interviewed|met with|attention|attn\.?)(?:[ \t]*:)?[ \t]+/giu;
+  /(?<![\p{L}\p{N}])(?:prepared by|written by|reviewed by|authored by|managed by|supervised by|directed by|coordinated by|spoke with|spoken with|speaking with|interviews? with|interviewed|met with|attention|attn\.?)(?:[ \t]*:[ \t]*(?:\r?\n[ \t]*){1,3}|[ \t]*\r?\n[ \t]*(?:\r?\n[ \t]*){1,2}|(?:[ \t]*:)?[ \t]+)/giu;
+/** Cues that name who wrote or checked the PD: what follows is a person even when its words are common. */
+const AUTHOR_CUE = /^(?:prepared|written|reviewed|authored|supervised) by/iu;
 /** After a name taken from a strict cue: a comma, a role, or the end of the clause. */
 const AFTER_STRICT_PERSON = new RegExp(`(?:[ \\t]*(?:[,;:.!?)]|\\r?\\n|$)|[ \\t]+(?:the[ \\t]+)?${ROLE_PHRASE}(?![\\p{L}\\p{N}]))`, "uy");
 /** A letter's closing, then a name on its own line ("Sincerely,\n\nGwendolyn Ashcombe"). */
@@ -589,6 +600,37 @@ function plausiblePerson(name: string): boolean {
 }
 
 /**
+ * Words that name a team or a function, not a person, so "Reviewed by
+ * Quality Assurance" or "Prepared by Management Team" is not a name.
+ */
+const TEAM_WORDS = new Set([
+  "quality", "assurance", "control", "management", "operations", "department", "team", "committee",
+  "board", "office", "division", "unit", "staff", "finance", "accounting", "legal", "compliance",
+  "safety", "production", "maintenance", "sales", "marketing", "administration", "admin", "human",
+  "resources", "hr", "it", "qa", "qc", "rd", "internal", "external", "client", "applicant", "claimant",
+]);
+
+/**
+ * A full name after a clear cue ("Reviewed by John Smith"), a letter's
+ * closing included (Greptile 2026-11-19). Kept even when its words are
+ * common ("Smith", "Grace Hall"): the cue says it is a person. Not kept when
+ * a word is a role, an article, a legal suffix, a team word, or when every
+ * word only describes a company ("Engineering Services"). Only whole names
+ * are hidden this way; a common first name or surname is never hidden on its
+ * own (`namePartsOnTheirOwn` keeps the ordinary-word guard).
+ */
+function plausibleCuedPerson(name: string): boolean {
+  const words = name.split(/[ \t]+/).filter((word) => !/^\p{Lu}\.$/u.test(word));
+  if (words.length < 2) return plausiblePerson(name);
+  const lower = words.map((word) => fold(word).toLowerCase());
+  return (
+    lower.every(
+      (word) => word.length >= 2 && !ROLE_WORDS.has(word) && !ARTICLE_WORDS.has(word) && !LEGAL_SUFFIX_WORDS.has(word) && !TEAM_WORDS.has(word)
+    ) && !lower.every((word) => GENERIC_NAME_WORDS.has(word))
+  );
+}
+
+/**
  * People the PD names next to a title (Dr.), a role (", CTO", "our lead
  * engineer"), a cue ("prepared by", "interviews with"; "led by", "contact"
  * and "according to" only when a comma, a role or the clause end follows,
@@ -598,13 +640,14 @@ function plausiblePerson(name: string): boolean {
  */
 export function peopleNamedByCues(text: string): string[] {
   const found = new Set<string>();
-  const keep = (name: string | undefined) => {
+  const keep = (name: string | undefined, cued = false) => {
     const clean = name?.trim().replace(/[ \t]+/g, " ");
-    if (clean && plausiblePerson(clean)) found.add(clean);
+    if (clean && (cued ? plausibleCuedPerson(clean) : plausiblePerson(clean))) found.add(clean);
   };
-  for (const regex of [HONORIFIC_PERSON, PERSON_THEN_ROLE, ROLE_THEN_PERSON, INITIAL_PERSON, CLOSING_PERSON]) {
+  for (const regex of [HONORIFIC_PERSON, PERSON_THEN_ROLE, ROLE_THEN_PERSON, INITIAL_PERSON]) {
     for (const match of text.matchAll(regex)) keep(match[1]);
   }
+  for (const match of text.matchAll(CLOSING_PERSON)) keep(match[1], true);
   for (const [cues, strict] of [[PERSON_CUE, false], [STRICT_PERSON_CUE, true]] as const) {
     for (const cue of text.matchAll(cues)) {
       PERSON_AT.lastIndex = (cue.index ?? 0) + cue[0].length;
@@ -614,7 +657,12 @@ export function peopleNamedByCues(text: string): string[] {
         AFTER_STRICT_PERSON.lastIndex = PERSON_AT.lastIndex;
         if (!AFTER_STRICT_PERSON.test(text)) continue;
       }
-      keep(person[1]);
+      // A full name with common words is kept after a cue of who wrote or
+      // checked the PD, or after any other clear cue when a comma, a role or
+      // the clause end follows ("met with John Smith, CTO"). A strict cue
+      // ("according to") keeps the ordinary-word guard.
+      AFTER_STRICT_PERSON.lastIndex = PERSON_AT.lastIndex;
+      keep(person[1], !strict && (AUTHOR_CUE.test(cue[0]) || AFTER_STRICT_PERSON.test(text)));
     }
   }
   return [...found];
@@ -1077,6 +1125,22 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
       "names_left",
       `The Brain copy would still show "${typedLeak}" from Also remove, so it was not made. The final PD still goes on the company's page.`,
       IMPORT_BRAIN_LEAK_LOG_REASON
+    );
+  }
+  // Review fix (Greptile, 2026-11-19): the full names the scrub was given
+  // (saved people, writers and people named by a cue) are checked too, by
+  // the company check's own matcher: each name as words in order and
+  // joined ("AnjaliVerma"), and its distinctive words. A name the scrub
+  // missed never reaches the shared copy.
+  const personLeak = findIdentityLeak(
+    content,
+    people.filter((name) => alsoRemoveWords(name).length >= 2)
+  );
+  if (personLeak !== null) {
+    return refuse(
+      "names_left",
+      `The Brain copy would still name a person ("${personLeak}"), so it was not made. The final PD still goes on the company's page.`,
+      IMPORT_BRAIN_PERSON_LEAK_LOG_REASON
     );
   }
 

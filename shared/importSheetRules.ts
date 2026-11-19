@@ -316,11 +316,13 @@ export function approvedEditApplies(
 /**
  * What a file row may do on a tab: its label cells follow labelApplies, its
  * menu (a move) is on every file on To review, delete follows canDelete and
- * "Put back" follows canPutBack. On Approved (2026-11-17) the writer,
- * reviewer and science code cells and "Reviewed by CRA" follow
- * approvedEditApplies, each for that file alone, its own menu holds Open,
- * "Reviewed by CRA" and Send back to review, and its files can be selected
- * for Send back; nothing there moves a file.
+ * "Put back" follows canPutBack. On Deleted a file is selectable for Put back
+ * or for the bar's reviewer and "Reviewed by CRA" actions, so a final PD
+ * removed in OneDrive can still be marked; Put back skips it. On Approved
+ * (2026-11-17) the writer, reviewer and science code cells and "Reviewed by
+ * CRA" follow approvedEditApplies, each for that file alone, its own menu
+ * holds Open, "Reviewed by CRA" and Send back to review, and its files can be
+ * selected for Send back; nothing there moves a file.
  */
 export function rowAbilities(
   row: { status: ImportItemStatus; category: ImportCategory; deletedReason?: DeletedReason },
@@ -329,22 +331,20 @@ export function rowAbilities(
   const review = tab === "review" && tabForStatus(row.status) === "review";
   const approved = tab === "approved" && row.status === "approved";
   const putBack = tab === "deleted" && canPutBack(row);
+  const reviewer = tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row);
+  const craReviewed = tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row);
   return {
     edit: review && labelApplies("fiscalYearEnd", row),
     pdNumber: review && labelApplies("pdNumber", row),
     version: review && labelApplies("version", row),
     writer: (review && labelApplies("writerName", row)) || (approved && approvedEditApplies("writer", row)),
-    reviewer:
-      (tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row)) ||
-      (approved && approvedEditApplies("reviewer", row)),
-    craReviewed:
-      (tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row)) ||
-      (approved && approvedEditApplies("craReviewed", row)),
+    reviewer: reviewer || (approved && approvedEditApplies("reviewer", row)),
+    craReviewed: craReviewed || (approved && approvedEditApplies("craReviewed", row)),
     scienceCode: (review && labelApplies("scienceCode", row)) || (approved && approvedEditApplies("scienceCode", row)),
     menu: review,
     remove: review && canDelete(row.status),
     putBack,
-    select: review || putBack || approved,
+    select: review || putBack || approved || (tab === "deleted" && (reviewer || craReviewed)),
     approvedMenu: approved,
   };
 }

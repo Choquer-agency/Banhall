@@ -13,6 +13,7 @@ import {
   findAlsoRemoveLeak,
   findIdentityLeak,
   importBrainTitle,
+  peopleNamedByCues,
   scrubImportText,
   websiteHost,
   type ImportBrainCopyInput,
@@ -312,6 +313,50 @@ describe("review fixes: every distinctive word, numbers, addresses, people, acce
     expect(folder.ok && folder.fields.content).toBe("[redacted] ran QA.");
     const pd = copyFor("PD Systems Inc.", "PD Systems wrote this PD.");
     expect(pd).toMatchObject({ ok: true, fields: { title: "Past PD, FY2024", content: "[redacted] wrote this PD." } });
+  });
+});
+
+describe("people the scrub must not miss (Greptile, 2026-11-19)", () => {
+  test("a cover table's name after a line break is hidden, and a single wrapped line is not taken", () => {
+    const text = ["Reviewed by:", "", "Anjali Verma", "", "Prepared by", "", "Tomasz Brightwater", "", "The team interviewed", "Sensor Fusion experts."].join("\n");
+    expect(peopleNamedByCues(text)).toEqual(["Anjali Verma", "Tomasz Brightwater"]);
+    const result = copyFor("Quillmere Analytics", text);
+    expect(result.ok && result.fields.content).toBe(
+      ["Reviewed by:", "", "[redacted]", "", "Prepared by", "", "[redacted]", "", "The team interviewed", "Sensor Fusion experts."].join("\n")
+    );
+  });
+
+  test("a full name with common words is kept after a clear cue; a common word alone is not hidden", () => {
+    const text = "Reviewed by John Smith. We met with Grace Hall, CTO.\nSincerely,\n\nRose Brown\nSmith and Grace stay as words.";
+    expect(peopleNamedByCues(text)).toEqual(["Rose Brown", "John Smith", "Grace Hall"]);
+    const result = copyFor("Quillmere Analytics", text);
+    expect(result.ok && result.fields.content).toBe(
+      "Reviewed by [redacted]. We met with [redacted], CTO.\nSincerely,\n\n[redacted]\nSmith and Grace stay as words."
+    );
+  });
+
+  test("teams, company words and wrapped prose after a cue are not people", () => {
+    expect(
+      peopleNamedByCues(
+        "Reviewed by Quality Assurance. Prepared by Engineering Services. Prepared by Management Team. We interviewed Sensor Fusion experts."
+      )
+    ).toEqual([]);
+  });
+
+  test("a person's name the scrub missed refuses the copy, and the log never quotes it", () => {
+    // Written joined, the scrub does not hide it; the check reads it.
+    const result = buildImportBrainCopy(input({ identity: { organizations: ["Quillmere Analytics Ltd."], people: ["Anjali Verma"] } }), "AnjaliVerma ran the drift model.");
+    expect(result).toMatchObject({ ok: false, code: "names_left" });
+    if (result.ok) return;
+    expect(result.reason).toContain("would still name a person");
+    expect(result.logReason).toBe("The Brain copy would still name a person, so it was not made.");
+    expect(result.logReason.toLowerCase()).not.toContain("anjali");
+    // Added to Also remove, it is hidden and the copy is made.
+    const fixed = buildImportBrainCopy(
+      input({ identity: { organizations: ["Quillmere Analytics Ltd."], people: ["Anjali Verma"] }, alsoRemove: ["AnjaliVerma"] }),
+      "AnjaliVerma ran the drift model."
+    );
+    expect(fixed.ok && fixed.fields.content).toBe("[redacted] ran the drift model.");
   });
 });
 

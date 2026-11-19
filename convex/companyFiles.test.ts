@@ -19,6 +19,8 @@ import { MAX_FORMER_NAMES, MERGE_COMPANY_FILE_LIMIT } from "./clients";
 import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { SERVER_READER_VERSION } from "./lib/serverReading";
 import { textPdf } from "./ai/testFiles.fixture";
+import { addImportedCompanyFile } from "./companyFiles";
+import { needsServerReading } from "./lib/serverReading";
 import { drainScheduledFunctions } from "./testScheduledFunctions";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -626,6 +628,31 @@ describe("the server's reading", () => {
     for (const page of PAGES) expect(text).toContain(page);
     // Read once: not read again.
     expect(await s.t.mutation(internal.companyFileWork.startCompanyFileReading, { companyFileId: fileId })).toBeNull();
+  });
+});
+
+describe("an imported .vtt transcript (Greptile, 2026-11-19)", () => {
+  test("is read on the server when Import has no text for it, and the worker reads it", async () => {
+    const s = await setup();
+    const vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nThe graphite seal held at 4.2 bar.";
+    const storageId = await s.t.run(async (ctx) => ctx.storage.store(new Blob([vtt], { type: "text/vtt" })));
+    expect(needsServerReading({ fileName: "interview.vtt", storageId, hasReadText: false })).toBe(true);
+    const added = await s.t.run(async (ctx) => {
+      const now = Date.now();
+      const importItemId = await ctx.db.insert("ingestionItems", {
+        driveItemId: "drive-vtt", path: "Acme/2024/interview.vtt", name: "interview.vtt", docKind: "transcript", size: vtt.length,
+        lastModifiedAt: now, contentHash: "hash-vtt", status: "approved", pairGroupKey: "acme::2024", updatedAt: now, category: "transcript",
+      });
+      const admin = (await ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "cf-admin")).unique())!;
+      return await addImportedCompanyFile(ctx, {
+        clientId: s.acmeId, importItemId, fileName: "interview.vtt", category: "transcript", storageId, text: null, addedBy: admin,
+      });
+    });
+    expect(added).toMatchObject({ created: true, readOnServer: true });
+    await s.t.action(internal.ai.fileReading.readStoredCompanyFile, { companyFileId: added.companyFileId });
+    const file = (await s.t.run(async (ctx) => ctx.db.get(added.companyFileId)))!;
+    expect(file).toMatchObject({ serverReader: SERVER_READER_VERSION, hasText: true });
+    expect(await s.t.run(async (ctx) => readCompanyFileText(ctx, file))).toContain("The graphite seal held at 4.2 bar.");
   });
 });
 
