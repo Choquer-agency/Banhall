@@ -69,9 +69,17 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
               )
               .take(10)
           : [];
-        const invite =
-          invites.find((i) => i.status === "pending" && i.expiresAt > now) ??
-          null;
+        const live = invites.filter((i) => i.status === "pending" && i.expiresAt > now);
+        // One live invite per email (createInvites and resendInvite keep it).
+        // Should two ever exist, sign-up cannot tell which link was used, so
+        // it refuses rather than take one, since an invite can link a past
+        // writer to the new account.
+        if (live.length > 1) {
+          throw new ConvexError(
+            "This email has more than one invite waiting. Ask an admin to revoke the extra ones, then use the newest link.",
+          );
+        }
+        const invite = live[0] ?? null;
         const existing = email
           ? await ctx.db
               .query("users")
