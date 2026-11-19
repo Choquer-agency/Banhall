@@ -9,7 +9,7 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { CAP_TRUNCATION_MARKER, isImageFile, isSupportedFile } from "../../shared/documentStatus";
+import { CAP_TRUNCATION_MARKER, getFileExtension, isImageFile, isSupportedFile } from "../../shared/documentStatus";
 import { escapeMarks, quotableWordText } from "../../shared/wordMarkdown";
 import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
 
@@ -66,6 +66,19 @@ export async function documentHasReadText(
   return hasReadText(await readDocumentText(ctx, doc));
 }
 
+/**
+ * Types the server reads that the browser's upload list does not take: an
+ * Import transcript (.vtt, 2026-11-19, Greptile on PR #45), which
+ * `readFileOnServer` reads as text.
+ */
+const SERVER_ONLY_EXTENSIONS: readonly string[] = ["vtt"];
+
+/** Whether the server can read a file's original: a supported type that is not a picture, or a server-only type. */
+export function serverCanRead(fileName: string): boolean {
+  if (SERVER_ONLY_EXTENSIONS.includes(getFileExtension(fileName))) return true;
+  return isSupportedFile(fileName) && !isImageFile(fileName);
+}
+
 type ReadingState = {
   fileName: string;
   textFormat?: "markdown";
@@ -93,7 +106,7 @@ export function needsServerReading(
   options: { wordMarkdownBackfill?: boolean } = {}
 ): boolean {
   if (!doc.storageId || doc.archived) return false;
-  if (!isSupportedFile(doc.fileName) || isImageFile(doc.fileName)) return false;
+  if (!serverCanRead(doc.fileName)) return false;
   if (
     doc.serverReader === SERVER_READER_VERSION &&
     (doc.serverReadAt !== undefined || doc.serverReadStartedAt !== undefined)

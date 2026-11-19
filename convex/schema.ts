@@ -4549,7 +4549,10 @@ export default defineSchema({
     name: v.string(),
   })
     .index("by_approvalId_and_state_and_position", ["approvalId", "state", "position"])
-    .index("by_approvalId_and_itemId", ["approvalId", "itemId"]),
+    .index("by_approvalId_and_itemId", ["approvalId", "itemId"])
+    // 2026-11-19 (Greptile on PR #46): Send back reads the approvals a file
+    // still waits in by the file, not from a bounded list of running ones.
+    .index("by_itemId_and_state", ["itemId", "state"]),
 
   // 2026-11-17 (Send back to review, edit after approval;
   // docs/product-domain.md): one row for every Send back and every edit an
