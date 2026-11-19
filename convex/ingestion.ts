@@ -1803,11 +1803,19 @@ export const approvalProgress = query({
   handler: async (ctx) => {
     const adminId = await adminOrNull(ctx);
     if (adminId === null) return [];
-    const running = await ctx.db
-      .query("importApprovals")
-      .withIndex("by_status_and_startedAt", (q) => q.eq("status", "running"))
-      .order("desc")
-      .take(APPROVALS_SHOWN);
+    // A stopped approval (no progress for APPROVAL_STALE_MS) its starter
+    // closed stays closed (2026-11-19, from code review); one still moving
+    // always shows, whoever closed it.
+    const now = Date.now();
+    const running = (
+      await ctx.db
+        .query("importApprovals")
+        .withIndex("by_status_and_startedAt", (q) => q.eq("status", "running"))
+        .order("desc")
+        .take(APPROVALS_SHOWN * 2)
+    )
+      .filter((run) => !(run.dismissedAt !== undefined && now - run.updatedAt >= APPROVAL_STALE_MS))
+      .slice(0, APPROVALS_SHOWN);
     const latest = await ctx.db
       .query("importApprovals")
       .withIndex("by_startedBy_and_startedAt", (q) => q.eq("startedBy", adminId as Id<"users">))
