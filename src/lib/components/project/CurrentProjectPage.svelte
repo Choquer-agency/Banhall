@@ -940,8 +940,9 @@
     exportId: Id<"reportExports">
   ) {
     try {
+      // UTC, like the year end printed in the file's header (exportTemplateDocx).
       const year = canonical.fiscalYearEnd
-        ? new Date(canonical.fiscalYearEnd).getFullYear()
+        ? new Date(canonical.fiscalYearEnd).getUTCFullYear()
         : new Date().getFullYear();
       const safeClient = canonical.clientName
         .replace(/[^a-zA-Z0-9\s\-]/g, "")
