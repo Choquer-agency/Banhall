@@ -17,8 +17,19 @@ import { components, internal } from "./_generated/api";
 import { eraseBrainEntry } from "./ai/brain/erase";
 import {
   BRAIN_CHUNK_NOTES_VERSION,
+  BRAIN_INDEX_FIELDS,
+  BRAIN_RAGS,
+  type BrainEntryMetadata,
   countKeys,
   deleteBrainSource,
+  deleteKeptChunkNotes,
+  entryIdIn,
+  entryIsCurrent,
+  heldEntries,
+  INDEX_WRITE_LEASE_MS,
+  needsFullImportanceEmbed,
+  readBrainIndexState,
+  vBrainIndexId,
   deleteSourceImportLinksPage,
   insertBrainSource,
   linkBrainSourceImportFile,
@@ -28,6 +39,19 @@ import {
   syncBrainSourceCard,
   type CountKey,
 } from "./ai/brain/rag";
+import { BRAIN_RERANK_MODELS, BRAIN_SEARCH_INDEXES, type BrainIndexId } from "./ai/brain/embeddings";
+import { rerank } from "ai";
+import {
+  billedTokens,
+  CALIBRATION_OFF_TOPIC_QUERIES,
+  floorForPassRate,
+  passRate,
+  pickSpread,
+  probeQueryFrom,
+  summarizeScores,
+  type ScoreSummary,
+} from "../shared/brainCalibration";
+import type { WorkId } from "@convex-dev/workpool";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
@@ -51,15 +75,40 @@ const embedPool = new Workpool(components.embedPool, {
   defaultRetryBehavior: { maxAttempts: 6, initialBackoffMs: 15000, base: 2 },
 });
 
-/** Queue a source for embedding (used by import/approve/reweight). */
+/**
+ * Queue a source for embedding (used by import/approve/reweight). The embed
+ * adds to every written index (only `indexes`, when given) whose entry is
+ * not current, or to each of them with `force` (2026-11-18 (fourth);
+ * `embedTargets`, ingest.ts).
+ */
 async function scheduleEmbed(
   ctx: MutationCtx,
-  sourceId: Id<"brainSources">
-) {
+  sourceId: Id<"brainSources">,
+  options: { indexes?: BrainIndexId[]; force?: boolean } = {}
+): Promise<WorkId> {
   requireBrainConfigured();
-  await embedPool.enqueueAction(ctx, internal.ai.brain.ingest.embedSource, {
+  return await embedPool.enqueueAction(ctx, internal.ai.brain.ingest.embedSource, {
     sourceId,
+    ...(options.indexes ? { indexes: options.indexes } : {}),
+    ...(options.force ? { force: true } : {}),
   });
+}
+
+/** Schedule the confirmed erasure of every entry a source holds, in both indexes. */
+async function scheduleUnlearnAll(
+  ctx: MutationCtx,
+  s: Doc<"brainSources">,
+  withSource: boolean
+): Promise<number> {
+  const held = heldEntries(s);
+  for (const { index, entryId } of held) {
+    await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+      ragEntryId: entryId,
+      ...(withSource ? { sourceId: s._id } : {}),
+      index,
+    });
+  }
+  return held.length;
 }
 
 // ─── The Brain governance (BNH-10 / 18 / 39) ────────────────────────────────
@@ -517,11 +566,7 @@ export const removeSourcePermanently = internalMutation({
       for (const row of linked) await ctx.db.patch(row._id, { brainSourceId: undefined });
       if (linked.length < 200) break;
     }
-    if (s.ragEntryId) {
-      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
-        ragEntryId: s.ragEntryId,
-      });
-    }
+    await scheduleUnlearnAll(ctx, s, false);
     await deleteBrainSource(ctx, args.sourceId);
   },
 });
@@ -538,6 +583,12 @@ export const REQUEUE_PAGE_SIZE = 50;
  * read), then it schedules the next page, so it works for thousands of
  * sources. Start it with no arguments; needs `backfillBrainSourceCards`
  * finished first, since it walks the cards.
+ *
+ * 2026-11-18 (fourth): it rebuilds the voyage3 index only, so after the
+ * cutover it can never shrink the index search reads; before it, it shrinks
+ * search while it runs, as it always did. It refuses once that index's drop
+ * has started. A new model gets a new index and `brain:buildSearchIndex`,
+ * which deletes nothing.
  */
 export const requeueAllApprovedEmbeds = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
@@ -548,17 +599,26 @@ export const requeueAllApprovedEmbeds = internalMutation({
         "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
       );
     }
+    if (!(await readBrainIndexState(ctx)).written.includes("voyage3")) {
+      throw new Error("The voyage3 index is being dropped; there is nothing to rebuild.");
+    }
     const page = await ctx.db
       .query("brainSourceCards")
       .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
       .paginate({ cursor: args.cursor ?? null, numItems: REQUEUE_PAGE_SIZE });
     for (const card of page.page) {
       if (card.ragEntryId) {
+        // Final review P3-3: the confirmed erasure clears the id the row
+        // holds (unless the forced embed has already written a newer one),
+        // so the pointer's check never passes on an entry that is gone.
         await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
           ragEntryId: card.ragEntryId,
+          sourceId: card.sourceId,
+          index: "voyage3",
+          requeued: true,
         });
       }
-      await scheduleEmbed(ctx, card.sourceId);
+      await scheduleEmbed(ctx, card.sourceId, { indexes: ["voyage3"], force: true });
     }
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.brain.requeueAllApprovedEmbeds, {
@@ -569,14 +629,20 @@ export const requeueAllApprovedEmbeds = internalMutation({
   },
 });
 
+// `needsFullImportanceEmbed` moved to rag.ts (the embed action reads it too);
+// it describes the voyage3 index only, since every voyage4 entry is at 1.
+export { needsFullImportanceEmbed };
+
 /**
- * Whether a source's vectors still carry its writer tier as importance
- * (2026-11-17). Embeds since then record `ragImportance` (always 1); an
- * older row's importance was its tier, clamped, as of its last embed.
+ * Whether a reweight or relabel of an approved source should embed it
+ * again: its voyage3 vectors may not be at importance 1 (below 1, or none
+ * recorded, read from the row before the tier changes), and the
+ * voyage3 index is still written (2026-11-18 (fourth): it keeps the
+ * rollback index as good as it was; once its drop starts, never).
  */
-export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragImportance" | "writerTier">): boolean {
-  const stored = source.ragImportance ?? Math.max(0, Math.min(1, source.writerTier));
-  return stored < 1;
+async function needsImportanceReembed(ctx: MutationCtx, s: Doc<"brainSources">): Promise<boolean> {
+  if (s.status !== "approved" || !needsFullImportanceEmbed(s)) return false;
+  return (await readBrainIndexState(ctx)).written.includes("voyage3");
 }
 
 /**
@@ -592,6 +658,12 @@ export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragI
  * current notes, or with notes off, are skipped. Each
  * re-embed pays Voyage and, when chunk notes are on, Haiku again. Needs
  * `backfillBrainSourceCards` finished first.
+ *
+ * 2026-11-18 (fourth): it renews the voyage3 index only (the importance and
+ * the notes it checks are that index's), and refuses once that index's drop
+ * has started. When the Voyage 4 change ships with the Import stack it is
+ * not run at all: `brain:buildSearchIndex` gives every source a voyage4
+ * entry at importance 1 with current notes.
  */
 export const reembedBelowFullImportance = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },
@@ -601,6 +673,9 @@ export const reembedBelowFullImportance = internalMutation({
       throw new Error(
         "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
       );
+    }
+    if (!(await readBrainIndexState(ctx)).written.includes("voyage3")) {
+      throw new Error("The voyage3 index is being dropped; there is nothing to renew.");
     }
     const page = await ctx.db
       .query("brainSourceCards")
@@ -613,7 +688,7 @@ export const reembedBelowFullImportance = internalMutation({
     for (const card of page.page) {
       const oldNotes = notesOn && card.chunkNotesVersion !== BRAIN_CHUNK_NOTES_VERSION;
       if (!needsFullImportanceEmbed(card) && !oldNotes) continue;
-      await scheduleEmbed(ctx, card.sourceId);
+      await scheduleEmbed(ctx, card.sourceId, { indexes: ["voyage3"] });
       queued += 1;
     }
     if (!page.isDone) {
@@ -622,6 +697,866 @@ export const reembedBelowFullImportance = internalMutation({
       });
     }
     return { queued, skipped: page.page.length - queued, done: page.isDone };
+  },
+});
+
+// ─── Voyage 4 (2026-11-18 (fourth)): build, cutover, drop ───────────────────
+// Two search indexes (convex/ai/brain/embeddings.ts). Owner-run steps 13 to
+// 15, 17 and 18 of the Import stack's deploy order, all internal:
+//   brain:buildSearchIndex          fill and renew both indexes, deleting nothing
+//   brain:calibrateSearchIndexes    score report (steps 14 and 17), records only that it ran
+//   brain:setServingSearchIndex     move the pointer (cutover, rollback)
+//   brain:dropOldSearchIndex, then brain:deleteOldSearchNamespace   later
+
+/** Approved cards read per step of `buildSearchIndex`. */
+export const BUILD_PAGE_SIZE = 50;
+/** How long a build step waits before checking its page's embeds again. */
+export const BUILD_WAIT_MS = 30_000;
+/** Approved cards one call of `setServingSearchIndex` checks at most (small rows). */
+export const MOVE_CHECK_BUDGET = 4000;
+/** A pointer check older than this starts again from the first card. */
+export const MOVE_CHECK_MAX_AGE_MS = 60 * 60_000;
+
+const buildTotals = v.object({
+  approved: v.number(),
+  present: v.number(),
+  queued: v.number(),
+  missing: v.number(),
+});
+type BuildTotals = typeof buildTotals.type;
+
+/** Which index search reads, and whether the old one is still written. */
+export const servingSearchIndex = internalQuery({
+  args: {},
+  returns: v.object({ serving: vBrainIndexId, oldIndexDropped: v.boolean() }),
+  handler: async (ctx) => {
+    const state = await readBrainIndexState(ctx);
+    return { serving: state.serving, oldIndexDropped: !state.written.includes("voyage3") };
+  },
+});
+
+/** Write the pointer row (made on first use; no row reads as voyage3 serving). */
+async function writeIndexState(
+  ctx: MutationCtx,
+  patch: Partial<Omit<Doc<"brainSearchIndexState">, "_id" | "_creationTime" | "key">>
+): Promise<void> {
+  const { row } = await readBrainIndexState(ctx);
+  if (row) {
+    await ctx.db.patch(row._id, patch);
+    return;
+  }
+  const fields = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+  await ctx.db.insert("brainSearchIndexState", {
+    key: "search",
+    serving: "voyage3",
+    changedBy: "system",
+    changedAt: Date.now(),
+    ...fields,
+  });
+}
+
+/** Chunk notes are on in this deployment (`BRAIN_CONTEXTUAL`), as the embed reads it. */
+function chunkNotesOn(): boolean {
+  return process.env.BRAIN_CONTEXTUAL === "1";
+}
+
+/** Why a card's entry in one index is not current, in a few plain words. */
+function staleReason(card: Doc<"brainSourceCards">, index: BrainIndexId, notesOn: boolean): string {
+  if (!entryIdIn(card, index)) return "no entry";
+  if (index === "voyage3" && needsFullImportanceEmbed(card)) {
+    return card.ragImportance === undefined ? "importance not recorded" : "an old weight's importance";
+  }
+  if (notesOn && card[BRAIN_INDEX_FIELDS[index].notesVersion] !== BRAIN_CHUNK_NOTES_VERSION) return "notes from an older prompt";
+  return "current";
+}
+
+/**
+ * Steps 13 (and, after review 51, the rollback index's renewal): fill the
+ * search indexes. Pages approved cards (never a source's text), 50 a step,
+ * and queues one embed for each source whose entry is not current in an
+ * index it fills: no entry, notes from an older prompt when chunk notes are
+ * on, or (voyage3) an old weight's importance. With no `index` it fills
+ * every written index, so one embed renews the voyage3 entry and makes the
+ * voyage4 one, with the chunk notes made once for both; with `index`, only
+ * that one. It is throttled: a step that queued embeds waits (checking
+ * every 30 seconds) until the embed pool has finished them before it reads
+ * the next page, so the pool, which runs one embed at a time with retries
+ * and backoff on Voyage's 429s, never holds more than one page of it and
+ * approvals made meanwhile wait behind at most 50. Once a page's embeds
+ * finish it counts any source still not current as missing (its embed
+ * failed six times). The last step writes the totals on the pointer row
+ * (`lastBuild`) and logs them.
+ *
+ * One pass runs at a time: the first step writes `buildRunning`, a second
+ * start is refused while it is set, and the pointer does not move while it
+ * is set. `restart: true` starts again when a pass stopped without its
+ * last step (its steps then stop at their next run).
+ *
+ * It deletes nothing and search keeps reading the serving index throughout.
+ * Safe to run again: a pass with nothing to renew costs reads only. With
+ * chunk notes on, each queued source pays Haiku per piece once, unless one
+ * index already has this prompt version's notes, which are reused.
+ * Start it with no arguments; needs `backfillBrainSourceCards` finished first.
+ */
+export const buildSearchIndex = internalMutation({
+  args: {
+    index: v.optional(vBrainIndexId),
+    restart: v.optional(v.boolean()),
+    // Final review P2-1: start although old-page copies of unknown origin
+    // are still undecided on /admin/brain.
+    allowUnknownOrigin: v.optional(v.boolean()),
+    runId: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    finished: v.optional(v.boolean()),
+    waitFor: v.optional(v.array(v.string())),
+    waitSources: v.optional(v.array(v.id("brainSources"))),
+    totals: v.optional(buildTotals),
+  },
+  returns: v.object({
+    approved: v.number(),
+    present: v.number(),
+    queued: v.number(),
+    missing: v.number(),
+    waiting: v.boolean(),
+    done: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    if (!(await cardsReady(ctx))) {
+      throw new Error(
+        "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
+      );
+    }
+    const state = await readBrainIndexState(ctx);
+    if (args.index && !state.written.includes(args.index)) {
+      throw new Error(`The ${args.index} index is being dropped; there is nothing to build.`);
+    }
+    const targets = args.index ? [args.index] : state.written;
+    const notesOn = chunkNotesOn();
+    const totals: BuildTotals = { ...(args.totals ?? { approved: 0, present: 0, queued: 0, missing: 0 }) };
+
+    let runId = args.runId;
+    if (runId === undefined) {
+      if (args.allowUnknownOrigin !== true) {
+        const undecided = await ctx.db
+          .query("brainOldPageCopies")
+          .withIndex("by_status_and_outcome", (q) => q.eq("status", "open").eq("outcome", "unknown_origin"))
+          .first();
+        if (undecided) {
+          throw new Error(
+            'Brain copies the old-page send back could not trace are still undecided. Keep or remove each on /admin/brain (Old page copies), then start the build, or start it with {"allowUnknownOrigin":true}.'
+          );
+        }
+      }
+      const running = state.row?.buildRunning;
+      if (running && args.restart !== true) {
+        throw new Error(
+          `A build pass is already running (started ${new Date(running.startedAt).toISOString()}). Wait until it logs "buildSearchIndex done", or start again with {"restart":true} if it stopped.`
+        );
+      }
+      runId = Date.now();
+      await writeIndexState(ctx, { buildRunning: { startedAt: runId, ...(args.index ? { index: args.index } : {}) } });
+    } else if (state.row?.buildRunning?.startedAt !== runId) {
+      console.log("buildSearchIndex: another pass has started since; this one stops");
+      return { ...totals, waiting: false, done: false };
+    }
+    const isCurrent = (card: Doc<"brainSourceCards">) => targets.every((index) => entryIsCurrent(card, index, notesOn));
+
+    if (args.waitFor && args.waitFor.length > 0) {
+      const statuses = await embedPool.statusBatch(ctx, args.waitFor as WorkId[]);
+      if (statuses.some((status) => status.state !== "finished")) {
+        await ctx.scheduler.runAfter(BUILD_WAIT_MS, internal.brain.buildSearchIndex, { ...args, runId });
+        return { ...totals, waiting: true, done: false };
+      }
+      for (const sourceId of args.waitSources ?? []) {
+        const card = await ctx.db
+          .query("brainSourceCards")
+          .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+          .unique();
+        if (card?.status === "approved" && !isCurrent(card)) totals.missing += 1;
+      }
+    }
+
+    if (!args.finished) {
+      const page = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
+        .paginate({ cursor: args.cursor ?? null, numItems: BUILD_PAGE_SIZE });
+      const waitFor: string[] = [];
+      const waitSources: Id<"brainSources">[] = [];
+      for (const card of page.page) {
+        totals.approved += 1;
+        if (isCurrent(card)) {
+          totals.present += 1;
+          continue;
+        }
+        waitFor.push(await scheduleEmbed(ctx, card.sourceId, args.index ? { indexes: [args.index] } : {}));
+        waitSources.push(card.sourceId);
+        totals.queued += 1;
+      }
+      if (waitFor.length > 0 || !page.isDone) {
+        await ctx.scheduler.runAfter(waitFor.length > 0 ? BUILD_WAIT_MS : 0, internal.brain.buildSearchIndex, {
+          ...(args.index ? { index: args.index } : {}),
+          ...(args.allowUnknownOrigin ? { allowUnknownOrigin: true } : {}),
+          runId,
+          cursor: page.continueCursor,
+          finished: page.isDone,
+          ...(waitFor.length > 0 ? { waitFor, waitSources } : {}),
+          totals,
+        });
+        return { ...totals, waiting: false, done: false };
+      }
+    }
+
+    await writeIndexState(ctx, {
+      lastBuild: { finishedAt: Date.now(), ...totals, ...(args.index ? { index: args.index } : {}) },
+      buildRunning: undefined,
+    });
+    console.log(
+      `buildSearchIndex done (${targets.join(" and ")}): ${totals.approved} approved sources, ${totals.present} already current, ${totals.queued} queued, ${totals.missing} still missing`
+    );
+    return { ...totals, waiting: false, done: true };
+  },
+});
+
+/**
+ * Step 15 (cutover), and the rollback: point search at an index. Review 51:
+ * the guard reads live state, the same for both directions. It refuses
+ * while a build pass is running, and checks every approved card: each must
+ * have a current entry in the target index (an entry, with this prompt
+ * version's notes when chunk notes are on, and for voyage3 importance 1),
+ * so a move never shrinks search and the rollback index is as good as the
+ * serving one. It stops at the first card that is not current and says
+ * which and why. Cards are small, but a call checks at most 4,000; a
+ * longer check keeps its place on the pointer row (`moveCheck`) and the
+ * call says to run it again, which goes on from there (a place older than
+ * an hour starts again). Moving back to voyage3 is refused once its drop
+ * has started. `force` skips the check and the build marker, for a
+ * deliberate emergency move; the audit row says forced. Each move writes one
+ * `switch_index` row in `brainAuditLog`. `actor` names who asked (the CLI
+ * carries no identity); it is a label, not an authorization input.
+ */
+export const setServingSearchIndex = internalMutation({
+  args: {
+    index: vBrainIndexId,
+    actor: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    force: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    serving: vBrainIndexId,
+    changed: v.boolean(),
+    checked: v.number(),
+    message: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const state = await readBrainIndexState(ctx);
+    if (state.serving === args.index) return { serving: state.serving, changed: false, checked: 0 };
+    if (!state.written.includes(args.index)) {
+      throw new Error(`The ${args.index} index is being dropped, so search cannot move back to it.`);
+    }
+    const force = args.force === true;
+    // PR #51 review (Greptile): the check reads the cards, so before the card
+    // backfill has run to its end an empty or partial table would pass.
+    if (!force && !(await cardsReady(ctx))) {
+      throw new Error(
+        "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
+      );
+    }
+    if (state.row?.buildRunning && !force) {
+      throw new Error('A build pass is running. Wait until it logs "buildSearchIndex done", then move the pointer.');
+    }
+    let checked = 0;
+    if (!force) {
+      const notesOn = chunkNotesOn();
+      const now = Date.now();
+      const kept = state.row?.moveCheck;
+      const resume = kept && kept.index === args.index && now - kept.startedAt < MOVE_CHECK_MAX_AGE_MS ? kept : null;
+      checked = resume?.checked ?? 0;
+      // One page a call (Convex allows one paginate per function), at most
+      // MOVE_CHECK_BUDGET small cards.
+      const page = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
+        .paginate({ cursor: resume?.cursor ?? null, numItems: MOVE_CHECK_BUDGET });
+      for (const card of page.page) {
+        checked += 1;
+        if (!entryIsCurrent(card, args.index, notesOn)) {
+          await writeIndexState(ctx, { moveCheck: undefined });
+          const fill = args.index === "voyage4" ? "brain:buildSearchIndex" : `brain:buildSearchIndex with {"index":"${args.index}"}`;
+          return {
+            serving: state.serving,
+            changed: false,
+            checked,
+            message: `Not moved: approved source ${card.sourceId} has no current ${args.index} entry (${staleReason(card, args.index, notesOn)}). Run ${fill} to the end, then move the pointer again.`,
+          };
+        }
+      }
+      if (!page.isDone) {
+        await writeIndexState(ctx, {
+          moveCheck: { index: args.index, cursor: page.continueCursor, checked, startedAt: resume?.startedAt ?? now },
+        });
+        return {
+          serving: state.serving,
+          changed: false,
+          checked,
+          message: `Not moved yet: checked ${checked} approved sources so far and every one has a current ${args.index} entry. Run this again to check the rest.`,
+        };
+      }
+    }
+    // A command-line actor is stored as "cli:<name>", as /admin/brain shows actors.
+    const actor = `cli:${args.actor?.trim() || "command line"}`;
+    await writeIndexState(ctx, { serving: args.index, servingSince: Date.now(), changedBy: actor, changedAt: Date.now(), moveCheck: undefined });
+    const from = BRAIN_SEARCH_INDEXES[state.serving].embeddingModelId;
+    const to = BRAIN_SEARCH_INDEXES[args.index].embeddingModelId;
+    await ctx.db.insert("brainAuditLog", {
+      action: "switch_index",
+      actorId: actor,
+      reason: `Search moved from ${state.serving} (${from}) to ${args.index} (${to})${force ? ", forced" : ""}${args.reason?.trim() ? `: ${args.reason.trim()}` : ""}`,
+      at: Date.now(),
+    });
+    return { serving: args.index, changed: true, checked };
+  },
+});
+
+/** Most probe sources one calibration run reads. */
+export const CALIBRATION_MAX_PROBES = 40;
+/** Fewer probes than this is not a basis for a floor, and does not let the old index's drop go. */
+export const CALIBRATION_MIN_PROBES = 20;
+/** Approved cards a calibration run picks its probes from (small rows, newest first). */
+export const CALIBRATION_CARD_POOL = 400;
+/** Hits per probe search, as wide as a served search. */
+export const CALIBRATION_SEARCH_LIMIT = 30;
+/** Documents per rerank slate, as many as a served rerank. */
+export const CALIBRATION_RERANK_SLATE = 12;
+
+/** Probe sources: approved, with an entry in both indexes, spread over industries and science codes. */
+export const calibrationProbes = internalQuery({
+  args: { limit: v.number() },
+  returns: v.object({
+    approved: v.number(),
+    probes: v.array(v.object({ sourceId: v.id("brainSources"), scienceCode: v.optional(v.string()) })),
+  }),
+  handler: async (ctx, args) => {
+    const approvedRow = await ctx.db
+      .query("brainSourceCounts")
+      .withIndex("by_scope_and_key", (q) => q.eq("scope", "status").eq("key", "approved"))
+      .unique();
+    const cards = await ctx.db
+      .query("brainSourceCards")
+      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
+      .order("desc")
+      .take(CALIBRATION_CARD_POOL);
+    const both = cards.filter((card) => card.ragEntryId && card.ragEntryIdV4);
+    const probes = pickSpread(both, args.limit, (card) => `${card.industry}|${card.scienceCode ?? ""}`).map((card) => ({
+      sourceId: card.sourceId,
+      ...(card.scienceCode ? { scienceCode: card.scienceCode } : {}),
+    }));
+    return { approved: approvedRow?.count ?? 0, probes };
+  },
+});
+
+/**
+ * The one row a calibration run writes (final review P2-2): when it ran,
+ * with how many probes, and which index served. `brain:dropOldSearchIndex`
+ * waits for a run after the cutover with at least CALIBRATION_MIN_PROBES.
+ */
+export const recordCalibration = internalMutation({
+  args: { probes: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { serving } = await readBrainIndexState(ctx);
+    await writeIndexState(ctx, { lastCalibration: { at: Date.now(), probes: args.probes, serving } });
+    return null;
+  },
+});
+
+/** One probe's query, made from its own text (one source read per call, at most 1 MiB). */
+export const calibrationProbeQuery = internalQuery({
+  args: { sourceId: v.id("brainSources") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.sourceId);
+    if (!source || source.status !== "approved") return null;
+    return probeQueryFrom(source.content) || null;
+  },
+});
+
+type CalibrationIndexReport = {
+  index: BrainIndexId;
+  embeddingModelId: string;
+  floor: number;
+  ownEntry: ScoreSummary;
+  sameScienceCode: ScoreSummary;
+  otherScienceCode: ScoreSummary;
+  offTopicTop: ScoreSummary;
+  passRateAtFloor: number;
+};
+
+/**
+ * Step 14 of the deploy order: a read-only report that helps set the
+ * voyage4 floors before the cutover (owner-run, after `buildSearchIndex`),
+ * and again after the first few hundred Brain checks (final review P2-2).
+ * It writes one small record that it ran (`lastCalibration` on the pointer
+ * row, which the old index's drop waits for) and nothing else: no usage
+ * rows, no audit rows. A report on fewer than 20 probes says it is thin.
+ *
+ * Probes: up to `probes` (default 20, at most 40) approved sources with an
+ * entry in both indexes, spread over industries and science codes, each
+ * searched with a passage of its own text; plus five fixed off-topic
+ * queries. Per index, a vector-only search with no floor, 30 hits: the
+ * cosine of the probe's own entry, of other sources with the same science
+ * code and with another, and the top cosine of each off-topic query (a
+ * voyage3 entry still at an old weight's importance scores its cosine times
+ * that weight, as it does when served). Then the floor for voyage4 that lets
+ * through the share of hits voyage3's floor lets through today, and how many
+ * of the sources voyage3 serves at its floor that floor and the provisional
+ * one would drop. For the rerankers: the probe's top 12 voyage3 hits, reranked
+ * by both rerank-2.5 and rerank-3, with the same report and floors.
+ *
+ * Costs query embeddings in both models and rerank tokens in both rerankers
+ * (logged as totals). Logs one summary line with numbers only: never a query
+ * or a company name.
+ */
+export const calibrateSearchIndexes = internalAction({
+  args: { probes: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    requireBrainConfigured();
+    const state = await ctx.runQuery(internal.brain.servingSearchIndex, {});
+    if (state.oldIndexDropped) throw new Error("The voyage3 index is dropped; there is nothing to compare against.");
+    const limit = Math.max(1, Math.min(CALIBRATION_MAX_PROBES, Math.floor(args.probes ?? 20)));
+    const picked = await ctx.runQuery(internal.brain.calibrationProbes, { limit });
+    const probes: { sourceId: string; scienceCode?: string; query: string }[] = [];
+    for (const probe of picked.probes) {
+      const query = await ctx.runQuery(internal.brain.calibrationProbeQuery, { sourceId: probe.sourceId });
+      if (query) probes.push({ ...probe, query });
+    }
+    if (probes.length === 0) {
+      if (picked.approved === 0) {
+        throw new Error(
+          "The Brain has no approved source yet, so there is nothing to calibrate. Keep the provisional floors, move the pointer, and run this again after the first few hundred Brain checks."
+        );
+      }
+      throw new Error("No approved source has an entry in both indexes yet. Run brain:buildSearchIndex first.");
+    }
+
+    const tokens = { voyage3: 0, voyage4: 0, rerank3: 0, rerank4: 0 };
+    type Hit = { sourceId: string | undefined; scienceCode: string | undefined; score: number; text: string };
+    const searchHits = async (index: BrainIndexId, query: string): Promise<Hit[]> => {
+      const { results, entries, usage } = await BRAIN_RAGS[index].search(ctx, {
+        namespace: BRAIN_SEARCH_INDEXES[index].namespace,
+        query,
+        searchType: "vector",
+        limit: CALIBRATION_SEARCH_LIMIT,
+      });
+      tokens[index] += usage.tokens;
+      const byEntry = new Map(entries.map((entry) => [entry.entryId, entry.metadata as BrainEntryMetadata | undefined]));
+      // Greptile on #51 (P2): each hit's science code as its source card
+      // holds it now, as served search reads it (servableBrainSources). The
+      // code saved with the vectors stays as it was when an Admin edits it
+      // on Import (no new embed), and the probes are grouped by the card.
+      // A hit served search would drop (its source no longer approved) is
+      // dropped here too.
+      const sourceIds = [
+        ...new Set(
+          results
+            .map((result) => byEntry.get(result.entryId)?.sourceId)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        ),
+      ];
+      const cards = new Map(
+        sourceIds.length > 0
+          ? (await ctx.runQuery(internal.brain.servableBrainSources, { sourceIds })).map((row) => [row.sourceId, row])
+          : []
+      );
+      const hits: Hit[] = [];
+      for (const result of results) {
+        const sourceId = byEntry.get(result.entryId)?.sourceId;
+        const card = sourceId ? cards.get(sourceId) : undefined;
+        if (sourceId && !card) continue;
+        hits.push({
+          sourceId,
+          scienceCode: card?.scienceCode,
+          score: result.score,
+          text: result.content.map((c) => c.text).join("\n"),
+        });
+      }
+      return hits;
+    };
+    const rerankScores = async (index: BrainIndexId, query: string, documents: string[]) => {
+      if (documents.length === 0) return [] as number[];
+      const result = await rerank({
+        model: BRAIN_RERANK_MODELS[index],
+        query,
+        documents,
+        topN: documents.length,
+        // Review 51 (P3-6): an owner-run report; a 429 should not throw away
+        // the embeddings already paid for.
+        maxRetries: 4,
+      });
+      tokens[index === "voyage3" ? "rerank3" : "rerank4"] += billedTokens(result.response.body);
+      const scores = new Array<number>(documents.length).fill(0);
+      for (const ranked of result.ranking) scores[ranked.originalIndex] = ranked.score;
+      return scores;
+    };
+
+    const indexes: BrainIndexId[] = ["voyage3", "voyage4"];
+    const own: Record<BrainIndexId, number[]> = { voyage3: [], voyage4: [] };
+    const same: Record<BrainIndexId, number[]> = { voyage3: [], voyage4: [] };
+    const other: Record<BrainIndexId, number[]> = { voyage3: [], voyage4: [] };
+    const offTop: Record<BrainIndexId, number[]> = { voyage3: [], voyage4: [] };
+    const allHits: Record<BrainIndexId, number[]> = { voyage3: [], voyage4: [] };
+    // Per probe, each index's best score per source (to count served sources).
+    const perProbe: Record<BrainIndexId, Map<string, number>>[] = [];
+    const rr = {
+      own: { voyage3: [] as number[], voyage4: [] as number[] },
+      others: { voyage3: [] as number[], voyage4: [] as number[] },
+      offTop: { voyage3: [] as number[], voyage4: [] as number[] },
+      pairs: [] as { old: number; next: number }[],
+    };
+
+    for (const probe of probes) {
+      const best: Record<BrainIndexId, Map<string, number>> = { voyage3: new Map(), voyage4: new Map() };
+      let slate: Hit[] = [];
+      for (const index of indexes) {
+        const hits = await searchHits(index, probe.query);
+        if (index === "voyage3") slate = hits.slice(0, CALIBRATION_RERANK_SLATE);
+        let ownBest: number | undefined;
+        for (const hit of hits) {
+          allHits[index].push(hit.score);
+          if (!hit.sourceId) continue;
+          best[index].set(hit.sourceId, Math.max(best[index].get(hit.sourceId) ?? -1, hit.score));
+          if (hit.sourceId === probe.sourceId) ownBest = Math.max(ownBest ?? -1, hit.score);
+          else if (probe.scienceCode && hit.scienceCode === probe.scienceCode) same[index].push(hit.score);
+          else other[index].push(hit.score);
+        }
+        if (ownBest !== undefined) own[index].push(ownBest);
+      }
+      perProbe.push(best);
+      const documents = slate.map((hit) => hit.text);
+      const oldScores = await rerankScores("voyage3", probe.query, documents);
+      const newScores = await rerankScores("voyage4", probe.query, documents);
+      slate.forEach((hit, i) => {
+        const bucket = hit.sourceId === probe.sourceId ? rr.own : rr.others;
+        bucket.voyage3.push(oldScores[i]);
+        bucket.voyage4.push(newScores[i]);
+        rr.pairs.push({ old: oldScores[i], next: newScores[i] });
+      });
+    }
+    for (const query of CALIBRATION_OFF_TOPIC_QUERIES) {
+      let slate: Hit[] = [];
+      for (const index of indexes) {
+        const hits = await searchHits(index, query);
+        if (index === "voyage3") slate = hits.slice(0, CALIBRATION_RERANK_SLATE);
+        if (hits.length > 0) offTop[index].push(Math.max(...hits.map((hit) => hit.score)));
+      }
+      const documents = slate.map((hit) => hit.text);
+      const oldScores = await rerankScores("voyage3", query, documents);
+      const newScores = await rerankScores("voyage4", query, documents);
+      if (oldScores.length > 0) rr.offTop.voyage3.push(Math.max(...oldScores));
+      if (newScores.length > 0) rr.offTop.voyage4.push(Math.max(...newScores));
+    }
+
+    const oldFloor = BRAIN_SEARCH_INDEXES.voyage3.minVectorSimilarity;
+    const provisionalFloor = BRAIN_SEARCH_INDEXES.voyage4.minVectorSimilarity;
+    const oldRate = passRate(allHits.voyage3, oldFloor);
+    const suggestedFloor = floorForPassRate(allHits.voyage4, oldRate);
+    /** Sources voyage3 serves at its floor that voyage4 would not serve at `floor`, over all probes. */
+    const dropped = (floor: number | null) => {
+      let served = 0;
+      let lost = 0;
+      for (const best of perProbe) {
+        for (const [sourceId, score] of best.voyage3) {
+          if (score < oldFloor) continue;
+          served += 1;
+          if (floor === null || (best.voyage4.get(sourceId) ?? -1) < floor) lost += 1;
+        }
+      }
+      return { served, dropped: lost };
+    };
+    const report = (index: BrainIndexId): CalibrationIndexReport => ({
+      index,
+      embeddingModelId: BRAIN_SEARCH_INDEXES[index].embeddingModelId,
+      floor: BRAIN_SEARCH_INDEXES[index].minVectorSimilarity,
+      ownEntry: summarizeScores(own[index]),
+      sameScienceCode: summarizeScores(same[index]),
+      otherScienceCode: summarizeScores(other[index]),
+      offTopicTop: summarizeScores(offTop[index]),
+      passRateAtFloor: Math.round(passRate(allHits[index], BRAIN_SEARCH_INDEXES[index].minVectorSimilarity) * 1000) / 1000,
+    });
+
+    const oldRerankFloor = BRAIN_SEARCH_INDEXES.voyage3.rerankRelevanceFloor;
+    const provisionalRerankFloor = BRAIN_SEARCH_INDEXES.voyage4.rerankRelevanceFloor;
+    const oldRerankAll = rr.pairs.map((pair) => pair.old);
+    const newRerankAll = rr.pairs.map((pair) => pair.next);
+    const oldRerankRate = passRate(oldRerankAll, oldRerankFloor);
+    const suggestedRerankFloor = floorForPassRate(newRerankAll, oldRerankRate);
+    const rerankDropped = (floor: number | null) => {
+      const served = rr.pairs.filter((pair) => pair.old >= oldRerankFloor);
+      return { served: served.length, dropped: served.filter((pair) => floor === null || pair.next < floor).length };
+    };
+
+    const result = {
+      probes: probes.length,
+      // Final review P2-2: a report on fewer probes is not a basis for a floor.
+      thin: probes.length < CALIBRATION_MIN_PROBES,
+      ...(probes.length < CALIBRATION_MIN_PROBES
+        ? {
+            note: `Only ${probes.length} probes: not a basis for a floor. Keep the provisional floors and run this again after the first few hundred Brain checks.`,
+          }
+        : {}),
+      offTopicQueries: CALIBRATION_OFF_TOPIC_QUERIES.length,
+      search: {
+        voyage3: report("voyage3"),
+        voyage4: report("voyage4"),
+        suggestedVoyage4Floor: suggestedFloor,
+        atProvisionalFloor: { floor: provisionalFloor, ...dropped(provisionalFloor) },
+        atSuggestedFloor: { floor: suggestedFloor, ...dropped(suggestedFloor) },
+      },
+      rerank: {
+        old: {
+          modelId: BRAIN_SEARCH_INDEXES.voyage3.rerankModelId,
+          floor: oldRerankFloor,
+          ownEntry: summarizeScores(rr.own.voyage3),
+          others: summarizeScores(rr.others.voyage3),
+          offTopicTop: summarizeScores(rr.offTop.voyage3),
+          passRateAtFloor: Math.round(oldRerankRate * 1000) / 1000,
+        },
+        next: {
+          modelId: BRAIN_SEARCH_INDEXES.voyage4.rerankModelId,
+          floor: provisionalRerankFloor,
+          ownEntry: summarizeScores(rr.own.voyage4),
+          others: summarizeScores(rr.others.voyage4),
+          offTopicTop: summarizeScores(rr.offTop.voyage4),
+          passRateAtFloor: Math.round(passRate(newRerankAll, provisionalRerankFloor) * 1000) / 1000,
+        },
+        suggestedRerank3Floor: suggestedRerankFloor,
+        atProvisionalFloor: { floor: provisionalRerankFloor, ...rerankDropped(provisionalRerankFloor) },
+        atSuggestedFloor: { floor: suggestedRerankFloor, ...rerankDropped(suggestedRerankFloor) },
+      },
+      tokens,
+    };
+    console.log(
+      `calibrateSearchIndexes: ${JSON.stringify({
+        probes: result.probes,
+        suggestedVoyage4Floor: suggestedFloor,
+        suggestedRerank3Floor: suggestedRerankFloor,
+        searchDroppedAtProvisional: result.search.atProvisionalFloor.dropped,
+        rerankDroppedAtProvisional: result.rerank.atProvisionalFloor.dropped,
+        tokens,
+      })}`
+    );
+    // The one write: that this report was made (final review P2-2).
+    await ctx.runMutation(internal.brain.recordCalibration, { probes: probes.length });
+    return result;
+  },
+});
+
+/** Cards read per step of `dropOldSearchIndex`. */
+export const DROP_PAGE_SIZE = 100;
+/** The pause between steps of `dropOldSearchIndex`, so its erasures do not pile up at once. */
+export const DROP_STEP_DELAY_MS = 10_000;
+
+/**
+ * Step 18, later: drop the voyage3 index, after the second calibration (step 17) and a period of
+ * use with voyage4 serving. The first step marks the old index dropped, so
+ * from then no embed writes to it and search can no longer move back; then
+ * it pages every card (all statuses) and queues the confirmed erasure of
+ * each voyage3 entry a source holds, which clears that id once confirmed.
+ * Approved sources keep their voyage4 entry. Safe to run again. When its
+ * last step logs "done", run `brain:deleteOldSearchNamespace`: it deletes
+ * whatever the erasures did not and clears the ids they left (an erasure
+ * that fails every attempt logs it). `confirm` must be "drop voyage3".
+ */
+export const dropOldSearchIndex = internalMutation({
+  args: {
+    confirm: v.literal("drop voyage3"),
+    actor: v.optional(v.string()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    queued: v.optional(v.number()),
+  },
+  returns: v.object({ queued: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const state = await readBrainIndexState(ctx);
+    if (state.serving !== "voyage4") throw new Error("Search still reads the voyage3 index. Move it to voyage4 first.");
+    if (!(await cardsReady(ctx))) {
+      throw new Error(
+        "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
+      );
+    }
+    if (state.written.includes("voyage3")) {
+      // Final review P3-4: not while a build pass runs (its next step would
+      // throw and leave its marker set).
+      if (state.row?.buildRunning) {
+        throw new Error('A build pass is running. Wait until it logs "buildSearchIndex done", then drop the old index.');
+      }
+      // Final review P2-2: the floors the new index serves with were read
+      // again on the PDs it actually serves, after the cutover.
+      const calibration = state.row?.lastCalibration;
+      const since = state.row?.servingSince ?? 0;
+      if (!calibration || calibration.serving !== "voyage4" || calibration.at <= since || calibration.probes < CALIBRATION_MIN_PROBES) {
+        throw new Error(
+          `Run brain:calibrateSearchIndexes again first: the drop waits for a report made after the cutover, with voyage4 serving and at least ${CALIBRATION_MIN_PROBES} probes, so the floors have been checked on the PDs it serves.`
+        );
+      }
+      const actor = `cli:${args.actor?.trim() || "command line"}`;
+      await writeIndexState(ctx, { oldIndexDropped: true, changedBy: actor, changedAt: Date.now() });
+      await ctx.db.insert("brainAuditLog", {
+        action: "switch_index",
+        actorId: actor,
+        reason: "The voyage3 index (voyage-3-large) is being dropped; search reads voyage4 and cannot move back",
+        at: Date.now(),
+      });
+    }
+    const page = await ctx.db
+      .query("brainSourceCards")
+      .withIndex("by_createdAt")
+      .paginate({ cursor: args.cursor ?? null, numItems: DROP_PAGE_SIZE });
+    let queued = args.queued ?? 0;
+    for (const card of page.page) {
+      if (!card.ragEntryId) continue;
+      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+        ragEntryId: card.ragEntryId,
+        sourceId: card.sourceId,
+        index: "voyage3",
+        ...(card.status === "approved" ? { droppedIndex: true } : {}),
+      });
+      queued += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(DROP_STEP_DELAY_MS, internal.brain.dropOldSearchIndex, {
+        confirm: args.confirm,
+        ...(args.actor ? { actor: args.actor } : {}),
+        cursor: page.continueCursor,
+        queued,
+      });
+    } else {
+      console.log(
+        `dropOldSearchIndex done: ${queued} voyage3 entries queued for erasure. Now run brain:deleteOldSearchNamespace (it waits for adds still running).`
+      );
+    }
+    return { queued, done: page.isDone };
+  },
+});
+
+/** Whether an add to an index started within the last 15 minutes and has not finished. */
+export const indexWritesInFlight = internalQuery({
+  args: { index: vBrainIndexId },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const since = Date.now() - INDEX_WRITE_LEASE_MS;
+    const live = await ctx.db
+      .query("brainIndexWrites")
+      .withIndex("by_index_and_startedAt", (q) => q.eq("index", args.index).gt("startedAt", since))
+      .first();
+    return live !== null;
+  },
+});
+
+/**
+ * The last part of step 18: delete every version of the voyage3 namespace
+ * name ("brain": today's and any older one an earlier change left
+ * replaced) with whatever is still in it (entries no row recorded, older
+ * replaced entry versions), through the component's own
+ * `deleteNamespaceSync`. It also deletes expired lease rows. Refused until the drop has
+ * started, and while an embed is still adding to voyage3 (an add that
+ * began before the drop; one would make the namespace again). Then it
+ * sweeps every card in pages (`sweepOldIndexIds`) and queues a confirmed
+ * erasure for each voyage3 id still recorded, which now finds its entry
+ * gone and clears the id, including one whose drop erasure failed every
+ * attempt. Safe to run again.
+ */
+export const deleteOldSearchNamespace = internalAction({
+  args: {},
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx): Promise<{ deleted: boolean }> => {
+    const state = await ctx.runQuery(internal.brain.servingSearchIndex, {});
+    if (!state.oldIndexDropped) throw new Error("Run brain:dropOldSearchIndex first.");
+    if (await ctx.runQuery(internal.brain.indexWritesInFlight, { index: "voyage3" })) {
+      throw new Error("An embed is still adding to the voyage3 index. Run this again in a few minutes.");
+    }
+    // Final review P3-5: every version of the "brain" name, the one that
+    // matches today's model and any older one an earlier change left
+    // "replaced", with whatever chunk text it holds. A bounded list: a name
+    // has a version per shape change, so a handful.
+    const versions = await ctx.runQuery(components.rag.namespaces.listNamespaceVersions, {
+      namespace: BRAIN_SEARCH_INDEXES.voyage3.namespace,
+      paginationOpts: { cursor: null, numItems: OLD_NAMESPACE_VERSIONS },
+    });
+    for (const version of versions.page) {
+      await ctx.runAction(components.rag.namespaces.deleteNamespaceSync, { namespaceId: version.namespaceId });
+    }
+    if (!versions.isDone) {
+      console.warn(`deleteOldSearchNamespace: more than ${OLD_NAMESPACE_VERSIONS} versions of "brain"; run it again for the rest`);
+    }
+    console.log(`deleteOldSearchNamespace: ${versions.page.length} versions of the voyage3 namespace deleted; sweeping leftover voyage3 ids`);
+    await ctx.runMutation(internal.brain.sweepOldIndexIds, {});
+    await ctx.runMutation(internal.brain.sweepExpiredIndexWrites, {});
+    return { deleted: versions.page.length > 0 };
+  },
+});
+
+/** Versions of the "brain" namespace one `deleteOldSearchNamespace` call deletes. */
+export const OLD_NAMESPACE_VERSIONS = 20;
+/** Expired lease rows one sweep deletes per index. */
+export const LEASE_SWEEP_PAGE = 500;
+
+/** Delete lease rows older than an action can run (their adds died); a page per index. */
+export const sweepExpiredIndexWrites = internalMutation({
+  args: {},
+  returns: v.object({ deleted: v.number() }),
+  handler: async (ctx) => {
+    const before = Date.now() - INDEX_WRITE_LEASE_MS;
+    let deleted = 0;
+    for (const index of ["voyage3", "voyage4"] as const) {
+      const stale = await ctx.db
+        .query("brainIndexWrites")
+        .withIndex("by_index_and_startedAt", (q) => q.eq("index", index).lt("startedAt", before))
+        .take(LEASE_SWEEP_PAGE);
+      for (const row of stale) await ctx.db.delete(row._id);
+      deleted += stale.length;
+    }
+    return { deleted };
+  },
+});
+
+/** Cards read per step of `sweepOldIndexIds`. */
+export const SWEEP_PAGE_SIZE = 100;
+
+/**
+ * After the voyage3 namespace is deleted: page every card and queue a
+ * confirmed erasure for each voyage3 id still recorded. The entry is gone,
+ * so each one confirms as already absent and clears the id (an approved
+ * source through the drop's rule, any other with its audit row). Logs its
+ * total on the last page.
+ */
+export const sweepOldIndexIds = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())), queued: v.optional(v.number()) },
+  returns: v.object({ queued: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    if ((await readBrainIndexState(ctx)).written.includes("voyage3")) {
+      throw new Error("Run brain:dropOldSearchIndex first.");
+    }
+    const page = await ctx.db
+      .query("brainSourceCards")
+      .withIndex("by_createdAt")
+      .paginate({ cursor: args.cursor ?? null, numItems: SWEEP_PAGE_SIZE });
+    let queued = args.queued ?? 0;
+    for (const card of page.page) {
+      if (!card.ragEntryId) continue;
+      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+        ragEntryId: card.ragEntryId,
+        sourceId: card.sourceId,
+        index: "voyage3",
+        ...(card.status === "approved" ? { droppedIndex: true } : {}),
+      });
+      queued += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.brain.sweepOldIndexIds, { cursor: page.continueCursor, queued });
+    } else {
+      console.log(`sweepOldIndexIds done: ${queued} leftover voyage3 ids queued to clear`);
+    }
+    return { queued, done: page.isDone };
   },
 });
 
@@ -766,6 +1701,7 @@ export const getBrainSourceForIngest = internalQuery({
   handler: async (ctx, args) => {
     const s = await ctx.db.get(args.sourceId);
     if (!s || s.status !== "approved") return null;
+    const state = await readBrainIndexState(ctx);
     return {
       title: s.title,
       content: s.content,
@@ -778,6 +1714,13 @@ export const getBrainSourceForIngest = internalQuery({
       scienceCode: normalizeCraScienceCode(s.scienceCode),
       ragKey: s.ragKey,
       sourceHash: s.sourceHash,
+      // 2026-11-18 (fourth): what each index holds, and which are written.
+      ragEntryId: s.ragEntryId,
+      ragImportance: s.ragImportance,
+      chunkNotesVersion: s.chunkNotesVersion,
+      ragEntryIdV4: s.ragEntryIdV4,
+      chunkNotesVersionV4: s.chunkNotesVersionV4,
+      indexState: { serving: state.serving, written: state.written },
     };
   },
 });
@@ -846,18 +1789,17 @@ export async function revokeBrainSourceRow(
   reason: string | undefined,
   options: { sentBackItemId?: Id<"ingestionItems"> } = {}
 ): Promise<void> {
+  // Final review: notes an unfinished embed kept are not needed any more,
+  // and an old-page copy an Admin was asked about is decided (removed).
+  await deleteKeptChunkNotes(ctx, s._id);
+  await closeOldPageCopies(ctx, s._id, "removed", actor);
   if (s.status === "revoked") {
     // Idempotent. A second revoke never writes a second `revoke` row. A
     // retained `ragEntryId` on a revoked row is failure evidence, and it
     // doubles as the remediation handle: retry deletion against it.
     // Phase E (E2a): it also withdraws feedback a revoke before E2a left.
     await withdrawSourceFeedback(ctx, s._id);
-    if (s.ragEntryId) {
-      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
-        ragEntryId: s.ragEntryId,
-        sourceId: s._id,
-      });
-    }
+    await scheduleUnlearnAll(ctx, s, true);
     return;
   }
   await patchBrainSource(ctx, s, {
@@ -875,13 +1817,9 @@ export async function revokeBrainSourceRow(
   // Phase E (E2a): the lessons drawn from it are withdrawn, and a
   // published set that drew on them is turned off.
   await withdrawSourceFeedback(ctx, s._id);
-  if (s.ragEntryId) {
-    await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
-      ragEntryId: s.ragEntryId,
-      sourceId: s._id,
-    });
-    return;
-  }
+  // 2026-11-18 (fourth): an entry in each index the row holds, each erased
+  // and confirmed on its own.
+  if ((await scheduleUnlearnAll(ctx, s, true)) > 0) return;
   // Never embedded (or already erased): there is nothing remote to confirm,
   // so the erasure is confirmed by construction; record it here.
   await ctx.db.insert("brainAuditLog", {
@@ -892,6 +1830,114 @@ export async function revokeBrainSourceRow(
     at: Date.now(),
   });
 }
+
+// ─── Old-page copies an Admin decides (final review of #48 to #51, P2-1) ───
+
+/** Rows one copy can have (one per copy is written, so this is generous). */
+const OLD_PAGE_ROWS_PER_SOURCE = 20;
+/** Undecided copies /admin/brain lists at once. */
+export const OLD_PAGE_COPIES_LISTED = 100;
+
+/** Close a copy's open rows as decided ("removed" by a revoke, or "kept"). */
+async function closeOldPageCopies(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">,
+  status: "removed" | "kept",
+  actor: string
+): Promise<number> {
+  const rows = await ctx.db
+    .query("brainOldPageCopies")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+    .take(OLD_PAGE_ROWS_PER_SOURCE);
+  let closed = 0;
+  for (const row of rows) {
+    if (row.status !== "open") continue;
+    await ctx.db.patch(row._id, { status, decidedBy: actor, decidedAt: Date.now() });
+    closed += 1;
+  }
+  return closed;
+}
+
+/**
+ * Record a copy the old-page job left approved (a real run only), once per
+ * copy. A copy that is no longer approved needs no decision. Two old-page
+ * files can share one copy: when a later file finds it of unknown origin
+ * while its open row still says unlink only, the row is raised to unknown
+ * origin, so the build still waits for an Admin to decide it. A row an
+ * Admin already decided stays as decided.
+ */
+export async function recordOldPageCopy(
+  ctx: MutationCtx,
+  line: { sourceId: Id<"brainSources">; itemId: Id<"ingestionItems">; outcome: "unknown_origin" | "unlink_only"; detail: string }
+): Promise<void> {
+  const card = await ctx.db
+    .query("brainSourceCards")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", line.sourceId))
+    .unique();
+  if (card && card.status !== "approved") return;
+  const known = await ctx.db
+    .query("brainOldPageCopies")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", line.sourceId))
+    .first();
+  if (known) {
+    if (known.status === "open" && known.outcome === "unlink_only" && line.outcome === "unknown_origin") {
+      await ctx.db.patch(known._id, { outcome: "unknown_origin", detail: line.detail, itemId: line.itemId });
+    }
+    return;
+  }
+  await ctx.db.insert("brainOldPageCopies", { ...line, status: "open", recordedAt: Date.now() });
+}
+
+/**
+ * /admin/brain's Old page copies: the copies still waiting for an Admin's
+ * decision, oldest first, at most 100 (and whether more wait), with what the
+ * list card shows. Admins only; anyone else gets none.
+ */
+export const listOldPageCopies = query({
+  args: {},
+  handler: async (ctx) => {
+    if (!(await adminOrNull(ctx))) return null;
+    const rows = await ctx.db
+      .query("brainOldPageCopies")
+      .withIndex("by_status_and_recordedAt", (q) => q.eq("status", "open"))
+      .take(OLD_PAGE_COPIES_LISTED + 1);
+    const listed = [];
+    for (const row of rows.slice(0, OLD_PAGE_COPIES_LISTED)) {
+      const card = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_sourceId", (q) => q.eq("sourceId", row.sourceId))
+        .unique();
+      listed.push({
+        _id: row._id,
+        sourceId: row.sourceId,
+        outcome: row.outcome,
+        detail: row.detail,
+        title: card?.title ?? null,
+        docType: card?.docType ?? null,
+        status: card?.status ?? null,
+        createdAt: card?.createdAt ?? null,
+      });
+    }
+    return { copies: listed, more: rows.length > OLD_PAGE_COPIES_LISTED };
+  },
+});
+
+/** Keep an old-page copy in the Brain (Admin only; audited). Removing one is the Brain's own revoke. */
+export const keepOldPageCopy = mutation({
+  args: { sourceId: v.id("brainSources") },
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const closed = await closeOldPageCopies(ctx, args.sourceId, "kept", admin);
+    if (closed === 0) domainError("INVALID_STATE", "This copy is already decided.");
+    await ctx.db.insert("brainAuditLog", {
+      action: "keep_old_page_copy",
+      sourceId: args.sourceId,
+      actorId: admin,
+      reason: "Kept after the old Import page check",
+      at: Date.now(),
+    });
+  },
+});
 
 /** What an edit after approval changes on an imported PD's Brain copy. */
 export type ImportedSourceRelabel = { writerName?: string | null; writerTier?: number; scienceCode?: string | null };
@@ -905,8 +1951,9 @@ export type ImportedSourceRelabel = { writerName?: string | null; writerTier?: n
  * tier from the card (servableBrainSources), so none of them needs a new
  * embed: the component would keep the old entry anyway, since the text,
  * importance and filters are the same. Only a tier change on a source
- * whose vectors still carry its old tier as importance
- * (needsFullImportanceEmbed) is embedded once, as reweightSource does.
+ * whose voyage3 vectors may not be at importance 1 (below 1, or none
+ * recorded: needsFullImportanceEmbed) is embedded once, as reweightSource
+ * does.
  * Returns whether anything changed and whether it is embedded again.
  */
 export async function relabelImportedSource(
@@ -942,7 +1989,7 @@ export async function relabelImportedSource(
     }
   }
   if (said.length === 0) return { changed: false, reembed: false };
-  const reembed = s.status === "approved" && "writerTier" in patch && needsFullImportanceEmbed(s);
+  const reembed = "writerTier" in patch && (await needsImportanceReembed(ctx, s));
   await patchBrainSource(ctx, s, patch);
   await ctx.db.insert("brainAuditLog", {
     action: "relabel",
@@ -966,31 +2013,51 @@ export async function relabelImportedSource(
  * `sourceId` is optional: `removeSourcePermanently` (row is gone) and
  * `requeueAllApprovedEmbeds` (entry is about to be replaced) want deletion with
  * no governance bookkeeping at all.
+ *
+ * 2026-11-18 (fourth): `index` names the index the entry is in (a job
+ * queued before then has none and is voyage3), so a failure keeps the id as
+ * evidence in that index's field. `droppedIndex` marks the old index's drop
+ * (`dropOldSearchIndex`): the source stays approved and only loses that
+ * index's entry. The erase itself needs no index: the component reads and
+ * deletes an entry by its id.
  */
+const unlearnArgs = {
+  ragEntryId: v.string(),
+  sourceId: v.optional(v.id("brainSources")),
+  attempt: v.optional(v.number()),
+  index: v.optional(vBrainIndexId),
+  droppedIndex: v.optional(v.boolean()),
+  // The full requeue's erasure (final review P3-3): an approved source loses
+  // this id once the erasure is confirmed, as with the drop.
+  requeued: v.optional(v.boolean()),
+};
+
 export const unlearnSource = internalAction({
-  args: {
-    ragEntryId: v.string(),
-    sourceId: v.optional(v.id("brainSources")),
-    attempt: v.optional(v.number()),
-  },
+  args: unlearnArgs,
   handler: async (ctx, args) => {
     const attempt = args.attempt ?? 1;
+    const where = {
+      ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+      ...(args.index ? { index: args.index } : {}),
+      ...(args.droppedIndex ? { droppedIndex: true } : {}),
+      ...(args.requeued ? { requeued: true } : {}),
+    };
     try {
       await eraseBrainEntry(ctx, args.ragEntryId);
     } catch (err) {
       await ctx.runMutation(internal.brain.recordUnlearnFailure, {
         ragEntryId: args.ragEntryId,
-        ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+        ...where,
         attempt,
         error: err instanceof Error ? err.message : String(err),
       });
       // Surfaced to the caller: an unconfirmed erasure must never look like a
-      // success. `ragEntryId` stays as the un-erased remote id (evidence).
+      // success. The entry id stays as the un-erased remote id (evidence).
       throw err;
     }
     await ctx.runMutation(internal.brain.recordUnlearnConfirmed, {
       ragEntryId: args.ragEntryId,
-      ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+      ...where,
     });
   },
 });
@@ -1015,24 +2082,44 @@ async function hasUnlearnConfirmation(
   return false;
 }
 
+/** The entry id fields of a row that hold this id (normally one). */
+function fieldsHolding(s: Doc<"brainSources">, ragEntryId: string): Partial<Doc<"brainSources">> {
+  const patch: Partial<Doc<"brainSources">> = {};
+  for (const { index, entryId } of heldEntries(s)) {
+    if (entryId === ragEntryId) patch[BRAIN_INDEX_FIELDS[index].entryId] = undefined;
+  }
+  return patch;
+}
+
 /**
- * Success bookkeeping. Clears `ragEntryId` ONLY if it still equals the erased
- * id (a re-ingest may have written a newer one) and writes the single
- * `unlearn_confirmed` row. Guarded on a still-existing, still-non-approved row
- * so it can never resurrect a deleted source or contradict a re-approval.
+ * Success bookkeeping. Clears the entry id field ONLY if it still equals the
+ * erased id (a re-ingest may have written a newer one), in whichever index
+ * holds it, and writes the single `unlearn_confirmed` row. Guarded on a
+ * still-existing, still-non-approved row so it can never resurrect a deleted
+ * source or contradict a re-approval. The one exception is the old index's
+ * drop (`droppedIndex`): the source stays approved and loses only that
+ * index's entry, with no audit row (the drop logs its own totals).
  */
 export const recordUnlearnConfirmed = internalMutation({
   args: {
     ragEntryId: v.string(),
     sourceId: v.optional(v.id("brainSources")),
+    index: v.optional(vBrainIndexId),
+    droppedIndex: v.optional(v.boolean()),
+    requeued: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (!args.sourceId) return;
     const s = await ctx.db.get(args.sourceId);
-    if (!s || s.status === "approved") return;
-    if (s.ragEntryId === args.ragEntryId) {
-      await patchBrainSource(ctx, s, { ragEntryId: undefined });
+    if (!s) return;
+    if (s.status === "approved") {
+      if ((args.droppedIndex || args.requeued) && args.index && entryIdIn(s, args.index) === args.ragEntryId) {
+        await patchBrainSource(ctx, s, { [BRAIN_INDEX_FIELDS[args.index].entryId]: undefined });
+      }
+      return;
     }
+    const clear = fieldsHolding(s, args.ragEntryId);
+    if (Object.keys(clear).length > 0) await patchBrainSource(ctx, s, clear);
     if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
     await ctx.db.insert("brainAuditLog", {
       action: "unlearn_confirmed",
@@ -1055,6 +2142,9 @@ export const recordUnlearnFailure = internalMutation({
     sourceId: v.optional(v.id("brainSources")),
     attempt: v.number(),
     error: v.string(),
+    index: v.optional(vBrainIndexId),
+    droppedIndex: v.optional(v.boolean()),
+    requeued: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     if (args.sourceId) {
@@ -1062,9 +2152,13 @@ export const recordUnlearnFailure = internalMutation({
       // arrived. Never restore its handle, log a stale failure, or retry it.
       if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
       const s = await ctx.db.get(args.sourceId);
+      // A drop's failure leaves the approved row's id as it is (still the
+      // handle the drop retries with); it is logged by the retries below.
       if (s && s.status !== "approved") {
-        if (!s.ragEntryId) {
-          await patchBrainSource(ctx, s, { ragEntryId: args.ragEntryId });
+        // The evidence goes back in the field of the index the entry is in.
+        const field = BRAIN_INDEX_FIELDS[args.index ?? "voyage3"].entryId;
+        if (!s[field]) {
+          await patchBrainSource(ctx, s, { [field]: args.ragEntryId });
         }
         await ctx.db.insert("brainAuditLog", {
           action: "unlearn_failed",
@@ -1082,8 +2176,18 @@ export const recordUnlearnFailure = internalMutation({
         {
           ragEntryId: args.ragEntryId,
           ...(args.sourceId ? { sourceId: args.sourceId } : {}),
+          ...(args.index ? { index: args.index } : {}),
+          ...(args.droppedIndex ? { droppedIndex: true } : {}),
+          ...(args.requeued ? { requeued: true } : {}),
           attempt: args.attempt + 1,
         }
+      );
+    } else if (args.droppedIndex) {
+      // Review 51 (P3-3): the drop's erasure gave up. Its approved row keeps
+      // the old id; brain:deleteOldSearchNamespace deletes the entry with the
+      // namespace and its sweep clears the id.
+      console.error(
+        `dropOldSearchIndex: erasing voyage3 entry ${args.ragEntryId} of source ${args.sourceId ?? "none"} failed ${args.attempt} times; brain:deleteOldSearchNamespace will delete it and clear the id`
       );
     }
   },
@@ -1269,7 +2373,7 @@ export const reweightSource = mutation({
     const tier = Math.max(0, Math.min(1, args.writerTier));
     // Read before the patch: a source not yet re-embedded at importance 1
     // still has its old tier in its vectors, so it is re-embedded once now.
-    const reembed = s.status === "approved" && needsFullImportanceEmbed(s);
+    const reembed = await needsImportanceReembed(ctx, s);
     await patchBrainSource(ctx, s, { writerTier: tier });
     await ctx.db.insert("brainAuditLog", {
       action: "reweight",
@@ -1504,8 +2608,11 @@ export const linkBrainFeedbackSources = internalMutation({
 
 // ─── Admin dashboard reads (reactive) ───────────────────────────────────────
 
-/** One row of the admin list, read from `brainSourceCards` (never a source's text). */
-function listRow(card: Doc<"brainSourceCards">) {
+/**
+ * One row of the admin list, read from `brainSourceCards` (never a source's
+ * text). `hasEntry`: the source has an entry in the index search reads.
+ */
+function listRow(card: Doc<"brainSourceCards">, serving: BrainIndexId = "voyage3") {
   return {
     _id: card.sourceId,
     title: card.title,
@@ -1517,7 +2624,7 @@ function listRow(card: Doc<"brainSourceCards">) {
     docType: card.docType,
     craOutcome: card.craOutcome ?? null,
     scienceCode: normalizeCraScienceCode(card.scienceCode) ?? null,
-    hasEntry: !!card.ragEntryId,
+    hasEntry: !!entryIdIn(card, serving),
     createdAt: card.createdAt,
   };
 }
@@ -1546,7 +2653,8 @@ export const listBrainSources = query({
           .withIndex("by_status_and_createdAt", (q) => q.eq("status", status))
       : ctx.db.query("brainSourceCards").withIndex("by_createdAt");
     const result = await cards.order("desc").paginate(args.paginationOpts);
-    return { ...result, page: result.page.map(listRow) };
+    const { serving } = await readBrainIndexState(ctx);
+    return { ...result, page: result.page.map((card) => listRow(card, serving)) };
   },
 });
 

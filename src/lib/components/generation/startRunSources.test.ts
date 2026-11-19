@@ -26,6 +26,6 @@ describe("last year's final PD in the start dialog (2026-11-18, third)", () => {
       `2,000 words · ${PREVIOUS_YEAR_PD_NOTE}`,
       `1,500 words · ${PINNED_FINAL_PD_NOTE}`,
     ]);
-    expect(PREVIOUS_YEAR_PD_NOTE).toBe("Last year's final PD, read as the previous-year report while there is room");
+    expect(PREVIOUS_YEAR_PD_NOTE).toBe("Read as last year's report while there is room");
   });
 });

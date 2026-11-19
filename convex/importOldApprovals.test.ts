@@ -437,11 +437,26 @@ describe("sending back the files approved on the old page", () => {
       expect(byItem.get(otherCreatorPd)).toEqual(["unknown_origin", "creator_or_time_differs"]);
       expect(byItem.get(noTimePd)).toEqual(["unknown_origin", "no_approval_time"]);
       expect(dry.step).toMatchObject({ found: 4, revoke: 0, unlinkOnly: 2, unknownOrigin: 2 });
+      const recorded = () => t.run((ctx) => ctx.db.query("brainOldPageCopies").collect());
+      // A dry run records nothing for an Admin to decide.
+      expect(await recorded()).toEqual([]);
       expect((await run(t, adminId, false)).step).toMatchObject({ sentBack: 4, revoke: 0, unlinkOnly: 2, unknownOrigin: 2 });
       await settle(t);
       for (const id of [feedback, named, otherCreator, noTime]) {
         expect((await t.run((ctx) => ctx.db.get(id)))!.status, id).toBe("approved");
       }
+      // Final review P2-1: each copy left approved waits for an Admin's decision, once.
+      const rows = (await recorded()).map((row) => [row.sourceId, row.outcome, row.detail, row.status]);
+      expect(rows.sort()).toEqual(
+        [
+          [feedback, "unlink_only", "not_an_import_copy", "open"],
+          [named, "unlink_only", "names_another_file", "open"],
+          [otherCreator, "unknown_origin", "creator_or_time_differs", "open"],
+          [noTime, "unknown_origin", "no_approval_time", "open"],
+        ].sort()
+      );
+      await run(t, adminId, false);
+      expect(await recorded()).toHaveLength(4);
     });
 
     it("the pure rule: the old approval's own copy, one made before, one made after, one of another kind", () => {

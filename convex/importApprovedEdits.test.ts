@@ -265,7 +265,7 @@ describe("Send back to review", () => {
     await sendBack(admin, [pd]);
     const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
     expect(jobs.filter((job) => job.name.includes("unlearnSource")).map((job) => job.args[0])).toEqual([
-      { ragEntryId: "entry-1", sourceId },
+      { ragEntryId: "entry-1", sourceId, index: "voyage3" },
     ]);
   });
 

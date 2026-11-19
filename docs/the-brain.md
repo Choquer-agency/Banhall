@@ -1,12 +1,17 @@
 # The Brain — reference notes
 
 Curated, governed cross-project knowledge base (RAG) behind SR&ED report
-generation and the chat assistant. Ticket: **BNH-10**. Last updated 2026-07-02.
+generation and the chat assistant. Ticket: **BNH-10**. Last updated 2026-11-18.
 
 ## Architecture (one paragraph)
 
-`@convex-dev/rag` owns the vector index (Voyage `voyage-3-large`, 1024d, hybrid
-search; provider: first-party `@ai-sdk/voyage`). Our own reactive tables own
+`@convex-dev/rag` owns the vector index (Voyage, 1024d, hybrid search;
+provider: first-party `@ai-sdk/voyage`). Since 2026-11-18 there are two
+indexes, one per model: `voyage3` (`voyage-3-large`, namespace `brain`,
+reranked by `rerank-2.5`) and `voyage4` (`voyage-4-large`, namespace
+`brain-v4`, reranked by `rerank-3`). A stored pointer
+(`brainSearchIndexState`) says which one search reads; see "Two search
+indexes" below. Our own reactive tables own
 **governance**: nothing is retrievable until an admin approves it, revoking
 unlearns it (deleted from the index), and every change lands in an audit log.
 Every entry's `importance` is 1 since 2026-11-17 (it used to be the writer's
@@ -15,7 +20,8 @@ were near invisible). The tier is blended in after the floors
 (`score × (0.6 + 0.4·tier)`, after rerank and on the exit without rerank),
 read from the source's card, so stronger writers rank higher at equal
 relevance and a weight change takes effect at once (a source is re-embedded
-once, at importance 1, if its vectors still carry its old tier).
+once, at importance 1, if its vectors may still carry an old tier: below 1,
+or no importance recorded, which is unknown and refreshed).
 
 **A good PD is a good PD.** Everything lives in ONE namespace (`brain`), so the
 Brain helps every generation — no industry required. Setting an industry on a
@@ -53,7 +59,8 @@ Source: `~/Downloads/Sample PD's/<Writer>/<Abundant|Sparse> Info/Submitted PD/`.
   standard) · Larry / Emily / Orel **0.7** · other writers (incl. Eniko) **0.4**.
   Change any entry's weight in `/admin/brain` → expand row → Weight → Save
   (takes effect at once; since 2026-11-17 a source is re-embedded only once,
-  if its vectors still carry its old tier).
+  if its vectors may still carry an old tier, including when no importance
+  was recorded).
 - **Industry values** (exact strings — the project-page Industry dropdown and
   Brain filters share them): `software` · `manufacturing` · `life-sciences`.
   Set per project on the project header (Industry dropdown). Optional —
@@ -160,9 +167,11 @@ Status dot on approved rows: ● = embedded & retrievable, ◌ = still embedding
    Haiku-generated blurb situating it in its parent PD (cached-prefix, ~nil
    cost; cuts retrieval failures ~35–49%).
 3. **Hybrid search** casts a 30-chunk net (vector + text, writer-weighted).
-4. **Voyage `rerank-2.5` cross-encoder** re-scores a 12-wide slate
+4. **Voyage cross-encoder** (`rerank-2.5` while `voyage3` serves, `rerank-3`
+   while `voyage4` serves) re-scores a 12-wide slate
    (`maxRetries: 1`; any rerank error falls back to vector order), then:
-   **relevance floor** 0.35 (zero exemplars beats misleading ones), **writer
+   **relevance floor** 0.35, set per index (zero exemplars beats misleading
+   ones), **writer
    tier blended back in** (`score × (0.6 + 0.4·tier)` — rerank alone is
    tier-blind), **≤2 chunks per source PD** (diversity; applies on the
    fallback path too).
@@ -178,6 +187,50 @@ file, so it was held to 3 requests/min and 10K tokens/min. That caused the
 seed-day 429s and throttled rerank (the 4-retrievals-per-generation flow often
 fell back to vector order). As of 2026-11-17 a card is on file (owner
 confirmed), which lifts that free-tier limit before the bulk import (BNH-17).
+
+## Two search indexes (2026-11-18, the move to Voyage 4)
+
+Vectors from two models are not comparable, and the RAG component keeps one
+"ready" namespace per name: adding with a new model under the old name
+would mark the old index "replaced" and search would read an almost empty
+one, with no way back. So the new model has its own index and RAG instance
+(`brainV4`, `convex/ai/brain/rag.ts`), and the index table with each
+index's model, namespace, reranker and floors is `BRAIN_SEARCH_INDEXES`
+(`convex/ai/brain/embeddings.ts`).
+
+- **Pointer.** `brainSearchIndexState` (one row, key `search`; none means
+  `voyage3`). Retrieval reads it once per search. Moving it to `voyage4` is
+  the cutover and moving it back is the rollback.
+- **Both indexes are written.** An embed makes the chunks once (with chunk
+  notes when they are on) and adds them to each written index whose entry is
+  not current, the serving index first. When the other index already holds
+  this source's chunks with current notes, they are reused, so Haiku is paid
+  once. Each index's entry id is on the source: `ragEntryId` (voyage3) and
+  `ragEntryIdV4`. Revoke erases both, each confirmed on its own.
+- **Owner steps** (all internal, deploy order steps 13 to 15, 17 and 18):
+  `brain:buildSearchIndex` fills both indexes (paged, waits for each page's
+  embeds, one pass at a time, deletes nothing, safe to run again; `index`
+  fills just one); `brain:calibrateSearchIndexes` reports both indexes' and
+  both rerankers' scores and suggests floors (read only);
+  `brain:setServingSearchIndex` moves the pointer; later
+  `brain:dropOldSearchIndex` then `brain:deleteOldSearchNamespace` drop
+  `voyage3`.
+- **The rollback index stays as good as the serving one.** The build renews
+  `voyage3` entries with old notes or an old weight's importance, reusing the
+  notes it makes for `voyage4`, so Haiku is paid once (voyage-3-large is paid
+  once more). The pointer checks every approved card live before it moves,
+  in either direction: each must have a current entry in the target index
+  (entry, current notes, and for `voyage3` importance 1). A check of more
+  than 4,000 cards takes more than one call; it says "run this again".
+- **Retries.** Notes an embed made are kept (`brainChunkNotes`) until all
+  its adds land, so a pool retry never pays Haiku twice. Each add takes a
+  short lease (`brainIndexWrites`), refused once the old index's drop
+  starts, so a late add never makes the "brain" namespace again.
+- **Floors.** The `voyage4` floors start equal to `voyage3`'s (cosine 0.3,
+  rerank 0.35) and are provisional until the calibration report confirms or
+  changes them, which is a code change and a deploy.
+- **Region.** Voyage processes in the US. A Canada-only rule would need
+  another provider.
 
 ## Generation fan-out (fixed 2026-07-02, found during Brain e2e)
 

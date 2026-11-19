@@ -141,9 +141,11 @@ import {
   RETRIEVAL_BRIEF_FACT_PART_CHARS,
 } from "./brain/query";
 import {
+  BRAIN_DEFAULT_SERVING_INDEX,
   BRAIN_EMBEDDING_DIMENSION,
   BRAIN_EMBEDDING_MODEL_ID,
   BRAIN_RERANK_MODEL_ID,
+  BRAIN_SEARCH_INDEXES,
 } from "./brain/embeddings";
 import {
   BRAIN_CHUNK_CONTEXT,
@@ -1068,6 +1070,16 @@ export const generationPromptProgram = {
         dimension: BRAIN_EMBEDDING_DIMENSION,
       },
       rerankModelId: BRAIN_RERANK_MODEL_ID,
+      // 2026-11-18 (fourth): two search indexes, each with its model,
+      // namespace, reranker and floors; a stored pointer
+      // (brainSearchIndexState) chooses the one search reads, voyage3 when
+      // unset. The `embedding`, `rerankModelId` and floor fields above and
+      // below are voyage3's.
+      searchIndexes: {
+        indexes: BRAIN_SEARCH_INDEXES,
+        defaultServing: BRAIN_DEFAULT_SERVING_INDEX,
+        servingChosenBy: "stored-pointer-brainSearchIndexState",
+      },
       search: {
         request: BRAIN_SEARCH_PROGRAM,
         defaultK: BRAIN_SEARCH_DEFAULT_K,

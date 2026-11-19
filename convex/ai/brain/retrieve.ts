@@ -4,13 +4,12 @@ import { v } from "convex/values";
 import { rerank } from "ai";
 import type { Id } from "../../_generated/dataModel";
 import {
-  brain,
   BRAIN_ENTRY_IMPORTANCE,
   BRAIN_FILTER_NAMES,
-  BRAIN_NAMESPACE,
+  BRAIN_RAGS,
   type BrainEntryMetadata,
 } from "./rag";
-import { brainEmbeddingModel, brainRerankModel } from "./embeddings";
+import { BRAIN_RERANK_MODELS, BRAIN_SEARCH_INDEXES } from "./embeddings";
 import { scheduleUsage } from "../instrument";
 import { voyageTokenCount } from "../providers";
 import {
@@ -52,8 +51,12 @@ export type BrainSearchOutcome = {
   degraded: boolean;
 };
 
-/** Rerank scores below this are noise — better zero exemplars than wrong ones. */
-export const BRAIN_RERANK_RELEVANCE_FLOOR = 0.35;
+/**
+ * Rerank scores below this are noise: better zero exemplars than wrong ones.
+ * The voyage3 index's (rerank-2.5); since 2026-11-18 (fourth) each index
+ * sets its own (`BRAIN_SEARCH_INDEXES`, embeddings.ts).
+ */
+export const BRAIN_RERANK_RELEVANCE_FLOOR = BRAIN_SEARCH_INDEXES.voyage3.rerankRelevanceFloor;
 
 /**
  * Relevance gates for the NON-reranked paths (≤k candidates, or a rerank
@@ -77,7 +80,7 @@ export const BRAIN_RERANK_RELEVANCE_FLOOR = 0.35;
  *    non-reranked returns: the bottom of the RRF ordering is where text-only
  *    stragglers (which bypass the cosine floor) land.
  */
-export const BRAIN_MIN_VECTOR_SIMILARITY = 0.3;
+export const BRAIN_MIN_VECTOR_SIMILARITY = BRAIN_SEARCH_INDEXES.voyage3.minVectorSimilarity;
 export const BRAIN_RAW_SEARCH_FLOOR = 0.25;
 export const BRAIN_SEARCH_LIMIT = 30;
 /**
@@ -326,16 +329,20 @@ export async function searchBrainExemplars(
     const retrievalQuery = scienceCode
       ? `${args.query}${BRAIN_SEARCH_PROGRAM.scienceLabelScaffold.separator}${BRAIN_SEARCH_PROGRAM.scienceLabelScaffold.prefix}${scienceCodeLabel(scienceCode)}`
       : args.query;
+    // 2026-11-18 (fourth): the stored pointer chooses the index, read once
+    // per search; its model, namespace, reranker and floors go together.
+    const { serving } = await ctx.runQuery(internal.brain.servingSearchIndex, {});
+    const index = BRAIN_SEARCH_INDEXES[serving];
     // Only a company with imported PDs in the Brain needs the wider fetch.
     const ownCompany = ownCompanyProjectId
       ? await ctx.runQuery(internal.brain.ownCompanyImports, { projectId: ownCompanyProjectId })
       : null;
-    const { results, entries, usage } = await brain.search(ctx, {
-      namespace: BRAIN_NAMESPACE,
+    const { results, entries, usage } = await BRAIN_RAGS[serving].search(ctx, {
+      namespace: index.namespace,
       query: retrievalQuery,
       searchType: BRAIN_SEARCH_PROGRAM.searchType,
       limit: ownCompany ? BRAIN_OWN_COMPANY_SEARCH_LIMIT : BRAIN_SEARCH_LIMIT,
-      vectorScoreThreshold: BRAIN_MIN_VECTOR_SIMILARITY,
+      vectorScoreThreshold: index.minVectorSimilarity,
       chunkContext: BRAIN_CHUNK_CONTEXT,
       ...(filters.length ? { filters: filters as never } : {}),
     });
@@ -347,7 +354,7 @@ export async function searchBrainExemplars(
           ? { agentThreadId: args.agentThreadId }
           : {}),
         callSite: `brain:query_embedding${usageSuffix}`,
-        model: brainEmbeddingModel.modelId,
+        model: index.embeddingModelId,
         inputTokens: usage.tokens,
         outputTokens: 0,
       });
@@ -382,7 +389,7 @@ export async function searchBrainExemplars(
     if (shouldRerankBrainCandidates(candidates.length, k)) {
       try {
         const rerankResult = await rerank({
-          model: brainRerankModel,
+          model: BRAIN_RERANK_MODELS[serving],
           query: retrievalQuery,
           documents: candidates.map((c) => c.text),
           topN: Math.min(BRAIN_RERANK_TOP_N_CAP, candidates.length),
@@ -397,7 +404,7 @@ export async function searchBrainExemplars(
               ? { agentThreadId: args.agentThreadId }
               : {}),
             callSite: `brain:rerank${usageSuffix}`,
-            model: brainRerankModel.modelId,
+            model: index.rerankModelId,
             inputTokens: rerankTokens,
             outputTokens: 0,
           });
@@ -406,7 +413,7 @@ export async function searchBrainExemplars(
         }
         const { ranking } = rerankResult;
         const floored = ranking.filter(
-          (ranked) => ranked.score >= BRAIN_RERANK_RELEVANCE_FLOOR
+          (ranked) => ranked.score >= index.rerankRelevanceFloor
         );
         const blended = floored
           .map((r) => ({

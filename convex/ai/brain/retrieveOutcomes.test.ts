@@ -8,11 +8,13 @@ import { brainRerankModel } from "./embeddings";
 import { searchBrainExemplars } from "./retrieve";
 
 const search = vi.hoisted(() => vi.fn());
-vi.mock("./rag", () => ({
+// 2026-11-18 (fourth): retrieval searches through the serving index's RAG
+// instance (`BRAIN_RAGS`), so both instances get the stub; the rest of the
+// module stays real (brain.ts reads the serving index through it).
+vi.mock("./rag", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./rag")>()),
   brain: { search },
-  BRAIN_NAMESPACE: "brain",
-  BRAIN_FILTER_NAMES: ["industryApproved", "docType"],
-  BRAIN_ENTRY_IMPORTANCE: 1,
+  BRAIN_RAGS: { voyage3: { search }, voyage4: { search } },
 }));
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../../**/*.ts")).map(([path, load]) => [

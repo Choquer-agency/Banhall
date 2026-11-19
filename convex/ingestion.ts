@@ -17,6 +17,7 @@ import {
   contentHash as brainContentHash,
   findImportMatch,
   importSource,
+  recordOldPageCopy,
   relabelImportedSource,
   revokeBrainSourceRow,
 } from "./brain";
@@ -2947,6 +2948,16 @@ export const sendBackOldApprovals = internalMutation({
       const done = await sendBackOne(ctx, item, actor._id, { brainReason: OLD_APPROVAL_BRAIN_REASON, brainPolicy: plan.policy });
       spent += done.readBytes;
       step.sentBack += 1;
+      // Final review P2-1: a copy left approved waits for an Admin's
+      // decision on /admin/brain; an unknown-origin one holds the build.
+      if ((plan.line.outcome === "unknown_origin" || plan.line.outcome === "unlink_only") && plan.line.sourceId) {
+        await recordOldPageCopy(ctx, {
+          sourceId: plan.line.sourceId,
+          itemId: item._id,
+          outcome: plan.line.outcome,
+          detail: plan.line.detail,
+        });
+      }
       for (const key of done.groups) groups.add(key);
     }
     if (!args.dryRun) await recomputeGroups(ctx, groups, MANY_ROWS);

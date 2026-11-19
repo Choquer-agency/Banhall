@@ -3960,15 +3960,24 @@ export default defineSchema({
     sentBackItemId: v.optional(v.id("ingestionItems")),
     // 2026-11-17 widen: the RAG importance of the source's last finished
     // embed (set by ingestOnComplete). Every embed since is 1; absent on
-    // older rows, whose importance was their writer tier, so
-    // brain:reembedBelowFullImportance and reweightSource know which ones
-    // still need the one re-embed at importance 1.
+    // older rows, embedded at their tier as it stood then. Since the PR #51
+    // review an absent value is unknown (the current tier does not tell it),
+    // so brain:reembedBelowFullImportance, reweightSource and the build
+    // refresh those rows at importance 1.
     ragImportance: v.optional(v.number()),
     // 2026-11-17 widen (review round 2): the chunk note prompt version of
     // the source's last finished embed when it had chunk notes (set by
     // ingestOnComplete); absent with no notes, or on older rows, whose notes
     // came from the prompt that asked for the company.
     chunkNotesVersion: v.optional(v.number()),
+    // 2026-11-18 (fourth) widen (the Brain moves to Voyage 4): the source's
+    // entry in the voyage4 index (voyage-4-large, namespace "brain-v4") and
+    // that entry's chunk note version. `ragEntryId`, `ragImportance` and
+    // `chunkNotesVersion` describe the voyage3 index. Revoke and unlearn
+    // erase both entries; each field is cleared only by its own confirmed
+    // erasure.
+    ragEntryIdV4: v.optional(v.string()),
+    chunkNotesVersionV4: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
@@ -4029,6 +4038,10 @@ export default defineSchema({
     // 2026-11-17 widen: brainSources.ragImportance and chunkNotesVersion, for the re-embed pass.
     ragImportance: v.optional(v.number()),
     chunkNotesVersion: v.optional(v.number()),
+    // 2026-11-18 (fourth) widen: brainSources.ragEntryIdV4 and
+    // chunkNotesVersionV4, for the voyage4 build chain and the admin list.
+    ragEntryIdV4: v.optional(v.string()),
+    chunkNotesVersionV4: v.optional(v.number()),
   })
     .index("by_sourceId", ["sourceId"])
     .index("by_createdAt", ["createdAt"])
@@ -4046,6 +4059,113 @@ export default defineSchema({
     key: v.string(),
     count: v.number(),
   }).index("by_scope_and_key", ["scope", "key"]),
+
+  // 2026-11-18 (fourth) (the Brain moves to Voyage 4): which search index
+  // serves. At most one row, key "search"; no row means "voyage3" serves.
+  // Written only by brain:setServingSearchIndex, brain:buildSearchIndex
+  // (`lastBuild`) and brain:dropOldSearchIndex (`oldIndexDropped`). Moving
+  // `serving` is the cutover; moving it back is the rollback, as long as the
+  // old index is still written (`oldIndexDropped` unset).
+  brainSearchIndexState: defineTable({
+    key: v.literal("search"),
+    serving: v.union(v.literal("voyage3"), v.literal("voyage4")),
+    // Set when the drop of the voyage3 index starts: from then no embed
+    // writes to it and the pointer can no longer move back.
+    oldIndexDropped: v.optional(v.boolean()),
+    // The last finished build pass of the voyage4 index: approved sources it
+    // read, those that had an entry, those it queued, and those still
+    // missing once their embeds finished. The pointer moves to voyage4 only
+    // after a pass with none missing.
+    lastBuild: v.optional(
+      v.object({
+        finishedAt: v.number(),
+        approved: v.number(),
+        present: v.number(),
+        queued: v.number(),
+        missing: v.number(),
+        // The index the pass filled; absent: every written index.
+        index: v.optional(v.union(v.literal("voyage3"), v.literal("voyage4"))),
+      })
+    ),
+    // Review 51 widen: a build pass is running (its first step's time is
+    // the run's id; a step of another run stops). Cleared by its last step.
+    buildRunning: v.optional(
+      v.object({
+        startedAt: v.number(),
+        index: v.optional(v.union(v.literal("voyage3"), v.literal("voyage4"))),
+      })
+    ),
+    // Review 51 widen: a pointer move whose live check of every approved
+    // card did not fit in one call; the next call goes on from `cursor`.
+    moveCheck: v.optional(
+      v.object({
+        index: v.union(v.literal("voyage3"), v.literal("voyage4")),
+        cursor: v.string(),
+        checked: v.number(),
+        startedAt: v.number(),
+      })
+    ),
+    // Final review widen: when search last moved to the index it reads now
+    // (absent before any move: voyage3 since the start).
+    servingSince: v.optional(v.number()),
+    // Final review widen: the last calibration run (brain:calibrateSearchIndexes
+    // writes only this): when, with how many probes, and which index served.
+    // The old index's drop waits for one after the cutover with enough probes.
+    lastCalibration: v.optional(
+      v.object({
+        at: v.number(),
+        probes: v.number(),
+        serving: v.union(v.literal("voyage3"), v.literal("voyage4")),
+      })
+    ),
+    changedBy: v.string(),
+    changedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // Final review of #48 to #51 (P2-1): a Brain copy the old-page send back
+  // job left approved because it could not tie it to the file's own old
+  // approval ("unknown_origin") or because it came from another route or is
+  // shared ("unlink_only"). One row per copy, written by a real run. An Admin
+  // decides each on /admin/brain: "removed" (through the audited revoke,
+  // which closes the row) or "kept". brain:buildSearchIndex does not start
+  // while an unknown-origin row is still open, unless told to.
+  brainOldPageCopies: defineTable({
+    sourceId: v.id("brainSources"),
+    itemId: v.id("ingestionItems"),
+    outcome: v.union(v.literal("unknown_origin"), v.literal("unlink_only")),
+    detail: v.string(),
+    status: v.union(v.literal("open"), v.literal("kept"), v.literal("removed")),
+    recordedAt: v.number(),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+  })
+    .index("by_sourceId", ["sourceId"])
+    .index("by_status_and_outcome", ["status", "outcome"])
+    .index("by_status_and_recordedAt", ["status", "recordedAt"]),
+
+  // Review 51 (2026-11-18 (fourth)): the chunk notes one embed made, kept
+  // until every index it adds to has its entry, so a pool retry after a
+  // failed add never pays Haiku for them again. One row per source and
+  // note version; `notes[i]` is the note of raw chunk i ("" for none).
+  // Deleted by the embed once its adds finish, and with the source.
+  brainChunkNotes: defineTable({
+    sourceId: v.id("brainSources"),
+    notesVersion: v.number(),
+    chunkCount: v.number(),
+    notes: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_sourceId_and_notesVersion", ["sourceId", "notesVersion"]),
+
+  // Review 51 (2026-11-18 (fourth)): an embed's add to one index while it
+  // runs, so brain:deleteOldSearchNamespace can wait for adds to voyage3
+  // that started before its drop (an add would make the namespace again).
+  // Written before the add, deleted after it; a row older than an action
+  // can run is stale and ignored.
+  brainIndexWrites: defineTable({
+    index: v.union(v.literal("voyage3"), v.literal("voyage4")),
+    sourceId: v.id("brainSources"),
+    startedAt: v.number(),
+  }).index("by_index_and_startedAt", ["index", "startedAt"]),
 
   // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
   // One row per review run. The uploaded PD lives in projectDocuments
@@ -4148,7 +4268,13 @@ export default defineSchema({
       v.literal("unlearn_failed"),
       // 2026-11-17 widen (edit after approval): an Admin changed an imported
       // PD's writer or science code on Import, and its Brain copy followed.
-      v.literal("relabel")
+      v.literal("relabel"),
+      // 2026-11-18 (fourth) widen: the serving search index moved (cutover
+      // or rollback), or the old index's drop started. No `sourceId`.
+      v.literal("switch_index"),
+      // Final review widen: an Admin kept a copy the old-page send back left
+      // approved (removing one is a `revoke`).
+      v.literal("keep_old_page_copy")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),
