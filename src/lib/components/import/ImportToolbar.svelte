@@ -40,7 +40,7 @@
     /** New files on To review; the chip shows only when there is one. */
     newCount?: number;
     showToCheck?: boolean;
-    /** The Select toggle (not on Approved). */
+    /** The Select toggle (on Approved since 2026-11-17, for Send back to review). */
     showSelect?: boolean;
     selectOn?: boolean;
     /** While a search is showing, selection is off. */

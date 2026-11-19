@@ -256,8 +256,8 @@ describe("selecting files on the Import page", () => {
     await expect.poll(barCount).toBe("1 file selected");
     await userEvent.click(page.getByRole("tab", { name: /^Approved/ }));
     await expect.poll(bar).toBeNull();
-    // Approved is read only: no Select there.
-    expect(page.getByRole("button", { name: "Select", exact: true }).query()).toBeNull();
+    // Approved has Select too (2026-11-17, for Send back to review), off after the tab change.
+    await expect.element(page.getByRole("button", { name: "Select", exact: true })).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(page.getByRole("tab", { name: /^To review/ }));
     await expect.element(page.getByRole("button", { name: "Select", exact: true })).toHaveAttribute("aria-pressed", "false");
   });

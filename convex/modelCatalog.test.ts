@@ -1243,8 +1243,12 @@ describe("prompt versions", () => {
     // blended after the floors on both exits (positions recounted over the
     // kept slate), and the own-company exclusion with its wider fetch,
     // on purpose; before it they were sha256:583428e9... and sha256:f7f54caf....
-    expect(await hashPromptProgram()).toBe("sha256:d5692a9b0f10721c462edf6ba259f2665a6c7aab5f68c9176925fa4d31103c3b");
-    expect(await legacyPromptVersion()).toBe("sha256:45eabb14e17b0237aee420bd15e81922aa6ee5fd57a5ae0c38166b081f9005b0");
+    // Re-read after 2026-11-17 (fifth, edit after approval on Import): the
+    // Brain search records that exemplar labels (writer, science code) come
+    // from the source's card, on purpose; before it they were
+    // sha256:d5692a9b... and sha256:45eabb14....
+    expect(await hashPromptProgram()).toBe("sha256:ef6f2e10838416ab57a09a834be64155af8dd0a66669848c24410a4816e5cd3b");
+    expect(await legacyPromptVersion()).toBe("sha256:6a67eb849bd71bcc8f17660e94a4117b61eea10bfa072cb8bc84845e9c2d75db");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

@@ -261,3 +261,28 @@ Deploy: `brain:backfillBrainSourceCards`, then
 1, and with chunk notes on those whose notes came from the old prompt that
 asked for the company; deletes nothing first; not `requeueAllApprovedEmbeds`). See the
 2026-11-17 (third) amendment in `docs/product-domain.md`.
+
+## Send back and edits after approval (2026-11-17)
+
+Send back to review on Import revokes an imported PD's Brain copy as an
+audited unlearn (reason "Sent back to review on Import", marked
+`sentBackItemId`), unless another approved Import file still links it. Such a
+source never blocks that PD later: after its next approval, its Brain check
+makes a new row with a RAG key of its own (`<kind>:<hash>:2`), and other
+paths that match the PD then find the new row. A source revoked on
+`/admin/brain` still blocks it. Approve on `/admin/brain` takes pending
+sources only, so a revoked source never comes back beside a newer copy.
+
+An Admin's edit of an approved file's writer or science code on Import
+reaches its Brain copy (writer name and tier, science code, and the card),
+logged as `relabel` ("Details changed on Import" in the audit tab).
+Retrieval reads the writer's name, the science code and the tier from the
+source's card (`servableBrainSources`), not from the RAG entry's metadata,
+so the edit shows in exemplar labels and science routing at once with no
+new embed (the component would keep the old entry anyway: its text,
+importance and filters are the same). Only a tier change on a source still
+embedded with its tier as importance is embedded once, as a reweight is.
+The text, title, industry and fiscal year never change there. A final PD's
+new writer may not be a form of the company's names or a person its
+projects interviewed. See the 2026-11-17 (fifth) amendment in
+`docs/product-domain.md`.

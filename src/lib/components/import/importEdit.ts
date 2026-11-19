@@ -30,9 +30,9 @@ import { CATEGORY_LABELS, formatCount, plural, yearEndDate, type ImportCategory,
  */
 export { rowAbilities, type RowAbilities } from "../../../../shared/importSheetRules";
 
-/** Select applies to To review and Deleted; Approved is read only. */
+/** Select applies to every tab: on Approved (2026-11-17) for Send back to review. */
 export function canSelect(tab: SheetTab): boolean {
-  return tab !== "approved";
+  return tab === "review" || tab === "approved" || tab === "deleted";
 }
 
 // ─── Labels a person can pick ───────────────────────────────────────────────

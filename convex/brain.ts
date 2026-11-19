@@ -23,7 +23,8 @@ import {
   insertBrainSource,
   linkBrainSourceImportFile,
   patchBrainSource,
-  sourceIdForImportFile,
+  revokedBySendBack,
+  sourcesForImportFile,
   syncBrainSourceCard,
   type CountKey,
 } from "./ai/brain/rag";
@@ -138,6 +139,13 @@ type ImportSourceArgs = {
    * differently.
    */
   importItem?: { itemId: Id<"ingestionItems">; contentHash: string };
+  /**
+   * 2026-11-17 (Send back to review): the Import's Brain check passes true,
+   * so a source revoked by Send back neither blocks nor is reused: the copy
+   * a person just read becomes a new row (approved, with its own RAG key).
+   * Every other caller still refuses any revoked match.
+   */
+  supersedeSentBack?: boolean;
 };
 
 /** What the refusal calls the thing being imported, from its doc type. */
@@ -178,32 +186,94 @@ export type ImportSourceResult =
   | { outcome: "added" | "matched"; sourceId: Id<"brainSources">; status: "pending" | "approved" }
   | { outcome: "revoked"; sourceId: Id<"brainSources">; message: string };
 
+/** The most sources one import file can be the first file of (one, besides Send back's). */
+const IMPORT_FILE_SOURCES = 50;
+
+/**
+ * The most sources read for one text hash, and the most RAG keys tried for
+ * one: one source per text, besides the ones Send back revoked before a new
+ * copy. Past it, something is wrong, so it fails loudly.
+ */
+const TEXT_HASH_SOURCES = 50;
+
 /**
  * The existing source an import matches: by the bytes of any import file
- * linked to a source first, then by text.
+ * linked to a source first, then by the source's own first file, then by
+ * text (the oldest match, as before). A source revoked by Send back to
+ * review (2026-11-17) is passed over when another source has the same bytes
+ * or text (the new copy its Brain check made), so every path finds that
+ * one; with `skipSentBack` (the Import's Brain check) it is passed over even
+ * when nothing else matches.
  */
 export async function findImportMatch(
   ctx: MutationCtx,
   textHash: string,
-  importContentHash: string | undefined
+  importContentHash: string | undefined,
+  options: { skipSentBack?: boolean } = {}
 ): Promise<Doc<"brainSources"> | null> {
+  let sentBack: Doc<"brainSources"> | null = null;
+  const consider = (row: Doc<"brainSources">): Doc<"brainSources"> | null => {
+    if (!revokedBySendBack(row)) return row;
+    sentBack ??= row;
+    return null;
+  };
   if (importContentHash) {
-    const linkedId = await sourceIdForImportFile(ctx, importContentHash);
-    const linked = linkedId ? await ctx.db.get("brainSources", linkedId) : null;
-    if (linked) return linked;
+    for (const linked of await sourcesForImportFile(ctx, importContentHash)) {
+      const found = consider(linked);
+      if (found) return found;
+    }
     // A source whose first file has no link row yet. A source's first file is
     // unique to it (a second file with those bytes always matches it here),
-    // so two rows is broken data and fails loudly.
+    // so two rows that Send back did not revoke is broken data and fails loudly.
     const byFile = await ctx.db
       .query("brainSources")
       .withIndex("by_importContentHash", (q) => q.eq("importContentHash", importContentHash))
-      .unique();
-    if (byFile) return byFile;
+      .take(IMPORT_FILE_SOURCES);
+    const current = byFile.filter((row) => !revokedBySendBack(row));
+    if (current.length > 1) {
+      throw new Error(`Import file hash ${importContentHash} is the first file of ${current.length} Brain sources.`);
+    }
+    for (const row of byFile) {
+      const found = consider(row);
+      if (found) return found;
+    }
   }
-  return await ctx.db
+  const byText = await ctx.db
     .query("brainSources")
     .withIndex("by_hash", (q) => q.eq("sourceHash", textHash))
+    .take(TEXT_HASH_SOURCES + 1);
+  for (const row of byText.slice(0, TEXT_HASH_SOURCES)) {
+    const found = consider(row);
+    if (found) return found;
+  }
+  if (byText.length > TEXT_HASH_SOURCES) {
+    throw new Error(`Text hash ${textHash} has more than ${TEXT_HASH_SOURCES} Brain sources, all revoked by Send back.`);
+  }
+  return options.skipSentBack ? null : sentBack;
+}
+
+/**
+ * The RAG key of a new source: `<kind>:<text hash>`, as before; when a
+ * source revoked by Send back already holds that key (a new copy of the same
+ * PD after its Brain check), a key of its own, so the embed's completion
+ * (found by key) books against the new source and never the revoked one.
+ */
+async function newRagKey(ctx: MutationCtx, kind: string, hash: string): Promise<string> {
+  const base = `${kind}:${hash}`;
+  const taken = await ctx.db
+    .query("brainSources")
+    .withIndex("by_ragKey", (q) => q.eq("ragKey", base))
     .first();
+  if (!taken) return base;
+  for (let n = 2; n <= TEXT_HASH_SOURCES + 1; n += 1) {
+    const key = `${base}:${n}`;
+    const used = await ctx.db
+      .query("brainSources")
+      .withIndex("by_ragKey", (q) => q.eq("ragKey", key))
+      .first();
+    if (!used) return key;
+  }
+  throw new Error(`RAG key ${base} already has ${TEXT_HASH_SOURCES} newer copies.`);
 }
 
 export async function importSource(
@@ -224,7 +294,9 @@ export async function importSource(
 
   // Dedup that respects status (2026-11-17; BNH-17 dedup by content). A
   // revoked match is never reused: nothing re-approves or re-ingests it here.
-  const existing = await findImportMatch(ctx, hash, args.importItem?.contentHash);
+  const existing = await findImportMatch(ctx, hash, args.importItem?.contentHash, {
+    skipSentBack: args.supersedeSentBack === true,
+  });
   if (existing?.status === "revoked") {
     return {
       outcome: "revoked",
@@ -265,9 +337,10 @@ export async function importSource(
         at: Date.now(),
       });
     }
-    if (approveNow || (existing.status === "approved" && patch.scienceCode)) {
-      await scheduleEmbed(ctx, existing._id);
-    }
+    // A science code added to an approved source needs no embed: retrieval
+    // reads it from the source's card (servableBrainSources), and the
+    // component would keep the entry anyway (same text, importance and filters).
+    if (approveNow) await scheduleEmbed(ctx, existing._id);
     return {
       outcome: "matched",
       sourceId: existing._id,
@@ -289,7 +362,7 @@ export async function importSource(
     craOutcome: args.craOutcome,
     scienceCode,
     content: args.content,
-    ragKey: `${kind}:${hash}`,
+    ragKey: args.supersedeSentBack ? await newRagKey(ctx, kind, hash) : `${kind}:${hash}`,
     sourceHash: hash,
     sourceProjectId: args.sourceProjectId,
     createdBy: actor,
@@ -717,6 +790,17 @@ export const approveSource = mutation({
     const admin = await assertAdmin(ctx);
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
+    // Only a pending source is approved here (2026-11-17). A revoked one
+    // never comes back (a source Send back revoked may already have a newer
+    // copy of the same PD beside it), and an approved one stays as it is.
+    if (s.status !== "pending") {
+      domainError(
+        "INVALID_STATE",
+        s.status === "approved"
+          ? "This source is already in the Brain."
+          : "This source was removed from the Brain, so it cannot be approved again."
+      );
+    }
     await patchBrainSource(ctx, s, { status: "approved" });
     await ctx.db.insert("brainAuditLog", {
       action: "approve",
@@ -746,49 +830,127 @@ export const revokeSource = mutation({
     const admin = await assertAdmin(ctx);
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
-    if (s.status === "revoked") {
-      // Idempotent. A second revoke never writes a second `revoke` row. A
-      // retained `ragEntryId` on a revoked row is failure evidence, and it
-      // doubles as the remediation handle: retry deletion against it.
-      // Phase E (E2a): it also withdraws feedback a revoke before E2a left.
-      await withdrawSourceFeedback(ctx, args.sourceId);
-      if (s.ragEntryId) {
-        await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
-          ragEntryId: s.ragEntryId,
-          sourceId: args.sourceId,
-        });
-      }
-      return;
-    }
-    await patchBrainSource(ctx, s, { status: "revoked", revokedFromStatus: s.status });
-    await ctx.db.insert("brainAuditLog", {
-      action: "revoke",
-      sourceId: args.sourceId,
-      actorId: admin,
-      reason: args.reason,
-      at: Date.now(),
-    });
-    // Phase E (E2a): the lessons drawn from it are withdrawn, and a
-    // published set that drew on them is turned off.
-    await withdrawSourceFeedback(ctx, args.sourceId);
+    await revokeBrainSourceRow(ctx, s, admin, args.reason);
+  },
+});
+
+/**
+ * The audited unlearn of one source (revokeSource's body, shared since
+ * 2026-11-17 with Send back to review on Import, which passes
+ * `sentBackItemId`). The caller checks who may do it.
+ */
+export async function revokeBrainSourceRow(
+  ctx: MutationCtx,
+  s: Doc<"brainSources">,
+  actor: string,
+  reason: string | undefined,
+  options: { sentBackItemId?: Id<"ingestionItems"> } = {}
+): Promise<void> {
+  if (s.status === "revoked") {
+    // Idempotent. A second revoke never writes a second `revoke` row. A
+    // retained `ragEntryId` on a revoked row is failure evidence, and it
+    // doubles as the remediation handle: retry deletion against it.
+    // Phase E (E2a): it also withdraws feedback a revoke before E2a left.
+    await withdrawSourceFeedback(ctx, s._id);
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
-        sourceId: args.sourceId,
+        sourceId: s._id,
       });
-      return;
     }
-    // Never embedded (or already erased): there is nothing remote to confirm,
-    // so the erasure is confirmed by construction — record it here.
-    await ctx.db.insert("brainAuditLog", {
-      action: "unlearn_confirmed",
-      sourceId: args.sourceId,
-      actorId: "system",
-      reason: "No RAG entry to erase",
-      at: Date.now(),
+    return;
+  }
+  await patchBrainSource(ctx, s, {
+    status: "revoked",
+    revokedFromStatus: s.status,
+    ...(options.sentBackItemId ? { sentBackItemId: options.sentBackItemId } : {}),
+  });
+  await ctx.db.insert("brainAuditLog", {
+    action: "revoke",
+    sourceId: s._id,
+    actorId: actor,
+    reason,
+    at: Date.now(),
+  });
+  // Phase E (E2a): the lessons drawn from it are withdrawn, and a
+  // published set that drew on them is turned off.
+  await withdrawSourceFeedback(ctx, s._id);
+  if (s.ragEntryId) {
+    await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+      ragEntryId: s.ragEntryId,
+      sourceId: s._id,
     });
-  },
-});
+    return;
+  }
+  // Never embedded (or already erased): there is nothing remote to confirm,
+  // so the erasure is confirmed by construction; record it here.
+  await ctx.db.insert("brainAuditLog", {
+    action: "unlearn_confirmed",
+    sourceId: s._id,
+    actorId: "system",
+    reason: "No RAG entry to erase",
+    at: Date.now(),
+  });
+}
+
+/** What an edit after approval changes on an imported PD's Brain copy. */
+export type ImportedSourceRelabel = { writerName?: string | null; writerTier?: number; scienceCode?: string | null };
+
+/**
+ * An imported PD's Brain copy follows an edit made to its Import file after
+ * approval (2026-11-17, edit after approval): the writer's name and tier and
+ * the science code it stores, its card with them, and one `relabel` audit
+ * row naming what changed. The text, title, industry and fiscal year never
+ * change here. Retrieval reads the writer's name, the science code and the
+ * tier from the card (servableBrainSources), so none of them needs a new
+ * embed: the component would keep the old entry anyway, since the text,
+ * importance and filters are the same. Only a tier change on a source
+ * whose vectors still carry its old tier as importance
+ * (needsFullImportanceEmbed) is embedded once, as reweightSource does.
+ * Returns whether anything changed and whether it is embedded again.
+ */
+export async function relabelImportedSource(
+  ctx: MutationCtx,
+  s: Doc<"brainSources">,
+  change: ImportedSourceRelabel,
+  actor: string
+): Promise<{ changed: boolean; reembed: boolean }> {
+  const patch: Partial<Doc<"brainSources">> = {};
+  const said: string[] = [];
+  if (change.writerName !== undefined) {
+    const name = change.writerName?.trim() || undefined;
+    if ((s.writerName ?? undefined) !== name) {
+      patch.writerName = name;
+      said.push(`writer ${s.writerName ?? "none"} → ${name ?? "none"}`);
+    }
+  }
+  if (change.writerTier !== undefined && Number.isFinite(change.writerTier)) {
+    const tier = Math.max(0, Math.min(1, change.writerTier));
+    if (s.writerTier !== tier) {
+      patch.writerTier = tier;
+      said.push(`writerTier ${s.writerTier} → ${tier}`);
+    }
+  }
+  if (change.scienceCode !== undefined) {
+    const code = normalizeCraScienceCode(change.scienceCode ?? undefined) ?? undefined;
+    if ((s.scienceCode ?? undefined) !== code) {
+      patch.scienceCode = code;
+      said.push(`science code ${s.scienceCode ?? "none"} → ${code ?? "none"}`);
+    }
+  }
+  if (said.length === 0) return { changed: false, reembed: false };
+  const reembed = s.status === "approved" && "writerTier" in patch && needsFullImportanceEmbed(s);
+  await patchBrainSource(ctx, s, patch);
+  await ctx.db.insert("brainAuditLog", {
+    action: "relabel",
+    sourceId: s._id,
+    actorId: actor,
+    reason: `Changed on Import after approval: ${said.join("; ")}`,
+    at: Date.now(),
+  });
+  if (reembed) await scheduleEmbed(ctx, s._id);
+  return { changed: true, reembed };
+}
 
 /**
  * Confirmed erasure + governance bookkeeping. The single path for BOTH
@@ -1053,11 +1215,20 @@ export const servableBrainSources = internalQuery({
     sourceIds: v.array(v.string()),
     ownCompanyKeys: v.optional(v.array(v.string())),
   },
-  returns: v.array(v.object({ sourceId: v.string(), writerTier: v.number() })),
+  returns: v.array(
+    v.object({
+      sourceId: v.string(),
+      writerTier: v.number(),
+      // 2026-11-17 (edit after approval): the labels retrieval shows, as the
+      // source stores them now, so an edit on Import needs no re-embed.
+      writerName: v.optional(v.string()),
+      scienceCode: v.optional(v.string()),
+    })
+  ),
   handler: async (ctx, args) => {
     const ownKeys = new Set(args.ownCompanyKeys ?? []);
     const itemKeys = new Map<Id<"ingestionItems">, string | undefined>();
-    const servable: { sourceId: string; writerTier: number }[] = [];
+    const servable: { sourceId: string; writerTier: number; writerName?: string; scienceCode?: string }[] = [];
     for (const raw of args.sourceIds) {
       const id = ctx.db.normalizeId("brainSources", raw);
       if (!id) continue;
@@ -1068,7 +1239,12 @@ export const servableBrainSources = internalQuery({
       const row = card ?? (await ctx.db.get(id));
       if (row?.status !== "approved") continue;
       if (ownKeys.size > 0 && (await ownCompanyImport(ctx, id, row.importItemId, ownKeys, itemKeys))) continue;
-      servable.push({ sourceId: raw, writerTier: row.writerTier });
+      servable.push({
+        sourceId: raw,
+        writerTier: row.writerTier,
+        ...(row.writerName ? { writerName: row.writerName } : {}),
+        ...(row.scienceCode ? { scienceCode: row.scienceCode } : {}),
+      });
     }
     return servable;
   },

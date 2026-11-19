@@ -123,7 +123,10 @@ export const editableLabelValidator = v.union(
   v.literal("pdNumber"),
   v.literal("version"),
   v.literal("writerName"),
-  v.literal("scienceCode")
+  v.literal("scienceCode"),
+  // 2026-11-17 widen (edit after approval): an Admin changed the PD's title
+  // on an approved file, so a later move or rename on the drive keeps it.
+  v.literal("pdTitle")
 );
 export type EditableLabel = Infer<typeof editableLabelValidator>;
 

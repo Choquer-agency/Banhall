@@ -332,7 +332,7 @@ describe("reviewers on the Import page", () => {
     await expect.element(page.getByText("1 file marked as reviewed by CRA")).toBeVisible();
   });
 
-  it("lets the reviewer be set on Deleted, by row and from the bar, and keeps Approved read only", async () => {
+  it("lets the reviewer be set on Deleted, by row and from the bar, and on Approved for one file alone", async () => {
     seedPage();
     const deletedBand = { ...CEDARLINE, total: 2, needsCheck: 0, categories: { final_pd: { total: 2, needsCheck: 0, fiscalYears: { "2025": 2 } } } };
     __setPaginatedRowsForArgs("ingestion:sheetCompanies", { tab: "deleted", onlyToCheck: false }, [deletedBand]);
@@ -368,13 +368,19 @@ describe("reviewers on the Import page", () => {
 
     await userEvent.click(page.getByRole("tab", { name: /^Approved/ }));
     await openCedarline(2);
-    expect(one("[data-import-reviewer-edit]")).toBeNull();
+    // 2026-11-17 (edit after approval): the same picker, for that file alone,
+    // never a pick for its initials and never the bar's setFileReviewers.
     expect(text(inRow("a1", '[data-import-cell="reviewer"]'))).toBe("Priya Nair");
-    // Read only: the initials, muted, where there is no reviewer.
-    expect(text(inRow("a2", '[data-import-cell="reviewer"]'))).toBe("KT");
+    expect(text(inRow("a2", '[data-import-cell="reviewer"]'))).toBe("Choose reviewer");
     expect(inRow("a1", "[data-import-file-cra]").getAttribute("title")).toBe("Reviewed by CRA");
-    // Only the names, which open the read-only file view (2026-11-17), are buttons.
-    expect(all("[data-import-file] button:not([data-import-file-open])")).toHaveLength(0);
+    __setMutationHandler("ingestion:editApprovedFile", () => ({ changed: ["reviewer"], brainUpdated: false }));
+    await userEvent.click(inRow("a2", "[data-import-reviewer-edit]"));
+    await userEvent.click(one('[data-import-name-option="user:u1"]')!);
+    await expect.poll(() => __mutationCalls("ingestion:editApprovedFile")).toEqual([
+      { id: "a2", patch: { reviewer: { kind: "user", userId: "u1" } } },
+    ]);
+    expect(__mutationCalls("ingestion:matchWriterInitials")).toHaveLength(1);
+    expect(__mutationCalls("ingestion:setFileReviewers")).toHaveLength(1);
   });
 
   for (const width of [1280, 1100]) {

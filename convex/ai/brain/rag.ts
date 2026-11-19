@@ -310,7 +310,7 @@ export async function deleteBrainSource(ctx: MutationCtx, sourceId: Id<"brainSou
   await ctx.db.delete(sourceId);
   await syncBrainSourceCard(ctx, sourceId, null);
   // Links left over point at a source that no longer exists; lookups skip
-  // them (sourceIdForImportFile) until the scheduled pages remove them.
+  // them (sourcesForImportFile) until the scheduled pages remove them.
   if (more) await ctx.scheduler.runAfter(0, internal.brain.deleteBrainSourceImportLinks, { sourceId });
 }
 
@@ -338,25 +338,46 @@ export async function linkBrainSourceImportFile(
   });
 }
 
-/** The source an import file's bytes are already linked to, if any. */
-export async function sourceIdForImportFile(
+/**
+ * Whether a revoked source was revoked by Send back to review on Import
+ * (2026-11-17): it undid an approval, not a judgment of the PD, so the
+ * Import's Brain check may make a new copy of that PD after its next
+ * approval (brain.ts `importSource` with `supersedeSentBack`).
+ */
+export function revokedBySendBack(source: Pick<Doc<"brainSources">, "status" | "sentBackItemId">): boolean {
+  return source.status === "revoked" && source.sentBackItemId !== undefined;
+}
+
+/** The most link rows read for one import file hash (a few sources at most). */
+const IMPORT_HASH_LINKS = 50;
+
+/**
+ * The live sources an import file's bytes are linked to, oldest first. A
+ * hash belongs to one live source, besides the sources Send back to review
+ * revoked (2026-11-17), each of which a later Brain check may follow with a
+ * new copy of the same PD. Links of a source removed for good may still be
+ * waiting for their scheduled cleanup, so they are skipped; two live
+ * sources for one hash that Send back did not revoke is broken data and
+ * fails loudly.
+ */
+export async function sourcesForImportFile(
   ctx: MutationCtx,
   contentHash: string
-): Promise<Id<"brainSources"> | null> {
-  // A hash belongs to one live source. Links of a source removed for good may
-  // still be waiting for their scheduled cleanup, so they are skipped; two
-  // live sources for one hash is broken data and fails loudly.
+): Promise<Doc<"brainSources">[]> {
   const links = await ctx.db
     .query("brainSourceImportFiles")
     .withIndex("by_contentHash_and_sourceId", (q) => q.eq("contentHash", contentHash))
-    .take(10);
-  const live = new Set<Id<"brainSources">>();
+    .take(IMPORT_HASH_LINKS);
+  const live = new Map<Id<"brainSources">, Doc<"brainSources">>();
   for (const link of links) {
-    if (await ctx.db.get(link.sourceId)) live.add(link.sourceId);
+    if (live.has(link.sourceId)) continue;
+    const source = await ctx.db.get(link.sourceId);
+    if (source) live.set(source._id, source);
   }
-  if (live.size > 1) {
-    throw new Error(`Import file hash ${contentHash} is linked to ${live.size} Brain sources.`);
+  const sources = [...live.values()].sort((a, b) => a._creationTime - b._creationTime);
+  const current = sources.filter((source) => !revokedBySendBack(source));
+  if (current.length > 1) {
+    throw new Error(`Import file hash ${contentHash} is linked to ${current.length} Brain sources.`);
   }
-  const [only] = live;
-  return only ?? null;
+  return sources;
 }

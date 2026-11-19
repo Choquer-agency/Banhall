@@ -2782,6 +2782,10 @@ export default defineSchema({
         fiscalYearEnd: v.optional(v.number()),
         writerInitials: v.optional(v.string()),
         reviewerInitials: v.optional(v.string()),
+        // 2026-11-17 widen (edit after approval): an Admin marked the final
+        // PD "Reviewed by CRA" (ingestionItems.craReviewed). A label only,
+        // never a craOutcome and never evidence.
+        craReviewed: v.optional(v.boolean()),
       })
     ),
   })
@@ -3923,6 +3927,11 @@ export default defineSchema({
     // The status a revoke moved it from: "pending" is a rejection, "approved"
     // a removal. Absent on rows revoked before 2026-11-17.
     revokedFromStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"))),
+    // 2026-11-17 widen (Send back to review): the Import file whose Send back
+    // revoked this source. Such a source never blocks a new Brain copy of
+    // that PD: after its next approval and Brain check a new row is made
+    // (with its own ragKey), and this one stays revoked for the history.
+    sentBackItemId: v.optional(v.id("ingestionItems")),
     // 2026-11-17 widen: the RAG importance of the source's last finished
     // embed (set by ingestOnComplete). Every embed since is 1; absent on
     // older rows, whose importance was their writer tier, so
@@ -4110,7 +4119,10 @@ export default defineSchema({
       // Confirmed erasure evidence (CAP-10). `revoke` is intent only; these
       // two record the outcome of the confirmed-erasure action.
       v.literal("unlearn_confirmed"),
-      v.literal("unlearn_failed")
+      v.literal("unlearn_failed"),
+      // 2026-11-17 widen (edit after approval): an Admin changed an imported
+      // PD's writer or science code on Import, and its Brain copy followed.
+      v.literal("relabel")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),
@@ -4511,7 +4523,55 @@ export default defineSchema({
     name: v.string(),
   })
     .index("by_approvalId_and_state_and_position", ["approvalId", "state", "position"])
-    .index("by_approvalId_and_itemId", ["approvalId", "itemId"]),
+    .index("by_approvalId_and_itemId", ["approvalId", "itemId"])
+    // 2026-11-19 (Greptile on PR #46): Send back reads the approvals a file
+    // still waits in by the file, not from a bounded list of running ones.
+    .index("by_itemId_and_state", ["itemId", "state"]),
+
+  // 2026-11-17 (Send back to review, edit after approval;
+  // docs/product-domain.md): one row for every Send back and every edit an
+  // Admin made to an approved Import file, append only. An edit lists each
+  // field it changed with the value before and after (a writer or reviewer
+  // by its pdWriters id, with its label as it was then). A Send back says
+  // what became of the company file (removed, or already gone) and of the
+  // Brain copy (revoked, only this file unlinked, already removed from the
+  // Brain before, or none).
+  importFileEvents: defineTable({
+    itemId: v.id("ingestionItems"),
+    action: v.union(v.literal("edit"), v.literal("send_back")),
+    userId: v.id("users"),
+    at: v.number(),
+    changes: v.optional(
+      v.array(
+        v.object({
+          field: v.union(
+            v.literal("writer"),
+            v.literal("reviewer"),
+            v.literal("scienceCode"),
+            v.literal("pdTitle"),
+            v.literal("craReviewed")
+          ),
+          before: v.optional(v.string()),
+          after: v.optional(v.string()),
+          beforeLabel: v.optional(v.string()),
+          afterLabel: v.optional(v.string()),
+        })
+      )
+    ),
+    companyFileId: v.optional(v.id("companyFiles")),
+    companyFile: v.optional(v.union(v.literal("removed"), v.literal("gone"), v.literal("updated"))),
+    brainSourceId: v.optional(v.id("brainSources")),
+    brain: v.optional(
+      v.union(
+        v.literal("revoked"),
+        v.literal("unlinked"),
+        v.literal("already_removed"),
+        v.literal("relabeled"),
+        v.literal("reembedded"),
+        v.literal("none")
+      )
+    ),
+  }).index("by_itemId_and_at", ["itemId", "at"]),
 
   // 2026-11-12 (Import page, adding files): one row per batch of files that
   // arrived together, for the History tab and the status line under the
@@ -4698,7 +4758,9 @@ export default defineSchema({
     // is never a check reason.
     reviewerId: v.optional(v.id("pdWriters")),
     // Where reviewerId came from, as writerNameSource: "person", "initials"
-    // or "pick". Absent with no reviewer.
+    // or "pick". Absent with no reviewer, but "person" with no reviewerId
+    // when a person chose "No reviewer" (2026-11-17 fifth, edit after
+    // approval): its reviewer initials never fill it again.
     reviewerSource: v.optional(writerNameSourceValidator),
     // On a file whose reviewer follows a pick (reviewerSource "pick"), the
     // reviewer it had before it (both absent: none), so the pick's Undo puts
@@ -4763,9 +4825,18 @@ export default defineSchema({
     // words the extraction left in extractNote (ingestion.importTextCut)
     // and store this field at their approval.
     textCut: v.optional(v.boolean()),
+    // 2026-11-17 widen (Send back to review): the Admin who last sent this
+    // file back from Approved to To review, and when. The full record of
+    // every Send back and edit after approval is importFileEvents.
+    sentBackBy: v.optional(v.id("users")),
+    sentBackAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
+    // 2026-11-18 (Send back to review): the approved files that still point
+    // at a Brain source, so Send back revokes a copy only when no other
+    // approved file uses it, reading at most two files.
+    .index("by_brainSourceId_and_status", ["brainSourceId", "status"])
     // 2026-11-17: the final PDs waiting for a Brain check, company by company.
     .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
     .index("by_textStorageId", ["textStorageId"])

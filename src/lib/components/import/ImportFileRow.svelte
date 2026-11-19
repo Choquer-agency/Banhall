@@ -30,9 +30,10 @@
   on a file whose reviewer follows its initials is a pick for those
   initials for the whole firm (matchWriter, with Undo, which moves writers
   and reviewers alike); on any other file it sets that file alone
-  (setFileReviewers). It is editable on To review and Deleted. A final PD
-  an Admin marked as reviewed by CRA shows a quiet "Reviewed by CRA" tag
-  after its name; the "..." sets and clears it.
+  (setFileReviewers). It is editable on To review and Deleted, and on
+  Approved for one file at a time (below). A final PD an Admin marked as
+  reviewed by CRA shows a quiet "Reviewed by CRA" tag after its name, on
+  every tab; the "..." sets and clears it.
 
   On To review (2026-11-11 phase 3b) a read file's cells are its pickers,
   each cell's one tab stop: the year end calendar, the version menu, the
@@ -43,8 +44,8 @@
   row's "...". A move says so in a toast with Undo, which sets the category
   or company back. On Deleted the row ends with why the file is there and,
   for a file a person deleted or rejected, "Put back". With Select on, a
-  checkbox comes first, named with the file and its company. Approved is
-  read only. The row's "..." also sets the PD number on a read final PD,
+  checkbox comes first, named with the file and its company. On Approved
+  only metadata changes (below). The row's "..." also sets the PD number on a read final PD,
   draft or review copy (Greptile fix, 2026-11-17), with or without one from
   the file name; "PD 4" then shows before the title. What a row may do is the shared rule
   (shared/importSheetRules.ts) the server follows too.
@@ -58,6 +59,14 @@
   room; the Brain check icon has the primary wash. The row ends with a
   small link to the company page its file is on, or a muted mark when it
   is on none (removed there since, or approved on the old page).
+
+  Edit after approval and Send back (2026-11-17): on Approved the Writer,
+  Reviewer and Science code cells are the same pickers as on To review, and
+  a choice sets this file alone (editApprovedFile): never a firm-wide pick
+  for its initials. The row's own "..." (after the company page link) has
+  Open, "Reviewed by CRA" on a final PD and Send back to review, with its
+  confirm; once a file is sent back its row leaves the tab and focus goes
+  on, as after a move.
 
   Narrow windows (live QA fixes, 2026-11-11): the name keeps its room and
   the words after it give way first; a name or science code title cut short
@@ -86,7 +95,9 @@
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
   import { resolve } from "$app/paths";
   import { companiesPath } from "$lib/companies/companies";
-  import { deleteFiles, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles } from "./importActions";
+  import { deleteFiles, editApproved, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles, sendBackFiles, type ApprovedEditPatch } from "./importActions";
+  import type { ApprovedEditField } from "./importApproved";
+  import ImportApprovedRowMenu from "./ImportApprovedRowMenu.svelte";
   import { BRAIN_STATE_TEXT, NOT_ON_COMPANY_PAGE } from "./importApprove";
   import { useFileView } from "./importFileView";
   import {
@@ -193,6 +204,33 @@
   const confirmName = useMutation(api.ingestion.confirmWriterName);
   const setReviewers = useMutation(api.ingestion.setFileReviewers);
   const setCraReviewed = useMutation(api.ingestion.setCraReviewed);
+  const editApprovedFile = useMutation(api.ingestion.editApprovedFile);
+  const sendBackToReview = useMutation(api.ingestion.sendBackToReview);
+  let editing = $state(false);
+
+  /** One edit to this approved file (2026-11-17): it sets this file alone. */
+  async function editThis(field: ApprovedEditField, patch: ApprovedEditPatch): Promise<boolean> {
+    if (editing) return false;
+    editing = true;
+    try {
+      return await editApproved(row._id, field, patch, editApprovedFile);
+    } finally {
+      editing = false;
+    }
+  }
+
+  /** Send back to review from the row's menu; the file leaves the tab, and the selection. */
+  async function sendBack(): Promise<boolean> {
+    const { result } = await sendBackFiles([row._id], sendBackToReview);
+    // A file refused because it is gone or no longer approved leaves the
+    // selection; one that stays approved (an approval running, a widely
+    // shared Brain copy) stays in it.
+    selection?.remove([
+      ...result.sentBack,
+      ...result.refused.filter((entry) => entry.reason === "missing" || entry.reason === "not_approved").map((entry) => entry.id),
+    ]);
+    return result.sentBack.includes(row._id);
+  }
 
   /** Whether the file's writer follows its name's initials: no person set one on the file itself. */
   const followsInitials = $derived(
@@ -211,6 +249,11 @@
   function pickWriter(picked: PickedWriter) {
     if (picked.current) {
       if (picked.nameFromDocument && picked.choice.kind === "writer") void confirmWriter(picked.choice.writerId);
+      return;
+    }
+    // An approved file keeps skipping picks for its initials: a choice there is for it alone.
+    if (approved) {
+      void editThis("writer", { writer: picked.choice });
       return;
     }
     const initials = followsInitials ? (cells.writer?.initials ?? null) : null;
@@ -235,6 +278,11 @@
    */
   function pickReviewer(picked: PickedWriter) {
     if (picked.current) return;
+    // On Approved (2026-11-17) a choice sets this file alone, never a pick for its initials.
+    if (approved) {
+      void editThis("reviewer", { reviewer: picked.choice });
+      return;
+    }
     const initials = row.reviewerSource !== "person" ? (cells.reviewer?.initials ?? null) : null;
     if (initials) void matchWriter(initials, picked, matchInitials, "reviewer");
     else void oneFile(() => setReviewers({ ids: [row._id], reviewer: picked.choice }), "The reviewer could not be saved.");
@@ -409,7 +457,7 @@
       ? "Set the writer"
       : cells.writer.tone === "muted"
         ? `Writer ${cells.writer.text}, initials only. Set the writer's name`
-        : cells.writer.remembered && cells.writer.initials
+        : cells.writer.remembered && cells.writer.initials && !approved
           ? `Writer ${cells.writer.text}, from the initials ${cells.writer.initials}. Change the writer for ${cells.writer.initials}`
           : `Writer ${cells.writer.text}. Change the writer`
   );
@@ -418,7 +466,7 @@
       ? cells.reviewer?.initials
         ? `${CHOOSE_REVIEWER}, initials ${cells.reviewer.initials}`
         : CHOOSE_REVIEWER
-      : cells.reviewer.remembered && cells.reviewer.initials && row.reviewerSource !== "person"
+      : cells.reviewer.remembered && cells.reviewer.initials && row.reviewerSource !== "person" && !approved
         ? `Reviewer ${cells.reviewer.text}, from the initials ${cells.reviewer.initials}. Change the reviewer for ${cells.reviewer.initials}`
         : `Reviewer ${cells.reviewer.text}. Change the reviewer`
   );
@@ -656,7 +704,7 @@
               <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
             </button>
           {:else}
-            <button {...props} type="button" aria-label={writerLabel} data-import-writer-edit class={CELL_BUTTON}>
+            <button {...props} type="button" aria-label={writerLabel} data-import-writer-edit disabled={approved && editing} class={CELL_BUTTON}>
               {#if cells.writer}
                 <span
                   data-import-writer-tone={cells.writer.tone}
@@ -690,7 +738,7 @@
     {#if can.reviewer}
       <ImportPickerPopover label="Reviewer">
         {#snippet trigger({ props })}
-          <button {...props} type="button" aria-label={reviewerLabel} data-import-reviewer-edit class={CELL_BUTTON}>
+          <button {...props} type="button" aria-label={reviewerLabel} data-import-reviewer-edit disabled={approved && editing} class={CELL_BUTTON}>
             {#if cells.reviewer && !cells.reviewer.missing}
               <!-- Cut on a narrow window: the whole name on hover. -->
               <span
@@ -723,7 +771,7 @@
   </div>
 
   <!-- A container: on a narrow window (the column at its 108px) the code shows alone, never a sliver of its title. -->
-  <div role="cell" data-import-cell="science-code" class={`@container ${FIXED_CELL} gap-1.5 ${can.menu ? ROW_MENU_ROOM : ""}`}>
+  <div role="cell" data-import-cell="science-code" class={`@container ${FIXED_CELL} gap-1.5 ${can.menu || can.approvedMenu ? ROW_MENU_ROOM : ""}`}>
     {#if can.scienceCode}
       <ImportPickerPopover label="Science code" align="end" width="w-[22rem]">
         {#snippet trigger({ props })}
@@ -741,6 +789,7 @@
                   type="button"
                   aria-label={codeLabel}
                   data-import-code-edit
+                  disabled={approved && editing}
                   class={`${CELL_BUTTON} gap-1.5 overflow-hidden`}
                 >
                   {@render codeWords(false)}
@@ -758,7 +807,9 @@
               close();
               // The same code a person already set changes nothing; the AI's
               // code picked by a person becomes theirs, and loses the mark.
-              if (code && !(code === row.scienceCode && row.scienceCodeSource === "person")) void change({ scienceCode: code });
+              if (!code || (code === row.scienceCode && row.scienceCodeSource === "person")) return;
+              if (approved) void editThis("scienceCode", { scienceCode: code });
+              else void change({ scienceCode: code });
             }}
           />
         {/snippet}
@@ -788,7 +839,7 @@
         />
       </span>
     {:else if approved}
-      <!-- Approved: the company page its file is on. -->
+      <!-- Approved: the company page its file is on; the row's own menu sits over the cell's end, as on To review. -->
       <span data-import-row-end class="ml-auto flex shrink-0 items-center pl-1.5">
         {#if row.companyPage}
           <a
@@ -808,6 +859,20 @@
           ><BuildingsIcon size="0.875rem" aria-hidden="true" /></span>
         {/if}
       </span>
+      {#if can.approvedMenu}
+        <!-- In the room the cell makes on hover and focus (ROW_MENU_ROOM). -->
+        <span data-import-row-menu-slot class="absolute inset-y-0 right-2 flex items-center pointer-coarse:right-1.5">
+          <ImportApprovedRowMenu
+            name={label}
+            canMarkCra={can.craReviewed}
+            craReviewed={cells.craReviewed}
+            busy={editing}
+            onOpen={fileView ? () => fileView.open(row._id) : undefined}
+            onCra={(value) => void editThis("craReviewed", { craReviewed: value })}
+            onSendBack={() => void leaveWith(sendBack)}
+          />
+        </span>
+      {/if}
     {:else if reason || can.putBack}
       <!-- Deleted: why the file is here, where the empty cells leave room, then "Put back". -->
       <span data-import-row-end class="ml-auto flex min-w-0 items-center gap-3 pl-1.5">

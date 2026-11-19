@@ -23,7 +23,7 @@ const NOW = Date.UTC(2026, 8, 5, 12);
 // Opaque fixture IDs are never dereferenced by this route or query stub.
 const sourceId = "brain-source-recovery" as Id<"brainSources">;
 const actions: Audit[number]["action"][] = [
-  "ingest", "approve", "reject", "reweight", "revert",
+  "relabel", "ingest", "approve", "reject", "reweight", "revert",
   "revoke", "unlearn_failed", "unlearn_confirmed",
 ];
 const audit: Audit = actions.map((action, index) => ({
@@ -44,6 +44,7 @@ const labels: Record<Audit[number]["action"], string> = {
   reweight: "Reweighted", revert: "Reverted",
   revoke: "Revoked (unlearn requested)",
   unlearn_failed: "Erasure attempt failed", unlearn_confirmed: "Erasure confirmed",
+  relabel: "Details changed on Import",
 };
 const rows = () => [...document.querySelectorAll("tbody tr")];
 const cells = (row: Element) => [...row.querySelectorAll("td")].map(cell => cell.textContent?.trim());
@@ -74,7 +75,7 @@ beforeEach(async () => {
 });
 
 describe("/admin/brain actual audit route", () => {
-  it("renders all eight event labels and same-source recovery newest first with exact row details", async () => {
+  it("renders all nine event labels and same-source recovery newest first with exact row details", async () => {
     await openAudit();
     // Soft assertions retain all three baseline label failures in one run.
     rows().forEach((row, index) => {

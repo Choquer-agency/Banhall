@@ -27,6 +27,7 @@
     unlearn_failed: "Erasure attempt failed",
     reweight: "Reweighted",
     revert: "Reverted",
+    relabel: "Details changed on Import",
   };
 
   const auth = useAuth();

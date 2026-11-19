@@ -761,6 +761,75 @@ async function applyRemove(ctx: MutationCtx, file: Doc<"companyFiles">, userId: 
   await ctx.scheduler.runAfter(0, internal.companyFiles.deleteRemovedFileLeftovers, { companyFileId: file._id });
 }
 
+/**
+ * Send back to review on Import (2026-11-17): removes the company file an
+ * approval made, by the company file delete path (applyRemove), logged with
+ * the Admin who sent it back. Its original is the Import file's own and is
+ * kept, since the Import file still holds it (deleteStorageIfUnreferenced);
+ * drafts that froze it keep the text versions they read. Returns false when
+ * the file was already removed by hand, or is not this Import file's.
+ */
+export async function removeImportedCompanyFile(
+  ctx: MutationCtx,
+  companyFileId: Id<"companyFiles">,
+  importItemId: Id<"ingestionItems">,
+  userId: Id<"users">
+): Promise<boolean> {
+  const file = await ctx.db.get(companyFileId);
+  if (!file || file.importItemId !== importItemId) return false;
+  await applyRemove(ctx, file, userId);
+  return true;
+}
+
+/** What an edit after approval changes on the company file an Import file became. */
+export type ImportedCompanyFileLabels = {
+  writerId?: Id<"pdWriters"> | null;
+  reviewerId?: Id<"pdWriters"> | null;
+  pdTitle?: string | null;
+  scienceCode?: string | null;
+  craReviewed?: boolean;
+};
+
+/**
+ * Edit after approval on Import (2026-11-17): the company file's own fields
+ * follow its Import file's metadata (the writer and reviewer it points at,
+ * and the labels it stores in `importLabels`). Never its text, original,
+ * category, fiscal year or company. Returns false when the file is gone or
+ * is not this Import file's, true when it was found (changed or not).
+ */
+export async function updateImportedCompanyFileLabels(
+  ctx: MutationCtx,
+  companyFileId: Id<"companyFiles">,
+  importItemId: Id<"ingestionItems">,
+  change: ImportedCompanyFileLabels
+): Promise<boolean> {
+  const file = await ctx.db.get(companyFileId);
+  if (!file || file.importItemId !== importItemId) return false;
+  const patch: Partial<Doc<"companyFiles">> = {};
+  if (change.writerId !== undefined && (file.writerId ?? null) !== change.writerId) patch.writerId = change.writerId ?? undefined;
+  if (change.reviewerId !== undefined && (file.reviewerId ?? null) !== change.reviewerId) patch.reviewerId = change.reviewerId ?? undefined;
+  const labels = { ...(file.importLabels ?? {}) };
+  let labelsChanged = false;
+  const setLabel = <K extends "pdTitle" | "scienceCode">(key: K, value: string | null | undefined) => {
+    if (value === undefined) return;
+    const next = value ?? undefined;
+    if (labels[key] === next) return;
+    if (next === undefined) delete labels[key];
+    else labels[key] = next;
+    labelsChanged = true;
+  };
+  setLabel("pdTitle", change.pdTitle);
+  setLabel("scienceCode", change.scienceCode);
+  if (change.craReviewed !== undefined && (labels.craReviewed === true) !== change.craReviewed) {
+    if (change.craReviewed) labels.craReviewed = true;
+    else delete labels.craReviewed;
+    labelsChanged = true;
+  }
+  if (labelsChanged) patch.importLabels = Object.keys(labels).length > 0 ? labels : undefined;
+  if (Object.keys(patch).length > 0) await ctx.db.patch(file._id, patch);
+  return true;
+}
+
 /** Text pieces (up to 900 KB each) and search pieces one cleanup step deletes. */
 const LEFTOVER_TEXT_PAGE = 8;
 const LEFTOVER_SEARCH_PAGE = 200;

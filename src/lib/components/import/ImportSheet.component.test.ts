@@ -396,7 +396,7 @@ describe("ImportSheet", () => {
     expect(all("button", pd5).map((node) => node.hasAttribute("data-import-row-menu"))).toEqual([true]);
   });
 
-  it("leaves Approved read only: Tab passes over its rows", async () => {
+  it("on Approved offers only metadata and the row's own menu: no year, version, move or delete (2026-11-17)", async () => {
     seedBands([{ ...CEDARLINE, needsCheck: 0, beingRead: 0, ready: 223 }]);
     __setPaginatedRowsForArgs(
       "ingestion:sheetFiles",
@@ -407,10 +407,11 @@ describe("ImportSheet", () => {
     await render(ImportSheet, { tab: "approved", onlyToCheck: false });
     await openCedarline();
     await expect.poll(() => all("[data-import-file]").length).toBe(5);
-    expect(all("[data-import-file] button")).toHaveLength(0);
-    one("[data-import-section-toggle]", section("cedarline systems", "final_pd"))!.focus();
-    await userEvent.tab();
-    expect(document.activeElement).toBe(one("[data-import-show-more-files]"));
+    expect(all("[data-import-file] [data-import-year-edit], [data-import-file] [data-import-version-edit]")).toHaveLength(0);
+    for (const row of all("[data-import-file]")) {
+      expect(all("[data-import-approved-menu]", row), row.dataset.importFile).toHaveLength(1);
+      expect(all("[data-import-row-menu]:not([data-import-approved-menu])", row), row.dataset.importFile).toHaveLength(0);
+    }
   });
 
   it("marks in amber only what needs a person, and shows a file still being read with empty cells", async () => {

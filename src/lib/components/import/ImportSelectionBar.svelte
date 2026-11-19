@@ -28,6 +28,12 @@
   approval (approveFiles), which runs on the server; the line under the
   toolbar shows how far it is. The selection clears once they are sent.
 
+  Send back to review (2026-11-17), on Approved only: a confirm that says
+  exactly what happens (ImportSendBackConfirm), then the selected files in
+  calls of up to 50 (sendBackToReview). The toast says how many went back,
+  what became of their Brain copies and which were left as they were. The
+  selection clears once they are sent.
+
   Live QA fixes (2026-11-11): the year end calendar opens on the newest
   year end among the selected files listed on screen (else last year's
   Dec 31), so its quick picks land in that year. A move to another category
@@ -40,6 +46,7 @@
   import { toast } from "svelte-sonner";
   import {
     ArrowCounterClockwiseIcon,
+    ArrowUUpLeftIcon,
     BuildingsIcon,
     CalendarBlankIcon,
     CaretDownIcon,
@@ -61,8 +68,9 @@
   import ImportCompanyList from "./ImportCompanyList.svelte";
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
+  import ImportSendBackConfirm from "./ImportSendBackConfirm.svelte";
   import { canPutBack } from "../../../../shared/importSheetRules";
-  import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
+  import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles, sendBackFiles } from "./importActions";
   import { APPROVE_NOTES, approveLeftOutText, approveLine, splitForApprove } from "./importApprove";
   import {
     changedText,
@@ -106,6 +114,7 @@
   const setReviewers = useMutation(api.ingestion.setFileReviewers);
   const setCraReviewed = useMutation(api.ingestion.setCraReviewed);
   const approveFiles = useMutation(api.ingestion.approveFiles);
+  const sendBackToReview = useMutation(api.ingestion.sendBackToReview);
 
   let busy = $state(false);
   const count = $derived(selection.size);
@@ -116,6 +125,7 @@
   let moreOpen = $state(false);
   let deleteOpen = $state(false);
   let approveOpen = $state(false);
+  let sendBackOpen = $state(false);
 
   let pickedCategory = $state<ImportCategory | null>(null);
   let pickedDay = $state("");
@@ -195,6 +205,7 @@
     moreOpen = false;
     deleteOpen = false;
     approveOpen = false;
+    sendBackOpen = false;
   }
 
   /** The bar goes once nothing is selected; focus goes to Select instead of the page. */
@@ -325,6 +336,22 @@
       selection.remove(ids.slice(0, sent));
       const reason = userErrorMessage(error, TRY_AGAIN);
       toast.error(stoppedText("Sent", sent, ids.length, reason, selection.size), { ...IMPORT_TOAST, description: leftOut });
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Send back to review (Approved): every selected file, in calls of up to 50. */
+  async function sendBack() {
+    if (busy) return;
+    closeMenus();
+    const ids = selection.ids;
+    if (ids.length === 0) return;
+    busy = true;
+    try {
+      const { result, error } = await sendBackFiles(ids, sendBackToReview);
+      if (!error) finish();
+      else selection.remove(result.sentBack);
     } finally {
       busy = false;
     }
@@ -467,7 +494,7 @@
   role="toolbar"
   aria-label="Selected files"
   data-import-selection-bar
-  data-menu-open={categoryOpen || yearOpen || moreOpen || deleteOpen || approveOpen ? "" : undefined}
+  data-menu-open={categoryOpen || yearOpen || moreOpen || deleteOpen || approveOpen || sendBackOpen ? "" : undefined}
   class="fixed bottom-8 left-1/2 z-[90] flex h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl bg-ink pr-1.5 pl-4 shadow-review-bar"
 >
   <span data-import-bar-count class="flex h-6 items-center border-r border-white/20 pr-3.5 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap text-white" aria-live="polite">
@@ -567,6 +594,18 @@
             onclick={() => void remove()}
             class="mt-2.5 flex min-h-9 w-full items-center justify-center rounded-md bg-danger-surface px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium text-danger-ink-muted transition-colors hover:bg-danger-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:min-h-11"
           >{deleteLine(forDelete.taken.length)}</button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  {:else if tab === "approved"}
+    <Popover.Root bind:open={sendBackOpen}>
+      <Popover.Trigger disabled={busy} data-import-bar-send-back class={`ml-1.5 ${plainButton}`}>
+        <ArrowUUpLeftIcon size="0.875rem" aria-hidden="true" class="text-on-ink-muted" />
+        Send back to review
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="top" align="center" sideOffset={8} collisionPadding={12} aria-label="Send back to review" class={`${menuContent} w-[20rem] p-3`}>
+          <ImportSendBackConfirm count={count} {busy} onConfirm={() => void sendBack()} />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
