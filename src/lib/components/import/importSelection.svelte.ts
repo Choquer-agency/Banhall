@@ -22,17 +22,31 @@ import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { checkState, type CheckState } from "./importEdit";
 import type { ImportCategory, SheetFileRow } from "./importFormat";
 
-export type SelectedFile = Pick<SheetFileRow, "_id" | "name" | "status" | "category" | "fiscalYearEnd">;
+export type SelectedFile = Pick<SheetFileRow, "_id" | "name" | "status" | "category" | "fiscalYearEnd"> &
+  Partial<Pick<SheetFileRow, "deletedReason">>;
 type FileId = SheetFileRow["_id"];
 
 const sectionKey = (companyKey: string, category: ImportCategory) => JSON.stringify([companyKey, category]);
 
 function slim(row: SelectedFile): SelectedFile {
-  return { _id: row._id, name: row.name, status: row.status, category: row.category, fiscalYearEnd: row.fiscalYearEnd };
+  return {
+    _id: row._id,
+    name: row.name,
+    status: row.status,
+    category: row.category,
+    fiscalYearEnd: row.fiscalYearEnd,
+    ...(row.deletedReason !== undefined ? { deletedReason: row.deletedReason } : {}),
+  };
 }
 
 function same(a: SelectedFile, b: SelectedFile): boolean {
-  return a.name === b.name && a.status === b.status && a.category === b.category && a.fiscalYearEnd === b.fiscalYearEnd;
+  return (
+    a.name === b.name &&
+    a.status === b.status &&
+    a.category === b.category &&
+    a.fiscalYearEnd === b.fiscalYearEnd &&
+    a.deletedReason === b.deletedReason
+  );
 }
 
 type Listing = {
