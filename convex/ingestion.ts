@@ -124,6 +124,7 @@ import {
   companyIdentityNames,
   companyOtherNames,
   dashboardCompanyForKey,
+  liveCompanyProjects,
   mergedClientForKey,
 } from "./lib/clients";
 import { projectIndustry } from "./clients";
@@ -2176,8 +2177,13 @@ function storedSize(doc: unknown): number {
 // would take the file straight back once it is ready on To review.
 const sendBackRefusalValidator = v.union(v.literal("missing"), v.literal("not_approved"), v.literal("approval_running"));
 
-/** Running approvals one Send back call reads to find picked-file approvals that still hold a file. */
-const RUNNING_APPROVALS_READ = 50;
+/**
+ * Rows of approvals a file is still waiting in that one Send back reads for
+ * it, newest first (2026-11-19, Greptile on PR #46). A file waits in few
+ * approvals; when this many are read and none is moving, the file is
+ * refused as approval_running, since the read could not show that none is.
+ */
+const FILE_WAITING_ROWS_READ = 20;
 
 /** Whether an approval of this company is still moving (not stalled), so a file sent back now would be approved again. */
 async function companyApprovalMoving(ctx: MutationCtx, companyKey: string | undefined): Promise<boolean> {
@@ -2189,29 +2195,23 @@ async function companyApprovalMoving(ctx: MutationCtx, companyKey: string | unde
   return running.some((run) => Date.now() - run.updatedAt < APPROVAL_STALE_MS);
 }
 
-/** The picked-file approvals still moving (not stalled), read once per Send back call. */
-async function movingFileApprovals(ctx: MutationCtx): Promise<Id<"importApprovals">[]> {
-  const running = await ctx.db
-    .query("importApprovals")
-    .withIndex("by_status_and_startedAt", (q) => q.eq("status", "running"))
-    .take(RUNNING_APPROVALS_READ);
-  return running.filter((run) => run.scope === "files" && Date.now() - run.updatedAt < APPROVAL_STALE_MS).map((run) => run._id);
-}
-
-/** Whether one of those approvals still has this file waiting, so it would approve it again once it is back on To review. */
-async function waitingInFileApproval(
-  ctx: MutationCtx,
-  approvals: readonly Id<"importApprovals">[],
-  itemId: Id<"ingestionItems">
-): Promise<boolean> {
-  for (const approvalId of approvals) {
-    const rows = await ctx.db
-      .query("importApprovalFiles")
-      .withIndex("by_approvalId_and_itemId", (q) => q.eq("approvalId", approvalId).eq("itemId", itemId))
-      .take(5);
-    if (rows.some((row) => row.state === "waiting")) return true;
+/**
+ * Whether an approval of picked files that is still moving (not stalled)
+ * has this file waiting, so it would approve it again once it is back on To
+ * review. Read by the file (`by_itemId_and_state`), so no number of other
+ * running or stalled approvals hides one.
+ */
+async function waitingInFileApproval(ctx: MutationCtx, itemId: Id<"ingestionItems">): Promise<boolean> {
+  const rows = await ctx.db
+    .query("importApprovalFiles")
+    .withIndex("by_itemId_and_state", (q) => q.eq("itemId", itemId).eq("state", "waiting"))
+    .order("desc")
+    .take(FILE_WAITING_ROWS_READ);
+  for (const row of rows) {
+    const run = await ctx.db.get(row.approvalId);
+    if (run && run.scope === "files" && run.status === "running" && Date.now() - run.updatedAt < APPROVAL_STALE_MS) return true;
   }
-  return false;
+  return rows.length >= FILE_WAITING_ROWS_READ;
 }
 
 const sendBackResultValidator = v.object({
@@ -2357,7 +2357,6 @@ export const sendBackToReview = mutation({
       notReached: [],
     };
     const groups = new Set<string>();
-    const fileApprovals = await movingFileApprovals(ctx);
     const ids = [...new Set(args.ids)];
     let spent = 0;
     for (const [index, id] of ids.entries()) {
@@ -2375,7 +2374,7 @@ export const sendBackToReview = mutation({
         result.refused.push({ id, reason: "not_approved" });
         continue;
       }
-      if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, fileApprovals, id))) {
+      if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, id))) {
         result.refused.push({ id, reason: "approval_running" });
         continue;
       }
@@ -2440,8 +2439,9 @@ async function writerAuditLabel(ctx: MutationCtx, id: Id<"pdWriters"> | undefine
   return writer ? await writerLabel(ctx, writer) : undefined;
 }
 
-/** Projects read for the people a company's projects name (its interviewees), as companyIdentityNames reads them. */
-const WRITER_CHECK_PROJECTS = 50;
+/** Greptile on PR #46 (2026-11-19): the writer check could not read every live project whose people the Brain copy hides. */
+export const WRITER_CHECK_INCOMPLETE =
+  "Could not check this writer against everyone the company's projects name, so the writer was not changed.";
 
 /** A name as compared with a person's: case, accents and spacing set aside. */
 function personKey(name: string): string {
@@ -2472,13 +2472,12 @@ async function writerNameGivesAwayCompany(
   if (form !== null) return { kind: "company", form };
   if (!company) return null;
   const wanted = personKey(name);
-  const projects = await ctx.db
-    .query("projects")
-    .withIndex("by_clientId", (q) => q.eq("clientId", company._id))
-    .order("desc")
-    .take(WRITER_CHECK_PROJECTS);
-  for (const project of projects) {
-    if (project.deletionStartedAt !== undefined) continue;
+  // The same live projects companyIdentityNames reads (projects awaiting
+  // deletion skipped before the 50 are counted), or a refusal when they
+  // could not all be read.
+  const live = await liveCompanyProjects(ctx, company._id);
+  if (!live.complete) domainError("INVALID_STATE", WRITER_CHECK_INCOMPLETE);
+  for (const project of live.projects) {
     if ((project.interviewees ?? []).some((person) => personKey(person) === wanted)) return { kind: "person" };
   }
   return null;
