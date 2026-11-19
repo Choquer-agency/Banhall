@@ -1228,9 +1228,27 @@ describe("review fixes, round 2 (2026-11-17)", () => {
     );
     expect(listed.map((file) => file.companyFileId)).not.toContain(readable);
     // The final PD walk stops after CHAT_FINAL_PD_ROWS_READ rows; the Import
-    // walk after it reads its own bound (its room, 30, plus 10), as before.
-    expect(finalRows).toBe(CHAT_FINAL_PD_ROWS_READ + MAX_CHAT_COMPANY_FILES + CHAT_LISTED_FINAL_PDS);
+    // walk after it reads no final PDs (2026-11-19).
+    expect(finalRows).toBe(CHAT_FINAL_PD_ROWS_READ);
     expect(rows).toBe(finalRows);
+  });
+
+  it("the chat list keeps to its final PD limit and keeps room for the other Import files", async () => {
+    const s = await setup({ chat: true });
+    const transcript = await addFile(s, "interview.txt", "The interview.", { category: "transcript", fiscalYear: 2020 });
+    // 30 readable final PDs added after the transcript, none hand-added.
+    for (let index = 0; index < 30; index += 1) {
+      await addFile(s, `final-${index}.docx`, `Final PD ${index}.`, { category: "final_pd", fiscalYear: 2015 + (index % 5) });
+    }
+    const listed = await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.userId));
+    const finals = await s.t.run(async (ctx) => {
+      const ids = new Set(listed.map((file) => file.companyFileId));
+      let count = 0;
+      for (const id of ids) if ((await ctx.db.get(id as Id<"companyFiles">))?.category === "final_pd") count += 1;
+      return count;
+    });
+    expect(finals).toBeLessThanOrEqual(CHAT_LISTED_FINAL_PDS);
+    expect(listed.map((file) => file.companyFileId)).toContain(transcript);
   });
 
   it("the chat list asks the read budget before each row and ends with what it has once there is no room", async () => {
