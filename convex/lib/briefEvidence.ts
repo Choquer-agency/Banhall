@@ -466,6 +466,22 @@ export async function historyCompanyFilesNewestFirst(
 }
 
 /**
+ * historyCompanyFilesNewestFirst without final PDs: the Import drafts,
+ * review copies, transcripts and supporting files (2026-11-19, from code
+ * review), for the chat list's last pass, which lists final PDs only up to
+ * CHAT_LISTED_FINAL_PDS in its own pass before it.
+ */
+export async function nonFinalHistoryCompanyFilesNewestFirst(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  limit: number,
+  meter?: ReadCounter
+): Promise<Doc<"companyFiles">[]> {
+  const categories = COMPANY_HISTORY_CATEGORIES.filter((category) => category !== "final_pd");
+  return await newestFirstMerged(categoryRanges(ctx, clientId, categories), limit, meter);
+}
+
+/**
  * A company's final PDs of `year`, not archived, newest first, at most
  * `limit` (FINAL_PD_ROWS_PER_YEAR: a year with more chooses among its
  * newest 20).
