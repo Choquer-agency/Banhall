@@ -1837,7 +1837,11 @@ async function closeOldPageCopies(
 
 /**
  * Record a copy the old-page job left approved (a real run only), once per
- * copy. A copy that is no longer approved needs no decision.
+ * copy. A copy that is no longer approved needs no decision. Two old-page
+ * files can share one copy: when a later file finds it of unknown origin
+ * while its open row still says unlink only, the row is raised to unknown
+ * origin, so the build still waits for an Admin to decide it. A row an
+ * Admin already decided stays as decided.
  */
 export async function recordOldPageCopy(
   ctx: MutationCtx,
@@ -1852,7 +1856,12 @@ export async function recordOldPageCopy(
     .query("brainOldPageCopies")
     .withIndex("by_sourceId", (q) => q.eq("sourceId", line.sourceId))
     .first();
-  if (known) return;
+  if (known) {
+    if (known.status === "open" && known.outcome === "unlink_only" && line.outcome === "unknown_origin") {
+      await ctx.db.patch(known._id, { outcome: "unknown_origin", detail: line.detail, itemId: line.itemId });
+    }
+    return;
+  }
   await ctx.db.insert("brainOldPageCopies", { ...line, status: "open", recordedAt: Date.now() });
 }
 

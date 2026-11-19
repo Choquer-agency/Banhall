@@ -1062,6 +1062,42 @@ describe("PR #51 Greptile fixes", () => {
 });
 
 describe("final review of #48 to #51", () => {
+  test("P2-1: a copy shared by two old-page files is raised to unknown origin when a later file needs that check", async () => {
+    const t = setup();
+    const shared = await source(t, { ragEntryId: "e3-s", ragImportance: 1, ragEntryIdV4: "e4-s" });
+    const kept = await source(t, { ragEntryId: "e3-k", ragImportance: 1, ragEntryIdV4: "e4-k" });
+    await backfillCards(t);
+    const item = (name: string) =>
+      t.run((ctx) =>
+        ctx.db.insert("ingestionItems", {
+          driveItemId: `drive-${name}`, path: `old/${name}.docx`, name: `${name}.docx`, docKind: "pd", size: 1, lastModifiedAt: 1,
+          contentHash: `h-${name}`, status: "pending_review", pairGroupKey: name, updatedAt: 1,
+        })
+      );
+    const first = await item("first");
+    const second = await item("second");
+    const { recordOldPageCopy } = await import("./brain");
+    await t.run(async (ctx) => {
+      await recordOldPageCopy(ctx, { sourceId: shared, itemId: first, outcome: "unlink_only", detail: "made_before_this_approval" });
+      await recordOldPageCopy(ctx, { sourceId: shared, itemId: second, outcome: "unknown_origin", detail: "no_approval_time" });
+      // A later unlink-only line never lowers an unknown-origin row.
+      await recordOldPageCopy(ctx, { sourceId: shared, itemId: first, outcome: "unlink_only", detail: "made_before_this_approval" });
+    });
+    const rows = await t.run((ctx) => ctx.db.query("brainOldPageCopies").collect());
+    expect(rows.map((r) => [r.sourceId, r.outcome, r.detail, r.itemId, r.status])).toEqual([
+      [shared, "unknown_origin", "no_approval_time", second, "open"],
+    ]);
+    await expect(t.mutation(internal.brain.buildSearchIndex, {})).rejects.toThrow(/still undecided/);
+
+    // A copy an Admin already decided stays decided.
+    const admin = await withAdmin(t);
+    await t.run((ctx) => recordOldPageCopy(ctx, { sourceId: kept, itemId: first, outcome: "unlink_only", detail: "made_before_this_approval" }));
+    await admin.mutation(api.brain.keepOldPageCopy, { sourceId: kept });
+    await t.run((ctx) => recordOldPageCopy(ctx, { sourceId: kept, itemId: second, outcome: "unknown_origin", detail: "no_approval_time" }));
+    const keptRow = (await t.run((ctx) => ctx.db.query("brainOldPageCopies").collect())).find((r) => r.sourceId === kept)!;
+    expect([keptRow.outcome, keptRow.status]).toEqual(["unlink_only", "kept"]);
+  });
+
   test("P2-1: the build waits for every unknown-origin old-page copy to be decided; Keep and revoke decide it", async () => {
     const t = setup();
     const admin = await withAdmin(t);
