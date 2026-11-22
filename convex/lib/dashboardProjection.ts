@@ -231,7 +231,8 @@ export async function syncDashboardCompanyDerivedYearEnd(
 export async function syncProjectDashboardFields(
   ctx: MutationCtx,
   projectId: Id<"projects">,
-  next: Partial<Doc<"projects">> = {}
+  next: Partial<Doc<"projects">> = {},
+  options?: { deferDerivedYearEndKeys?: Set<string> }
 ) {
   const project = await ctx.db.get(projectId);
   if (!project) return;
@@ -247,6 +248,7 @@ export async function syncProjectDashboardFields(
   ) {
     await ctx.db.patch(projectId, patch);
   }
+  const deferKeys = options?.deferDerivedYearEndKeys;
   if (companyChanged && project.dashboardCompanyCounted === true) {
     // Client-name reassignment moves the project's stage bucket between both
     // affected company rows in the same transaction (2026-08-06 second
@@ -255,8 +257,13 @@ export async function syncProjectDashboardFields(
     const bucket = stageCountBucket(merged.workflowStage);
     await upsertDashboardCompany(ctx, oldCompanyKey, project.clientName, -1, bucket);
     await upsertDashboardCompany(ctx, patch.dashboardCompanyKey, merged.clientName, 1, bucket);
-    await syncDashboardCompanyDerivedYearEnd(ctx, oldCompanyKey);
-    await syncDashboardCompanyDerivedYearEnd(ctx, patch.dashboardCompanyKey);
+    if (deferKeys) {
+      deferKeys.add(oldCompanyKey);
+      deferKeys.add(patch.dashboardCompanyKey);
+    } else {
+      await syncDashboardCompanyDerivedYearEnd(ctx, oldCompanyKey);
+      await syncDashboardCompanyDerivedYearEnd(ctx, patch.dashboardCompanyKey);
+    }
   } else {
     if (next.clientName !== undefined) {
       // A casing/whitespace/diacritic-only correction keeps the company key,
@@ -272,7 +279,11 @@ export async function syncProjectDashboardFields(
       }
     }
     if ("fiscalYearEnd" in next) {
-      await syncDashboardCompanyDerivedYearEnd(ctx, patch.dashboardCompanyKey);
+      if (deferKeys) {
+        deferKeys.add(patch.dashboardCompanyKey);
+      } else {
+        await syncDashboardCompanyDerivedYearEnd(ctx, patch.dashboardCompanyKey);
+      }
     }
   }
 }

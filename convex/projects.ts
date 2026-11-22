@@ -782,6 +782,7 @@ export const bulkUpdateProjects = mutation({
     let updated = 0;
     let skipped = 0;
     const editsAll = user.role === "manager" || user.role === "admin";
+    const deferredYearEndKeys = new Set<string>();
     for (const projectId of projectIds) {
       const project = await ctx.db.get(projectId);
       if (!project || project.deletionStartedAt !== undefined) {
@@ -803,8 +804,13 @@ export const bulkUpdateProjects = mutation({
       if (args.industry !== undefined) patch.industry = industry;
       if (args.scienceCode !== undefined) patch.scienceCode = scienceCode;
       await ctx.db.patch(projectId, patch);
-      await syncProjectDashboardFields(ctx, projectId, patch);
+      await syncProjectDashboardFields(ctx, projectId, patch, {
+        deferDerivedYearEndKeys: deferredYearEndKeys,
+      });
       updated++;
+    }
+    for (const key of deferredYearEndKeys) {
+      await syncDashboardCompanyDerivedYearEnd(ctx, key);
     }
     return { updated, skipped };
   },

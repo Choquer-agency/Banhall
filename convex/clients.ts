@@ -11,7 +11,10 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireInternalActor, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
-import { syncProjectDashboardFields } from "./lib/dashboardProjection";
+import {
+  syncDashboardCompanyDerivedYearEnd,
+  syncProjectDashboardFields,
+} from "./lib/dashboardProjection";
 import {
   activeClientAfterMerges,
   activeClientForKey,
@@ -1109,10 +1112,16 @@ async function applyCompanyMove(
   // 5. Projects move: client name and clientId, then the dashboard
   //    projection (company counts, stage buckets, search text) follows in
   //    the same transaction. Project numbers are not changed.
+  //    Defer derived fiscal year end scans until after the loop so moving up
+  //    to 200 projects refreshes each affected company row once instead of
+  //    re-scanning 50 projects per row.
+  const deferredYearEndKeys = new Set<string>();
   for (const project of plan.moving) {
     const patch = { clientName: plan.keptName, clientId: keptClientId, updatedAt: now };
     await ctx.db.patch(project._id, patch);
-    await syncProjectDashboardFields(ctx, project._id, patch);
+    await syncProjectDashboardFields(ctx, project._id, patch, {
+      deferDerivedYearEndKeys: deferredYearEndKeys,
+    });
   }
 
   // 6. Every live project of the merged keys has moved, so a company row
@@ -1133,6 +1142,10 @@ async function applyCompanyMove(
       );
     }
     await ctx.db.delete(row._id);
+  }
+
+  for (const key of deferredYearEndKeys) {
+    await syncDashboardCompanyDerivedYearEnd(ctx, key);
   }
 }
 
