@@ -117,9 +117,22 @@ describe("Voyage 4 at the HTTP boundary", () => {
     );
     await t.action(internal.ai.brain.ingest.embedSource, { sourceId });
     expect(sent.map((s) => s.body.model)).toEqual(["voyage-3-large", "voyage-4-large"]);
+    expect(sent[0].body.input_type).toBeUndefined();
+    expect(sent[1].body.input_type).toBe("document");
     for (const request of sent) expect(request.body.input).toEqual(["A made-up passage about kiln drift."]);
     const row = await t.run((ctx) => ctx.db.get(sourceId));
     expect(row?.ragEntryId).toBeTruthy();
     expect(row?.ragEntryIdV4).toBeTruthy();
+
+    sent.length = 0;
+    const { embed } = await import("ai");
+    const { BRAIN_SEARCH_EMBEDDING_MODELS } = await import("./embeddings");
+    await embed({
+      model: BRAIN_SEARCH_EMBEDDING_MODELS.voyage4,
+      value: "kiln drift control",
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.model).toBe("voyage-4-large");
+    expect(sent[0].body.input_type).toBe("query");
   });
 });

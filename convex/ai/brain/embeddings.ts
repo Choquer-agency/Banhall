@@ -93,10 +93,54 @@ export const brainRerankModel = voyage.reranking(BRAIN_RERANK_MODEL_ID);
 export const brainEmbeddingModelV4 = voyage.embedding(BRAIN_SEARCH_INDEXES.voyage4.embeddingModelId);
 export const brainRerankModelV4 = voyage.reranking(BRAIN_SEARCH_INDEXES.voyage4.rerankModelId);
 
-/** Each index's embedding model. */
+type VoyageEmbeddingModel = ReturnType<typeof voyage.embedding>;
+
+/**
+ * Wraps a Voyage embedding model so `@convex-dev/rag` (which sends no
+ * providerOptions on embedMany/embed) passes Voyage's asymmetric `input_type`
+ * ("document" at ingest, "query" at search). Delegates through `model.doEmbed`
+ * so existing spies on the base model still observe every call.
+ */
+function withVoyageInputType(
+  model: VoyageEmbeddingModel,
+  inputType: "document" | "query"
+): VoyageEmbeddingModel {
+  return {
+    specificationVersion: model.specificationVersion,
+    provider: model.provider,
+    modelId: model.modelId,
+    maxEmbeddingsPerCall: model.maxEmbeddingsPerCall,
+    supportsParallelCalls: model.supportsParallelCalls,
+    doEmbed: (options) =>
+      model.doEmbed({
+        ...options,
+        providerOptions: {
+          ...options.providerOptions,
+          voyage: {
+            ...(options.providerOptions?.voyage as Record<string, unknown> | undefined),
+            inputType,
+          },
+        },
+      }),
+  };
+}
+
+/**
+ * Each index's ingest embedding model. voyage3 stays unprompted to match its
+ * already-indexed production vectors; voyage4 uses input_type "document".
+ */
 export const BRAIN_EMBEDDING_MODELS = {
   voyage3: brainEmbeddingModel,
-  voyage4: brainEmbeddingModelV4,
+  voyage4: withVoyageInputType(brainEmbeddingModelV4, "document"),
+} as const;
+
+/**
+ * Each index's query embedding model. voyage3 stays unprompted to match its
+ * already-indexed production vectors; voyage4 uses input_type "query".
+ */
+export const BRAIN_SEARCH_EMBEDDING_MODELS = {
+  voyage3: brainEmbeddingModel,
+  voyage4: withVoyageInputType(brainEmbeddingModelV4, "query"),
 } as const;
 
 /** The reranker used while an index serves. */

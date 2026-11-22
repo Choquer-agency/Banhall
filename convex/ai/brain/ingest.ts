@@ -43,6 +43,13 @@ const useContextual = () => process.env.BRAIN_CONTEXTUAL === "1";
  * the prompt no longer asks for it and says not to.
  */
 export const CONTEXTUALIZE_MAX_TOKENS = 100;
+/**
+ * Plain-text Haiku 5.5 calls think by default and can spend a 100-token budget
+ * on reasoning before writing any text. Turning thinking off is accepted by
+ * Haiku 5.5; on always-thinking Claude models the direct adapter rewrites it to
+ * low effort with reasoning headroom (instrument.ts).
+ */
+export const CONTEXTUALIZE_THINKING = { type: "disabled" } as const;
 export const CONTEXTUALIZE_SYSTEM_PROMPT =
   "You situate a chunk within its source document for retrieval. Reply with 1-2 sentences of context only, no preamble. Never name a company, a person, a product or a place: say \"the company\" instead.";
 
@@ -83,6 +90,7 @@ async function contextualizeChunks(
       const res = await client.messages.create({
         model,
         max_tokens: CONTEXTUALIZE_MAX_TOKENS,
+        thinking: CONTEXTUALIZE_THINKING,
         system: CONTEXTUALIZE_SYSTEM_PROMPT,
         messages: contextualizeMessages(fullDoc, chunk),
       });
@@ -91,9 +99,15 @@ async function contextualizeChunks(
         .map((b) => b.text)
         .join(" ")
         .trim();
+      if (!ctx) {
+        console.warn("brain chunk contextualization returned empty text; using raw chunk", {
+          model,
+          stopReason: res.stop_reason ?? null,
+        });
+      }
       out.push(ctx);
     } catch (err) {
-      // Never fail ingestion on a contextualization hiccup — but log it: a
+      // Never fail ingestion on a contextualization hiccup, but log it: a
       // silent run of raw chunks would quietly lose the contextual-retrieval
       // quality gain with nothing in the dashboard to show why.
       console.warn("brain chunk contextualization failed; using raw chunk", err);

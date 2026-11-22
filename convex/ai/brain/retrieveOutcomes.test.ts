@@ -15,6 +15,7 @@ vi.mock("./rag", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./rag")>()),
   brain: { search },
   BRAIN_RAGS: { voyage3: { search }, voyage4: { search } },
+  BRAIN_SEARCH_RAGS: { voyage3: { search }, voyage4: { search } },
 }));
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../../**/*.ts")).map(([path, load]) => [

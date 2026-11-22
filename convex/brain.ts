@@ -18,7 +18,7 @@ import { eraseBrainEntry } from "./ai/brain/erase";
 import {
   BRAIN_CHUNK_NOTES_VERSION,
   BRAIN_INDEX_FIELDS,
-  BRAIN_RAGS,
+  BRAIN_SEARCH_RAGS,
   type BrainEntryMetadata,
   countKeys,
   deleteBrainSource,
@@ -64,6 +64,7 @@ import {
   requireRole,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { sha256HexSync } from "./lib/sha256Sync";
 import { turnOffWithdrawnPublishedSet, withdrawFeedback, withdrawSourceFeedback } from "./lib/learningWithdrawal";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
@@ -132,14 +133,23 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
   return user?.role === "admin" && user.isAnonymous !== true ? user._id : null;
 }
 
-/** Stable content fingerprint for dedup (FNV-1a, V8-safe — no node crypto). */
-export function contentHash(s: string): string {
+/**
+ * Legacy 32-bit FNV-1a fingerprint used by Brain sources written before the
+ * SHA-256 upgrade. Kept only so `findImportMatch` still finds older rows when
+ * paired with an exact `row.content === content` check.
+ */
+export function legacyContentHash(s: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
   return `${(h >>> 0).toString(16).padStart(8, "0")}-${s.length}`;
+}
+
+/** Stable collision-resistant content fingerprint for dedup (V8-safe SHA-256). */
+export function contentHash(s: string): string {
+  return sha256HexSync(s);
 }
 
 // ─── Ingestion inputs ───────────────────────────────────────────────────────
@@ -258,7 +268,7 @@ export async function findImportMatch(
   ctx: MutationCtx,
   textHash: string,
   importContentHash: string | undefined,
-  options: { skipSentBack?: boolean } = {}
+  options: { skipSentBack?: boolean; content?: string } = {}
 ): Promise<Doc<"brainSources"> | null> {
   let sentBack: Doc<"brainSources"> | null = null;
   const consider = (row: Doc<"brainSources">): Doc<"brainSources"> | null => {
@@ -287,16 +297,25 @@ export async function findImportMatch(
       if (found) return found;
     }
   }
-  const byText = await ctx.db
-    .query("brainSources")
-    .withIndex("by_hash", (q) => q.eq("sourceHash", textHash))
-    .take(TEXT_HASH_SOURCES + 1);
-  for (const row of byText.slice(0, TEXT_HASH_SOURCES)) {
-    const found = consider(row);
-    if (found) return found;
-  }
-  if (byText.length > TEXT_HASH_SOURCES) {
-    throw new Error(`Text hash ${textHash} has more than ${TEXT_HASH_SOURCES} Brain sources, all revoked by Send back.`);
+  const hashesToCheck =
+    options.content !== undefined
+      ? [...new Set([textHash, legacyContentHash(options.content)])]
+      : [textHash];
+  for (const hash of hashesToCheck) {
+    const byText = await ctx.db
+      .query("brainSources")
+      .withIndex("by_hash", (q) => q.eq("sourceHash", hash))
+      .take(TEXT_HASH_SOURCES + 1);
+    for (const row of byText.slice(0, TEXT_HASH_SOURCES)) {
+      // Never trust a hash alone (especially legacy 32-bit FNV-1a rows):
+      // require exact text equality whenever caller supplied content.
+      if (options.content !== undefined && row.content !== options.content) continue;
+      const found = consider(row);
+      if (found) return found;
+    }
+    if (byText.length > TEXT_HASH_SOURCES) {
+      throw new Error(`Text hash ${hash} has more than ${TEXT_HASH_SOURCES} Brain sources, all revoked by Send back.`);
+    }
   }
   return options.skipSentBack ? null : sentBack;
 }
@@ -345,6 +364,7 @@ export async function importSource(
   // revoked match is never reused: nothing re-approves or re-ingests it here.
   const existing = await findImportMatch(ctx, hash, args.importItem?.contentHash, {
     skipSentBack: args.supersedeSentBack === true,
+    content: args.content,
   });
   if (existing?.status === "revoked") {
     return {
@@ -1142,7 +1162,7 @@ export const calibrateSearchIndexes = internalAction({
     const tokens = { voyage3: 0, voyage4: 0, rerank3: 0, rerank4: 0 };
     type Hit = { sourceId: string | undefined; scienceCode: string | undefined; score: number; text: string };
     const searchHits = async (index: BrainIndexId, query: string): Promise<Hit[]> => {
-      const { results, entries, usage } = await BRAIN_RAGS[index].search(ctx, {
+      const { results, entries, usage } = await BRAIN_SEARCH_RAGS[index].search(ctx, {
         namespace: BRAIN_SEARCH_INDEXES[index].namespace,
         query,
         searchType: "vector",

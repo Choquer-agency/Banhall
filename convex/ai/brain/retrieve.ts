@@ -6,7 +6,7 @@ import type { Id } from "../../_generated/dataModel";
 import {
   BRAIN_ENTRY_IMPORTANCE,
   BRAIN_FILTER_NAMES,
-  BRAIN_RAGS,
+  BRAIN_SEARCH_RAGS,
   type BrainEntryMetadata,
 } from "./rag";
 import { BRAIN_RERANK_MODELS, BRAIN_SEARCH_INDEXES } from "./embeddings";
@@ -337,7 +337,7 @@ export async function searchBrainExemplars(
     const ownCompany = ownCompanyProjectId
       ? await ctx.runQuery(internal.brain.ownCompanyImports, { projectId: ownCompanyProjectId })
       : null;
-    const { results, entries, usage } = await BRAIN_RAGS[serving].search(ctx, {
+    const { results, entries, usage } = await BRAIN_SEARCH_RAGS[serving].search(ctx, {
       namespace: index.namespace,
       query: retrievalQuery,
       searchType: BRAIN_SEARCH_PROGRAM.searchType,

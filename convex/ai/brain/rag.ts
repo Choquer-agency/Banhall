@@ -8,6 +8,7 @@ import {
   BRAIN_EMBEDDING_DIMENSION,
   BRAIN_EMBEDDING_MODELS,
   BRAIN_INDEX_IDS,
+  BRAIN_SEARCH_EMBEDDING_MODELS,
   BRAIN_SEARCH_INDEXES,
   brainIndexForNamespace,
   type BrainIndexId,
@@ -100,10 +101,23 @@ export const brainV4 = new RAG<BrainFilters, BrainEntryMetadata>(components.rag,
   filterNames: [...BRAIN_FILTER_NAMES],
 });
 
-/** Each index's RAG instance. */
+/** Each index's ingest RAG instance (voyage4 uses input_type "document"). */
 export const BRAIN_RAGS: Record<BrainIndexId, RAG<BrainFilters, BrainEntryMetadata>> = {
   voyage3: brain,
   voyage4: brainV4,
+};
+
+/** The voyage4 search instance (same namespace, input_type "query"). */
+export const brainSearchV4 = new RAG<BrainFilters, BrainEntryMetadata>(components.rag, {
+  textEmbeddingModel: BRAIN_SEARCH_EMBEDDING_MODELS.voyage4,
+  embeddingDimension: BRAIN_EMBEDDING_DIMENSION,
+  filterNames: [...BRAIN_FILTER_NAMES],
+});
+
+/** Each index's search RAG instance (voyage4 uses input_type "query"). */
+export const BRAIN_SEARCH_RAGS: Record<BrainIndexId, RAG<BrainFilters, BrainEntryMetadata>> = {
+  voyage3: brain,
+  voyage4: brainSearchV4,
 };
 
 export const vBrainIndexId = v.union(v.literal("voyage3"), v.literal("voyage4"));

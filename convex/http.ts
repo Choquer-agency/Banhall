@@ -101,6 +101,7 @@ http.route({
     const itemId = await ctx.runMutation(internal.ingestion.upsertDiscoveredItem, {
       ...fields,
       via: "uploader",
+      resumeMissingBytes: true,
     });
     if (itemId === null) {
       // Same content already staged (or already reviewed) — idempotent no-op.
@@ -111,6 +112,7 @@ http.route({
     await ctx.runMutation(internal.ingestion.attachUpload, {
       itemId,
       storageId,
+      expectedContentHash: hash,
     });
     return Response.json(
       { staged: true, docKind: fields.docKind, group: fields.pairGroupKey },

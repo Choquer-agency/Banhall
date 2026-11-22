@@ -2217,8 +2217,11 @@ export const finishBrainCheck = internalMutation({
     // words, is never linked as this one.
     // A source revoked by Send back to review (2026-11-17) is passed over:
     // it undid an approval, so this copy, read by a person just now, is new.
-    const match = await findImportMatch(ctx, brainContentHash(fields.content), importContentHash, { skipSentBack: true });
-    if (match && match.status !== "revoked" && match.sourceHash !== brainContentHash(fields.content)) {
+    const match = await findImportMatch(ctx, brainContentHash(fields.content), importContentHash, {
+      skipSentBack: true,
+      content: fields.content,
+    });
+    if (match && match.status !== "revoked" && match.content !== fields.content) {
       return { ok: false, reason: BRAIN_COPY_DIFFERS };
     }
     // An approved match keeps its own labels, so it is reused only when they
@@ -4943,7 +4946,7 @@ const NEW_FOR_MS = 24 * 60 * 60_000;
 const NEW_CLEAR_BATCH = 100;
 
 /** Where a file arrived from, for upsertDiscovered. */
-type Arrival = { batchId?: Id<"importBatches">; now: number };
+type Arrival = { batchId?: Id<"importBatches">; now: number; resumeMissingBytes?: boolean };
 
 type BatchChange = Partial<Record<"added" | "alreadyHere" | "read" | "couldNotRead", number>>;
 
@@ -5040,9 +5043,14 @@ async function upsertDiscovered(
     for (const key of pairGroupsTouched(existing, after)) groups.add(key);
   };
   if (existing.contentHash === args.contentHash) {
-    // Failed items with unchanged bytes still deserve a retry — a transient
-    // download/extract error must not be permanent.
-    if (existing.status === "failed") {
+    // Failed items with unchanged bytes still deserve a retry; a transient
+    // download/extract error must not be permanent. An interrupted HTTP upload
+    // can also leave a "discovered" row with no stored bytes yet, so retrying
+    // from the uploader must attach bytes instead of skipping as unchanged.
+    if (
+      existing.status === "failed" ||
+      (arrival.resumeMissingBytes === true && existing.status === "discovered" && !existing.storageId)
+    ) {
       const { after } = await patchItem(ctx, existing, {
         ...args,
         ...fromPath,
@@ -5099,20 +5107,21 @@ async function upsertDiscovered(
     // stale with no revocation. Flag it for the admin instead.
     const { after } = await patchItem(ctx, existing, {
       extractNote:
-        "Content changed in OneDrive after approval — re-review; the Brain still holds the earlier version",
+        "Content changed in OneDrive after approval - re-review; the Brain still holds the earlier version",
       lastModifiedAt: args.lastModifiedAt,
       updatedAt: Date.now(),
     });
     noteGroups(after);
     return null;
   }
-  // Content changed on the drive — back to the start of the pipeline.
+  // Content changed on the drive; back to the start of the pipeline.
   const { after } = await patchItem(ctx, existing, {
     ...args,
     ...fromPath,
     ...documentCodeCleared(existing),
     ...(await arrivalFields(ctx, existing, arrival)),
     status: "discovered",
+    storageId: undefined,
     text: undefined,
     textStorageId: undefined,
     documentWriterNames: undefined,
@@ -5158,13 +5167,21 @@ async function uploaderBatch(ctx: MutationCtx, now: number): Promise<Id<"importB
  * joins the uploader's open batch, which counts it as added or already here.
  */
 export const upsertDiscoveredItem = internalMutation({
-  args: { ...upsertFields, via: v.optional(v.literal("uploader")) },
+  args: {
+    ...upsertFields,
+    via: v.optional(v.literal("uploader")),
+    resumeMissingBytes: v.optional(v.boolean()),
+  },
   handler: async (ctx, args): Promise<Id<"ingestionItems"> | null> => {
-    const { via, ...fields } = args;
+    const { via, resumeMissingBytes, ...fields } = args;
     const groups = new Set<string>();
     const now = Date.now();
     const batchId = via === "uploader" ? await uploaderBatch(ctx, now) : undefined;
-    const id = await upsertDiscovered(ctx, fields, groups, { batchId, now });
+    const id = await upsertDiscovered(ctx, fields, groups, {
+      batchId,
+      now,
+      resumeMissingBytes: Boolean(resumeMissingBytes),
+    });
     await changeBatch(ctx, batchId, id === null ? { alreadyHere: 1 } : { added: 1 }, now, true);
     await recomputeGroups(ctx, groups, ONE_ROW);
     return id;
@@ -5267,11 +5284,30 @@ async function attachStored(
  * attach stored bytes and hand off to extraction in its own action.
  */
 export const attachUpload = internalMutation({
-  args: { itemId: v.id("ingestionItems"), storageId: v.id("_storage"), delayMs: v.optional(v.number()) },
+  args: {
+    itemId: v.id("ingestionItems"),
+    storageId: v.id("_storage"),
+    delayMs: v.optional(v.number()),
+    expectedContentHash: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const groups = new Set<string>();
     const item = await ctx.db.get(args.itemId);
-    if (!(await attachStored(ctx, item, args.storageId, args.delayMs ?? 0, groups))) return null;
+    if (
+      !item ||
+      (args.expectedContentHash !== undefined && item.contentHash !== args.expectedContentHash)
+    ) {
+      if (item?.storageId !== args.storageId) {
+        await ctx.storage.delete(args.storageId);
+      }
+      return null;
+    }
+    if (!(await attachStored(ctx, item, args.storageId, args.delayMs ?? 0, groups))) {
+      if (item.storageId !== args.storageId) {
+        await ctx.storage.delete(args.storageId);
+      }
+      return null;
+    }
     await recomputeGroups(ctx, groups, ONE_ROW);
     return null;
   },
@@ -5292,6 +5328,7 @@ export const markItemProcessed = internalMutation({
   args: {
     itemId: v.id("ingestionItems"),
     storageId: v.id("_storage"),
+    expectedContentHash: v.optional(v.string()),
     text: v.optional(v.string()),
     textStorageId: v.optional(v.id("_storage")),
     extractNote: v.optional(v.string()),
@@ -5307,22 +5344,38 @@ export const markItemProcessed = internalMutation({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     // Compare-and-set: never clobber a concurrent admin decision (e.g. a
-    // reject that landed while this item's download was in flight).
-    if (!item || (item.status !== "discovered" && item.status !== "fetched")) {
+    // reject that landed while this item's download was in flight) or attach
+    // extracted text from an older file version to newer bytes.
+    const staleStatus = !item || (item.status !== "discovered" && item.status !== "fetched");
+    const staleHash =
+      Boolean(item) &&
+      args.expectedContentHash !== undefined &&
+      item!.contentHash !== args.expectedContentHash;
+    const staleStorage =
+      Boolean(item) &&
+      args.expectedContentHash !== undefined &&
+      item!.status === "fetched" &&
+      item!.storageId !== undefined &&
+      item!.storageId !== args.storageId;
+    if (staleStatus || staleHash || staleStorage) {
+      if (args.textStorageId && item?.textStorageId !== args.textStorageId) {
+        await ctx.storage.delete(args.textStorageId);
+      }
       return null;
     }
+    const current = item!;
     // A final PD keeps the code its text gives, unless a person set one.
     const documentCode = normalizeCraScienceCode(args.documentScienceCode);
-    const category = item.category ?? pathFieldsFor(item.path, item.name, item).category;
+    const category = current.category ?? pathFieldsFor(current.path, current.name, current).category;
     const personCode =
-      item.scienceCodeSource === "person" || (item.editedLabels ?? []).includes("scienceCode");
+      current.scienceCodeSource === "person" || (current.editedLabels ?? []).includes("scienceCode");
     const scienceCode =
       category === "final_pd" && documentCode !== undefined && !personCode
         ? { scienceCode: documentCode, scienceCodeSource: "document" as const }
         : {};
-    const { after } = await patchItem(ctx, item, {
+    const { after } = await patchItem(ctx, current, {
       ...scienceCode,
-      ...(await finishBatchRead(ctx, item, false)),
+      ...(await finishBatchRead(ctx, current, false)),
       storageId: args.storageId,
       text: args.text,
       textStorageId: args.textStorageId,
@@ -5332,7 +5385,7 @@ export const markItemProcessed = internalMutation({
       // draft or review copy names its writer (settleWithWriter).
       documentWriterNames:
         args.documentWriterNames === undefined ? undefined : cleanDocumentWriterNames(args.documentWriterNames),
-      // No text (pdf/legacy .doc) still lands in review — the admin can see
+      // No text (pdf/legacy .doc) still lands in review so the admin can see
       // the file exists and chase a readable copy; it just can't be approved.
       status: "pending_review",
       error: undefined,
@@ -5340,16 +5393,29 @@ export const markItemProcessed = internalMutation({
     });
     // The extraction recomputes the group it read; only an old row the
     // write settled can have moved to another.
-    await recomputeGroups(ctx, pairGroupsTouched(item, after), ONE_ROW);
+    await recomputeGroups(ctx, pairGroupsTouched(current, after), ONE_ROW);
     return null;
   },
 });
 
 export const markItemFailed = internalMutation({
-  args: { itemId: v.id("ingestionItems"), error: v.string() },
+  args: {
+    itemId: v.id("ingestionItems"),
+    error: v.string(),
+    expectedContentHash: v.optional(v.string()),
+    expectedStorageId: v.optional(v.id("_storage")),
+  },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
-    if (!item || !LIVE_STATUSES.has(item.status) || item.status === "approved") {
+    // Only in-flight items (discovered/fetched) can fail extraction; never let
+    // a late error clobber an already-extracted pending_review or approved row.
+    if (!item || (item.status !== "discovered" && item.status !== "fetched")) {
+      return null;
+    }
+    if (args.expectedContentHash !== undefined && item.contentHash !== args.expectedContentHash) {
+      return null;
+    }
+    if (args.expectedStorageId !== undefined && item.storageId !== args.expectedStorageId) {
       return null;
     }
     const { after } = await patchItem(ctx, item, {
@@ -5359,7 +5425,7 @@ export const markItemFailed = internalMutation({
       error: args.error.slice(0, 500),
       updatedAt: Date.now(),
     });
-    // Failure changes the group's live membership — a failed lone PD must
+    // Failure changes the group's live membership: a failed lone PD must
     // surface the transcript's missing_pd gap, and vice versa.
     await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
     return null;
@@ -5429,7 +5495,15 @@ export const importFilesHere = query({
         .query("ingestionItems")
         .withIndex("by_contentHash", (q) => q.eq("contentHash", hash))
         .take(10);
-      if (rows.some((row) => row.status !== "failed")) here.push(hash);
+      if (
+        rows.some(
+          (row) =>
+            row.status !== "failed" &&
+            !(row.driveItemId.startsWith("local:") && row.status === "discovered" && !row.storageId)
+        )
+      ) {
+        here.push(hash);
+      }
     }
     return here;
   },

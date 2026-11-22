@@ -33,6 +33,7 @@ export const summarizeModelFeedback = action({
     const response = await client.messages.create({
       model,
       max_tokens: 300,
+      thinking: { type: "disabled" },
       system: HUMAN_PROSE_FOR_OWN_WORDING,
       messages: [
         {
@@ -42,6 +43,14 @@ export const summarizeModelFeedback = action({
       ],
     });
     const block = response.content.find((b) => b.type === "text");
-    return block && block.type === "text" ? block.text : "No summary available.";
+    const text = block && block.type === "text" ? block.text.trim() : "";
+    if (!text) {
+      console.warn("model feedback summary returned empty text", {
+        model,
+        stopReason: response.stop_reason ?? null,
+      });
+      return "No summary available.";
+    }
+    return text;
   },
 });

@@ -1251,8 +1251,11 @@ describe("prompt versions", () => {
     // Brain lists both search indexes (models, namespaces, rerankers,
     // floors) and that a stored pointer chooses the one search reads, on
     // purpose; before it they were sha256:ef6f2e10... and sha256:6a67eb84....
-    expect(await hashPromptProgram()).toBe("sha256:f413fe0b6b7e3253fe9ed7eda4f02ed3ca581defb19e4f21c4563492a741e0ba");
-    expect(await legacyPromptVersion()).toBe("sha256:114d601567c92eb48db76d000b523dd4347a948edf8a4a4327f6f603227f5c10");
+    // Re-read after 2026-11-21: science_code moved from Sonnet to Haiku with
+    // a strict enum tool; before it they were sha256:f413fe0b... and
+    // sha256:114d6015....
+    expect(await hashPromptProgram()).toBe("sha256:c70a8350524b58faf49be1e242ac4c5a87ff8171b754d45e2448e95361a7f145");
+    expect(await legacyPromptVersion()).toBe("sha256:773d1517e8c812922d1ff323d00ca179f9a3a7f2f868db3bb6f13ec9312ec141");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

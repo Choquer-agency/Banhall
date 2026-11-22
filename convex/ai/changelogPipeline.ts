@@ -119,6 +119,7 @@ export const publishDay = internalAction({
     const response = await client.messages.create({
       model,
       max_tokens: CHANGELOG_MAX_TOKENS,
+      thinking: { type: "disabled" },
       system: CHANGELOG_SYSTEM_PROMPT,
       messages: [
         {
@@ -130,8 +131,16 @@ export const publishDay = internalAction({
     const text = firstResponseText(response);
     // Non-greedy brace matching fails on nested strings; instead scan for the
     // first balanced object. Vague commit subjects ("july 9 changes") can also
-    // make the model decline — fall back to a plain listing rather than fail.
+    // make the model decline; fall back to a plain listing rather than fail.
     const parsed = extractJson(text);
+    if (!parsed) {
+      console.warn("changelog pipeline fell back to plain commit list", {
+        workDay: args.workDay,
+        model,
+        stopReason: response.stop_reason ?? null,
+        empty: text.trim().length === 0,
+      });
+    }
     const title = parsed?.title?.trim() || `Updates for ${args.workDay}`;
     // Assemble the standard sectioned body (docs/changelog-guidelines.md):
     // summary, then ### New / ### Improved / ### Fixed — empty sections

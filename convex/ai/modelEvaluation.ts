@@ -111,6 +111,7 @@ import {
 import {
   CONTEXTUALIZE_MAX_TOKENS,
   CONTEXTUALIZE_SYSTEM_PROMPT,
+  CONTEXTUALIZE_THINKING,
   contextualizeMessages,
 } from "./brain/ingest";
 import {
@@ -713,6 +714,7 @@ export async function runChangelogSummaryTask(metered: MeteredClient, model: str
     const response = await metered.client.messages.create({
       model,
       max_tokens: CHANGELOG_MAX_TOKENS,
+      thinking: { type: "disabled" },
       system: CHANGELOG_SYSTEM_PROMPT,
       messages: [
         { role: "user", content: changelogUserMessage(CHANGELOG_EVAL_WORK_DAY, CHANGELOG_EVAL_COMMITS) },
@@ -924,7 +926,7 @@ export async function runTimesheetTask(metered: MeteredClient, model: string): P
 
 /**
  * The Brain context contract: one or two sentences, at most 60 words, no
- * preamble, naming the company and the section the chunk belongs to.
+ * preamble, naming the section the chunk belongs to without naming the company.
  */
 export function chunkContextIssues(text: string): string[] {
   const issues: string[] = [];
@@ -934,7 +936,7 @@ export function chunkContextIssues(text: string): string[] {
   if (sentences.length > 2) issues.push(`${sentences.length} sentences`);
   if (words(trimmed) > 60) issues.push("over 60 words");
   if (/^(here is|here's|context:|sure)/i.test(trimmed)) issues.push("preamble");
-  if (!/verdant/i.test(trimmed)) issues.push("no company");
+  if (/verdant/i.test(trimmed)) issues.push("names company");
   if (!CHUNK_EVAL_SECTION_TERMS.some((term) => trimmed.toLowerCase().includes(term))) {
     issues.push("no section");
   }
@@ -948,6 +950,7 @@ export async function runChunkContextTask(metered: MeteredClient, model: string)
     const response = await metered.client.messages.create({
       model,
       max_tokens: CONTEXTUALIZE_MAX_TOKENS,
+      thinking: CONTEXTUALIZE_THINKING,
       system: CONTEXTUALIZE_SYSTEM_PROMPT,
       messages: contextualizeMessages(CHUNK_EVAL_DOCUMENT, CHUNK_EVAL_CHUNK),
     });
@@ -970,7 +973,7 @@ export async function runChunkContextTask(metered: MeteredClient, model: string)
               source: `${CHUNK_EVAL_DOCUMENT}\n\nCHUNK\n${CHUNK_EVAL_CHUNK}`,
               criteria: [
                 "The output is a short blurb that situates the chunk for search.",
-                "1. It names the company and the report section the chunk belongs to.",
+                "1. It names the report section the chunk belongs to and does not name the company, people, products or places.",
                 "2. It says what the chunk covers, accurately.",
                 "3. It is one or two sentences with no preamble.",
               ].join("\n"),

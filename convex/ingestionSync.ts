@@ -174,7 +174,8 @@ async function finishExtraction(
   itemId: Id<"ingestionItems">,
   storageId: Id<"_storage">,
   bytes: ArrayBuffer,
-  fileName: string
+  fileName: string,
+  expectedContentHash: string
 ) {
   const { text, note } = await extractText(bytes, fileName);
   const trimmed = text?.trim();
@@ -182,6 +183,7 @@ async function finishExtraction(
     await ctx.runMutation(internal.ingestion.markItemProcessed, {
       itemId,
       storageId,
+      expectedContentHash,
       extractNote: note,
       textCut: false,
     });
@@ -194,6 +196,7 @@ async function finishExtraction(
   await ctx.runMutation(internal.ingestion.markItemProcessed, {
     itemId,
     storageId,
+    expectedContentHash,
     text: bounded.text.slice(0, PREVIEW_CHARS),
     textStorageId,
     textCut: bounded.truncated,
@@ -252,6 +255,7 @@ async function processBatches(
         if (item.size > MAX_FILE_BYTES) {
           await ctx.runMutation(internal.ingestion.markItemFailed, {
             itemId: item._id,
+            expectedContentHash: item.contentHash,
             error: `File too large to ingest (${Math.round(item.size / 1024 / 1024)}MB)`,
           });
           groupKeys.add(item.pairGroupKey);
@@ -270,11 +274,12 @@ async function processBatches(
           await ctx.runMutation(internal.ingestion.attachUpload, {
             itemId: item._id,
             storageId,
+            expectedContentHash: item.contentHash,
             delayMs: pdfsHandedOff * PDF_READ_SPACING_MS,
           });
           pdfsHandedOff++;
         } else {
-          await finishExtraction(ctx, item._id, storageId, bytes, item.name);
+          await finishExtraction(ctx, item._id, storageId, bytes, item.name, item.contentHash);
         }
         groupKeys.add(item.pairGroupKey);
         processed++;
@@ -282,6 +287,7 @@ async function processBatches(
         // markItemFailed recomputes the group itself.
         await ctx.runMutation(internal.ingestion.markItemFailed, {
           itemId: item._id,
+          expectedContentHash: item.contentHash,
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -491,7 +497,7 @@ export const extractUploadedItem = internalAction({
       const blob = await ctx.storage.get(item.storageId);
       if (!blob) throw new Error("Stored bytes not found");
       const bytes = await blob.arrayBuffer();
-      await finishExtraction(ctx, item._id, item.storageId, bytes, item.name);
+      await finishExtraction(ctx, item._id, item.storageId, bytes, item.name, item.contentHash);
       await ctx.runMutation(internal.ingestion.recomputePairs, {
         groupKeys: [item.pairGroupKey],
       });
@@ -500,6 +506,8 @@ export const extractUploadedItem = internalAction({
       // extraction still surfaces its gap (e.g. lone-PD missing_transcript).
       await ctx.runMutation(internal.ingestion.markItemFailed, {
         itemId: args.itemId,
+        expectedContentHash: item.contentHash,
+        expectedStorageId: item.storageId,
         error: err instanceof Error ? err.message : String(err),
       });
     }
