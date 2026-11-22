@@ -610,14 +610,18 @@ export const removeSourcePermanently = internalMutation({
     // Phase E (E2a): removing a source withdraws the lessons drawn from it,
     // as revoking does, before its feedback loses the link.
     await withdrawSourceFeedback(ctx, args.sourceId);
-    // Every link, page by page (review: not only the first 200).
-    for (;;) {
-      const linked = await ctx.db
-        .query("brainFeedbackQueue")
-        .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", args.sourceId))
-        .take(200);
-      for (const row of linked) await ctx.db.patch(row._id, { brainSourceId: undefined });
-      if (linked.length < 200) break;
+    // Unlink feedback in bounded batches per transaction so a heavily-referenced
+    // source never trips Convex's per-mutation write cap.
+    const linked = await ctx.db
+      .query("brainFeedbackQueue")
+      .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", args.sourceId))
+      .take(200);
+    for (const row of linked) await ctx.db.patch(row._id, { brainSourceId: undefined });
+    if (linked.length === 200) {
+      await ctx.scheduler.runAfter(0, internal.brain.removeSourcePermanently, {
+        sourceId: args.sourceId,
+      });
+      return;
     }
     await scheduleUnlearnAll(ctx, s, false);
     await deleteBrainSource(ctx, args.sourceId);

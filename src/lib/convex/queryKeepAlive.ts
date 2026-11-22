@@ -22,6 +22,28 @@ function keyOf(query: Query, args: object): string {
   return JSON.stringify([getFunctionName(query), convexToJson(args as Value)]);
 }
 
+const NEVER_HOLD_QUERIES = new Set([
+  "reports:getReportVersionContent",
+  "ingestion:getItemText",
+]);
+
+/** Skip holding ephemeral streaming, cursor-paginated, search, or large body queries. */
+export function shouldHoldQuery(query: Query, args: object): boolean {
+  const name = getFunctionName(query);
+  if (NEVER_HOLD_QUERIES.has(name)) return false;
+  const record = args as Record<string, unknown>;
+  if (record.streamArgs !== undefined) return false;
+  const paginationOpts = record.paginationOpts as { cursor?: unknown } | undefined;
+  if (paginationOpts && paginationOpts.cursor !== null && paginationOpts.cursor !== undefined) {
+    return false;
+  }
+  for (const field of ["search", "query", "searchQuery"] as const) {
+    const value = record[field];
+    if (typeof value === "string" && value.trim().length > 0) return false;
+  }
+  return true;
+}
+
 /** Keep one underlying listener per recently released query so Convex retains its local result. */
 export function installQueryKeepAlive(
   client: ConvexClient,
@@ -50,6 +72,7 @@ export function installQueryKeepAlive(
 
   function hold<QueryRef extends Query>(key: string, query: QueryRef, args: FunctionArgs<QueryRef>) {
     if (maxHeld <= 0 || ttlMs <= 0 || client.disabled || client.closed) return;
+    if (!shouldHoldQuery(query, args)) return;
     // Register the holder before the old listener goes away. Convex then keeps
     // the same query token and local result without a network unsubscribe.
     // A held query that starts failing is dropped, so the next mount runs it

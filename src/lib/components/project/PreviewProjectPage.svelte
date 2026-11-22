@@ -790,39 +790,57 @@
     );
   });
 
+  function safeGetStorage(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function safeSetStorage(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Ignore quota or private-mode storage errors.
+    }
+  }
+
   $effect(() => {
-    // Restore once from locals only — reading component state here would make
+    // Restore once from locals only - reading component state here would make
     // this effect re-run on every toggle and stomp the user's click.
-    const w = Number(localStorage.getItem("banhall_side_panel_width"));
+    const w = Number(safeGetStorage("banhall_side_panel_width"));
     if (Number.isFinite(w) && w > 0) sidePanelWidth = clampSidePanel(w);
-    const c = localStorage.getItem("banhall_intake_context_ratio");
-    if (c) contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parseFloat(c)));
-    contextOpen = localStorage.getItem("banhall_intake_context_open") !== "0";
+    const c = safeGetStorage("banhall_intake_context_ratio");
+    if (c) {
+      const parsed = parseFloat(c);
+      if (Number.isFinite(parsed)) contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, parsed));
+    }
+    contextOpen = safeGetStorage("banhall_intake_context_open") !== "0";
     // Owner, 2026-10-06: a project always opens on the report alone, in the
     // reading column, with the Assistant and QA closed. Their open state and
     // full width are not remembered between visits.
-    candidateMaximized = localStorage.getItem("banhall_candidate_editor_maximized") === "1";
+    candidateMaximized = safeGetStorage("banhall_candidate_editor_maximized") === "1";
     chatPreferencesReady = true;
   });
   $effect(() => {
-    localStorage.setItem("banhall_side_panel_width", String(sidePanelWidth));
-    localStorage.setItem("banhall_intake_context_ratio", String(contextRatio));
-    localStorage.setItem("banhall_intake_context_open", contextOpen ? "1" : "0");
-    localStorage.setItem("banhall_candidate_editor_maximized", candidateMaximized ? "1" : "0");
+    if (!chatPreferencesReady) return;
+    safeSetStorage("banhall_intake_context_open", contextOpen ? "1" : "0");
+    safeSetStorage("banhall_candidate_editor_maximized", candidateMaximized ? "1" : "0");
   });
 
   $effect(() => {
+    if (!dragging) return;
     function onMove(e: MouseEvent) {
-      if (!dragging || !workspaceEl) return;
+      if (!workspaceEl) return;
       const rect = workspaceEl.getBoundingClientRect();
       sidePanelWidth = clampSidePanel((rect.right - e.clientX) / rootScale());
     }
     function onUp() {
-      if (dragging) {
-        dragging = false;
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
-      }
+      dragging = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      safeSetStorage("banhall_side_panel_width", String(sidePanelWidth));
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -840,23 +858,24 @@
   }
   function adjustRail(delta: number) {
     sidePanelWidth = clampSidePanel(sidePanelWidth + delta);
+    safeSetStorage("banhall_side_panel_width", String(sidePanelWidth));
   }
 
-  // Intake context-pane resize — same drag/keyboard grammar as the assistant
+  // Intake context-pane resize - same drag/keyboard grammar as the assistant
   // rail, tracked separately so the intake split never fights the chat split.
   $effect(() => {
+    if (!contextDragging) return;
     function onMove(e: MouseEvent) {
-      if (!contextDragging || !intakeEl) return;
+      if (!intakeEl) return;
       const rect = intakeEl.getBoundingClientRect();
       const ratio = (e.clientX - rect.left) / rect.width;
       contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, ratio));
     }
     function onUp() {
-      if (contextDragging) {
-        contextDragging = false;
-        document.body.style.userSelect = "";
-        document.body.style.cursor = "";
-      }
+      contextDragging = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+      safeSetStorage("banhall_intake_context_ratio", String(contextRatio));
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -873,6 +892,7 @@
   }
   function adjustContext(delta: number) {
     contextRatio = Math.min(CHAT_MAX, Math.max(CHAT_MIN, contextRatio + delta));
+    safeSetStorage("banhall_intake_context_ratio", String(contextRatio));
   }
 
 

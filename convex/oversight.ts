@@ -162,7 +162,8 @@ export const repairFailed = internalMutation({
 export const sweepStalled = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const cutoff = Date.now() - 10 * 60_000;
+    const now = Date.now();
+    const cutoff = now - 10 * 60_000;
     for (const status of ["pending", "running"] as const) {
       const rows = await ctx.db
         .query("oversightRebuilds")
@@ -170,6 +171,9 @@ export const sweepStalled = internalMutation({
         .take(50);
       for (const row of rows) {
         if (await isProjectDeleting(ctx, row.projectId)) continue;
+        // Advance updatedAt as a lease so the next sweep does not double-schedule
+        // this rebuild while the newly queued reconcileProject is starting.
+        await ctx.db.patch(row._id, { updatedAt: now });
         await ctx.scheduler.runAfter(0, internal.oversight.reconcileProject, { rebuildId: row._id });
       }
     }

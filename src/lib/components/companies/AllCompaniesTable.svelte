@@ -15,6 +15,8 @@
   export type CompanyRow = ClientEntry & {
     fiscalYearEndMonth?: number;
     fiscalYearEndDay?: number;
+    derivedFiscalYearEndMonth?: number;
+    derivedFiscalYearEndDay?: number;
     updatedAt?: number;
   };
 
@@ -56,15 +58,15 @@
     shown = COMPANY_TABLE_PAGE;
   });
 
-  // Companies with no year end saved show their newest project's. The ones
-  // that need it are cut into fixed chunks of 25, A to Z, so a chunk's read
-  // stays the same while the person searches or shows more; only chunks with
-  // a row on screen are read. A chunk keeps the same keys array while its
-  // keys are the same (a company list update makes new arrays otherwise),
-  // so its read is not asked again.
+  // Companies with no saved year end and no denormalized derived year end
+  // fall back to chunked reads of their newest project's year end.
   const needing = $derived(
     companies
-      .filter((company) => company.fiscalYearEndMonth === undefined || company.fiscalYearEndDay === undefined)
+      .filter(
+        (company) =>
+          (company.fiscalYearEndMonth === undefined || company.fiscalYearEndDay === undefined) &&
+          (company.derivedFiscalYearEndMonth === undefined || company.derivedFiscalYearEndDay === undefined)
+      )
       .map((company) => company.key)
   );
   let chunkCache = new Map<string, string[]>();
@@ -113,13 +115,15 @@
     }
   }
   /**
-   * The saved year end; else the newest project's, in muted ink; "Not set"
-   * when neither has one, or when its read failed; nothing while its chunk
-   * is being read.
+   * The saved year end; else the denormalized or queried newest project's,
+   * in muted ink; "Not set" when neither has one, or when its read failed;
+   * nothing while its chunk is being read.
    */
   function yearEndOf(company: CompanyRow): { text: string; tone: "saved" | "borrowed" | "muted" } {
     const saved = yearEndLabel(company.fiscalYearEndMonth, company.fiscalYearEndDay);
     if (saved) return { text: saved, tone: "saved" };
+    const derived = yearEndLabel(company.derivedFiscalYearEndMonth, company.derivedFiscalYearEndDay);
+    if (derived) return { text: derived, tone: "borrowed" };
     const fromProjects = projectYearEnds.get(company.key);
     if (fromProjects === undefined) return { text: "", tone: "muted" };
     if (fromProjects === null) return { text: "Not set", tone: "muted" };

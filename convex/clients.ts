@@ -99,6 +99,8 @@ const clientListEntryValidator = v.object({
   projectCount: v.number(),
   fiscalYearEndMonth: v.optional(v.number()),
   fiscalYearEndDay: v.optional(v.number()),
+  derivedFiscalYearEndMonth: v.optional(v.number()),
+  derivedFiscalYearEndDay: v.optional(v.number()),
   industry: v.optional(v.string()),
   // 2026-10-28 (All companies, "Last update"): the later of the company
   // row's last change and its projects' projection row's (a project added,
@@ -119,6 +121,8 @@ type ClientListEntry = {
   projectCount: number;
   fiscalYearEndMonth?: number;
   fiscalYearEndDay?: number;
+  derivedFiscalYearEndMonth?: number;
+  derivedFiscalYearEndDay?: number;
   industry?: string;
   updatedAt?: number;
 };
@@ -138,6 +142,12 @@ function clientEntry(
     ...(client.fiscalYearEndDay !== undefined
       ? { fiscalYearEndDay: client.fiscalYearEndDay }
       : {}),
+    ...(company?.derivedFiscalYearEndMonth !== undefined
+      ? { derivedFiscalYearEndMonth: company.derivedFiscalYearEndMonth }
+      : {}),
+    ...(company?.derivedFiscalYearEndDay !== undefined
+      ? { derivedFiscalYearEndDay: company.derivedFiscalYearEndDay }
+      : {}),
     ...(client.industry !== undefined ? { industry: client.industry } : {}),
     updatedAt: Math.max(client.updatedAt, company?.updatedAt ?? 0),
   };
@@ -149,6 +159,12 @@ function companyEntry(company: Doc<"dashboardCompanies">): ClientListEntry {
     clientId: null,
     name: company.clientName,
     projectCount: company.projectCount,
+    ...(company.derivedFiscalYearEndMonth !== undefined
+      ? { derivedFiscalYearEndMonth: company.derivedFiscalYearEndMonth }
+      : {}),
+    ...(company.derivedFiscalYearEndDay !== undefined
+      ? { derivedFiscalYearEndDay: company.derivedFiscalYearEndDay }
+      : {}),
     updatedAt: company.updatedAt,
   };
 }
@@ -173,6 +189,10 @@ async function loadClientDirectory(ctx: Ctx) {
     .query("dashboardCompanies")
     .withIndex("by_companyKey", (q) => q.lt("companyKey", DASHBOARD_UNNAMED_COMPANY_KEY))
     .take(CLIENT_DIRECTORY_BOUND + 1);
+  const unnamedCompany = await ctx.db
+    .query("dashboardCompanies")
+    .withIndex("by_companyKey", (q) => q.eq("companyKey", DASHBOARD_UNNAMED_COMPANY_KEY))
+    .unique();
   const clientsTruncated = clientRows.length > CLIENT_DIRECTORY_BOUND;
   const companiesTruncated = companyRows.length > CLIENT_DIRECTORY_BOUND;
   const clients = clientRows.slice(0, CLIENT_DIRECTORY_BOUND);
@@ -202,7 +222,14 @@ async function loadClientDirectory(ctx: Ctx) {
     .filter((entry) => entry.key !== DASHBOARD_UNNAMED_COMPANY_KEY)
     .filter((entry) => cutoff === null || entry.key <= cutoff)
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return { clients: sorted, truncated: clientsTruncated || companiesTruncated };
+  const totalProjects =
+    companies.reduce((sum, company) => sum + company.projectCount, 0) +
+    (unnamedCompany?.projectCount ?? 0);
+  return {
+    clients: sorted,
+    totalProjects,
+    truncated: clientsTruncated || companiesTruncated,
+  };
 }
 
 /** One key's directory entry by indexed lookups (never cut by the bound). */
@@ -248,6 +275,7 @@ export const listClients = query({
   args: {},
   returns: v.object({
     clients: v.array(clientListEntryValidator),
+    totalProjects: v.number(),
     truncated: v.boolean(),
   }),
   handler: async (ctx) => {

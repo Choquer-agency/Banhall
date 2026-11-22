@@ -361,10 +361,9 @@ export const listReportVersions = query({
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .take(1_000);
+      .take(200);
     return await Promise.all(
-      reports.map(async (stored) => {
-        const report = await reportWithBody(ctx, stored);
+      reports.map(async (report) => {
         const provenance = report.provenanceId
           ? await ctx.db.get(report.provenanceId)
           : null;
@@ -372,7 +371,7 @@ export const listReportVersions = query({
           reportId: report._id,
           reportVersion: report.version,
           revisionNumber: report.revisionNumber ?? 0,
-          content: report.content,
+          contentHash: report.contentHash,
           generatedAt: report.generatedAt,
           updatedAt: report.updatedAt,
           generationId: report.generationId,
@@ -380,6 +379,24 @@ export const listReportVersions = query({
         };
       })
     );
+  },
+});
+
+export const getReportVersionContent = query({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, args) => {
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, stored.projectId))) return null;
+    const report = await reportWithBody(ctx, stored);
+    return {
+      reportId: report._id,
+      reportVersion: report.version,
+      revisionNumber: report.revisionNumber ?? 0,
+      contentHash: report.contentHash,
+      content: report.content,
+      updatedAt: report.updatedAt,
+    };
   },
 });
 

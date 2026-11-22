@@ -1,4 +1,5 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { reportWithBody } from "./lib/reportBodies";
 import { v } from "convex/values";
 import {
@@ -164,5 +165,25 @@ export const getLastViewedMap = query({
       if (last) result[project._id] = last.viewedAt;
     }
     return result;
+  },
+});
+
+const REPORT_VIEWS_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+const REPORT_VIEWS_PRUNE_BATCH = 200;
+
+export const pruneOldReportViews = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - REPORT_VIEWS_RETENTION_MS;
+    const old = await ctx.db
+      .query("reportViews")
+      .withIndex("by_viewedAt", (q) => q.lt("viewedAt", cutoff))
+      .take(REPORT_VIEWS_PRUNE_BATCH);
+    for (const row of old) await ctx.db.delete(row._id);
+    if (old.length === REPORT_VIEWS_PRUNE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.reportViews.pruneOldReportViews, {});
+    }
+    return old.length;
   },
 });

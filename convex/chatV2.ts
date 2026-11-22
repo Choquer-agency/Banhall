@@ -500,30 +500,56 @@ export const listProposals = query({
     const path = await loadChatPath(ctx, args.threadId, thread);
     const turns = await windowTurns(ctx, { agentThreadId: args.threadId, ...window }, path);
     const onPath = (promptMessageId: string | undefined) => !path || path.onPathPrompt(promptMessageId);
-    const promptMessageIds = [
-      ...new Set(turns.filter((turn) => onPath(turn.promptMessageId)).map((turn) => turn.promptMessageId)),
-    ];
-    const proposalsByTurn = await Promise.all(
-      promptMessageIds.map(async (promptMessageId) =>
-        ctx.db
-          .query("chatProposals")
-          .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
-            q
-              .eq("agentThreadId", args.threadId)
-              .eq("promptMessageId", promptMessageId)
-          )
-          .order("asc")
-          .collect()
-      )
+    const promptMessageIdSet = new Set(
+      turns
+        .filter((turn) => onPath(turn.promptMessageId))
+        .map((turn) => turn.promptMessageId)
     );
-
-    const unanchored = await ctx.db
+    const THREAD_PROPOSAL_SCAN_LIMIT = 500;
+    const scanned = await ctx.db
       .query("chatProposals")
-      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
-        q.eq("agentThreadId", args.threadId).eq("promptMessageId", undefined)
-      )
+      .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.threadId))
       .order("desc")
-      .take(UNANCHORED_PROPOSAL_LIMIT);
+      .take(THREAD_PROPOSAL_SCAN_LIMIT);
+
+    let anchored: Doc<"chatProposals">[];
+    let unanchored: Doc<"chatProposals">[];
+    if (scanned.length < THREAD_PROPOSAL_SCAN_LIMIT) {
+      // Single index scan covered the whole thread: partition in memory.
+      anchored = scanned.filter(
+        (proposal) =>
+          proposal.promptMessageId !== undefined &&
+          promptMessageIdSet.has(proposal.promptMessageId)
+      );
+      unanchored = scanned
+        .filter((proposal) => proposal.promptMessageId === undefined)
+        .slice(0, UNANCHORED_PROPOSAL_LIMIT);
+    } else {
+      // Very long thread (>500 proposals): fall back to targeted per-turn reads.
+      const promptMessageIds = [...promptMessageIdSet];
+      const proposalsByTurn = await Promise.all(
+        promptMessageIds.map(async (promptMessageId) =>
+          ctx.db
+            .query("chatProposals")
+            .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+              q
+                .eq("agentThreadId", args.threadId)
+                .eq("promptMessageId", promptMessageId)
+            )
+            .order("asc")
+            .collect()
+        )
+      );
+      anchored = proposalsByTurn.flat();
+      unanchored = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+          q.eq("agentThreadId", args.threadId).eq("promptMessageId", undefined)
+        )
+        .order("desc")
+        .take(UNANCHORED_PROPOSAL_LIMIT);
+    }
+
     const placed = unanchored.flatMap((proposal) => {
       const match = matchProposalTurn(proposal.createdAt, turns);
       return match.kind === "match" && onPath(match.turn.promptMessageId)
@@ -538,7 +564,7 @@ export const listProposals = query({
     // this read never loads it: the pointer is enough. A row with the
     // deprecated on-card record (never deployed; tests and local data) is
     // still undoable, and that record is never sent either.
-    return [...proposalsByTurn.flat(), ...placed]
+    return [...anchored, ...placed]
       .sort((left, right) => {
         const creationTimeDifference = left._creationTime - right._creationTime;
         if (creationTimeDifference !== 0) return creationTimeDifference;

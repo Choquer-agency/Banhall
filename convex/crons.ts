@@ -201,12 +201,18 @@ crons.cron(
 
 // F2 (2026-10-27): a project copy whose runner stopped (its lease ran out)
 // is taken up again, so no copy is left half done and no draft waits on it.
-// 2026-11-18: the same run starts again a merge's company file move that
-// stopped (clients.resumeStalledCompanyFileMoves, its own transaction).
 crons.interval(
   "resume stalled project copies",
   { minutes: 1 },
   internal.projectDuplication.resumeStalledProjectCopies,
+  {}
+);
+// Company merge file moves run on their own 5-minute cadence instead of
+// riding on the 1-minute project copy cron.
+crons.interval(
+  "resume stalled company file moves",
+  { minutes: 5 },
+  internal.clients.resumeStalledCompanyFileMoves,
   {}
 );
 // F2 review, round 3: the clones a stopped copy runner stored but never
@@ -215,6 +221,40 @@ crons.interval(
   "delete stray project copy clones",
   { minutes: 10 },
   internal.projectDuplication.reconcileProjectCopyClones,
+  {}
+);
+// Stuck-state reapers for financial uploads and transcript fact extraction runs.
+crons.interval(
+  "recover stale financial uploads",
+  { minutes: 10 },
+  internal.financial.failStaleFinancialUploads,
+  { olderThanMinutes: 15 }
+);
+crons.interval(
+  "recover stale transcript fact runs",
+  { minutes: 10 },
+  internal.transcripts.failStaleTranscriptFactRuns,
+  { olderThanMinutes: 15 }
+);
+
+// Daily bounded retention pruners for high-volume operational tables.
+// Raw aiUsage rows roll up into aiUsageRollups before pruning after 180 days.
+crons.cron(
+  "prune old AI usage rows",
+  "30 10 * * *",
+  internal.aiUsage.pruneOldUsage,
+  {}
+);
+crons.cron(
+  "prune old rerank outcomes",
+  "40 10 * * *",
+  internal.learningHealth.pruneOldRerankOutcomes,
+  {}
+);
+crons.cron(
+  "prune old report views",
+  "50 10 * * *",
+  internal.reportViews.pruneOldReportViews,
   {}
 );
 
@@ -230,3 +270,4 @@ crons.cron(
 );
 
 export default crons;
+

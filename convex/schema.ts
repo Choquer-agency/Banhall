@@ -572,6 +572,11 @@ export default defineSchema({
     // and client-name reassignment; the verified backfill establishes it on
     // pre-widen rows. Written only by server mutations (never client input).
     stageCounts: v.optional(v.record(v.string(), v.number())),
+    // Derived fallback fiscal year end from the company's newest project with
+    // one set (populated by dashboardProjection writers so AllCompaniesTable
+    // does not need chunked CompanyYearEndsLoader fallback queries).
+    derivedFiscalYearEndMonth: v.optional(v.number()),
+    derivedFiscalYearEndDay: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_companyKey", ["companyKey"])
@@ -863,6 +868,23 @@ export default defineSchema({
     // interview" (seeds.getReadingFacts).
     .index("by_callSite_and_createdAt", ["callSite", "createdAt"]),
 
+  // Hourly AI usage rollups updated incrementally in logUsage so admin
+  // reporting stays fast even after raw aiUsage retention pruning.
+  aiUsageRollups: defineTable({
+    bucketStart: v.number(),
+    model: v.string(),
+    callSite: v.string(),
+    calls: v.number(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    cacheCreationInputTokens: v.number(),
+    cacheReadInputTokens: v.number(),
+    costUsd: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_bucketStart", ["bucketStart"])
+    .index("by_bucketStart_and_model_and_callSite", ["bucketStart", "model", "callSite"]),
+
   transcripts: defineTable({
     projectId: v.id("projects"),
     content: v.string(),
@@ -1018,7 +1040,8 @@ export default defineSchema({
       "sourceContentHash",
       "factsVersion",
     ])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_status_and_startedAt", ["status", "startedAt"]),
 
   // 2026-09-03 widen: multiple transcripts per project. Condensed stand-in for
   // one transcript, reused across generations. Keyed by the transcript, the
@@ -1168,7 +1191,9 @@ export default defineSchema({
     processingError: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_processingStatus_and_createdAt", ["processingStatus", "createdAt"]),
 
   timesheetEntries: defineTable({
     projectId: v.id("projects"),
@@ -1221,7 +1246,9 @@ export default defineSchema({
     revisionNumber: v.optional(v.number()),
     snapshotId: v.optional(v.id("reportSnapshots")),
     contentHash: v.optional(v.string()),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_viewedAt", ["viewedAt"]),
 
   generations: defineTable({
     projectId: v.id("projects"),
@@ -3299,6 +3326,7 @@ export default defineSchema({
     researchSourceCount: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
+    .index("by_reportId_and_reason", ["reportId", "reason"])
     .index("by_projectId", ["projectId"])
     .index("by_generationId", ["generationId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"])
@@ -4789,10 +4817,11 @@ export default defineSchema({
     lastModifiedAt: v.number(),
     contentHash: v.string(), // Graph quickXorHash, else sha256 of bytes
     storageId: v.optional(v.id("_storage")), // original bytes once fetched
-    // Short extract preview for list/detail UI. The FULL extracted text lives
-    // in storage (textStorageId) so pair/list queries never read megabytes of
-    // transcript per row (Convex 16MiB read limit).
+    // Short extract preview for list/detail UI. New writes store preview text
+    // in ingestionItemTexts (by_itemId) and record textLength here so
+    // ingestionItems rows stay small when scanning stats or queues.
     text: v.optional(v.string()),
+    textLength: v.optional(v.number()),
     textStorageId: v.optional(v.id("_storage")),
     extractNote: v.optional(v.string()), // e.g. "pdf — text extraction pending"
     status: v.union(
@@ -5077,6 +5106,14 @@ export default defineSchema({
     // so retrieval fetches extra hits only for those companies.
     .index("by_companyKey_and_brainSourceId", ["companyKey", "brainSourceId"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
+
+  // Extracted preview text split out of ingestionItems so stats and queue
+  // scans never read multi-KB preview strings per row.
+  ingestionItemTexts: defineTable({
+    itemId: v.id("ingestionItems"),
+    text: v.string(),
+    updatedAt: v.number(),
+  }).index("by_itemId", ["itemId"]),
 
   // 2026-11-12 (Import sheet): "these initials are this writer", said once
   // by a person for the whole firm, as text. Superseded on 2026-11-16 by
@@ -6060,11 +6097,14 @@ export default defineSchema({
   modelCallBuckets: defineTable({
     model: v.string(),
     hourStart: v.number(),
+    shard: v.optional(v.number()),
     successes: v.number(),
     failures: v.number(),
     lastFailureCode: v.optional(v.string()),
     lastFailureCallSite: v.optional(v.string()),
-  }).index("by_model_and_hourStart", ["model", "hourStart"]),
+  })
+    .index("by_model_and_hourStart", ["model", "hourStart"])
+    .index("by_model_and_hourStart_and_shard", ["model", "hourStart", "shard"]),
 
   // The same outcomes one row per request, kept two days, so the partial
   // hours at the edges of a window are counted to the exact millisecond.

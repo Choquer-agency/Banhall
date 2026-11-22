@@ -69,8 +69,14 @@ export function isBeingRead(status: Status): boolean {
  * that are not about missing text (a truncation), and a read file with no
  * text may have no note at all.
  */
-export function hasReadText(row: Pick<IngestionItemFields, "text" | "textStorageId">): boolean {
-  return Boolean(row.text?.trim()) || row.textStorageId !== undefined;
+export function hasReadText(
+  row: Pick<IngestionItemFields, "text" | "textLength" | "textStorageId">
+): boolean {
+  return (
+    Boolean(row.text?.trim()) ||
+    (row.textLength ?? 0) > 0 ||
+    row.textStorageId !== undefined
+  );
 }
 
 /**

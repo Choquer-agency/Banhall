@@ -576,9 +576,22 @@ export const checkProductionErrors = internalMutation({
   handler: async (ctx) => await runProductionErrorCheck(ctx, Date.now()),
 });
 
+const MODEL_CALL_BUCKET_SHARDS = 8;
+
+function callSiteBucketShard(callSite: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < callSite.length; i += 1) {
+    hash ^= callSite.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % MODEL_CALL_BUCKET_SHARDS;
+}
+
 /**
  * One terminal outcome of one provider request (providers.ts
- * recordingOutcomes), added to its model's hourly bucket.
+ * recordingOutcomes), added to its model's hourly bucket (sharded
+ * deterministically by callSite so concurrent call sites do not contend on
+ * one bucket row).
  */
 export const recordCallOutcome = internalMutation({
   args: {
@@ -591,11 +604,12 @@ export const recordCallOutcome = internalMutation({
   handler: async (ctx, args) => {
     const at = Date.now();
     const hourStart = hourStartOf(at);
+    const shard = callSiteBucketShard(args.callSite);
     await ctx.db.insert("modelCallOutcomes", { model: args.model, at, outcome: args.outcome });
     const bucket = await ctx.db
       .query("modelCallBuckets")
-      .withIndex("by_model_and_hourStart", (q) =>
-        q.eq("model", args.model).eq("hourStart", hourStart)
+      .withIndex("by_model_and_hourStart_and_shard", (q) =>
+        q.eq("model", args.model).eq("hourStart", hourStart).eq("shard", shard)
       )
       .unique();
     const failure = args.outcome === "failure";
@@ -612,6 +626,7 @@ export const recordCallOutcome = internalMutation({
       await ctx.db.insert("modelCallBuckets", {
         model: args.model,
         hourStart,
+        shard,
         successes: failure ? 0 : 1,
         failures: failure ? 1 : 0,
         ...failureFields,

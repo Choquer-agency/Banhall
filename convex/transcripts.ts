@@ -1262,3 +1262,49 @@ export const copyTranscriptFacts = internalMutation({
     return null;
   },
 });
+
+const STALE_FACT_RUN_BATCH = 50;
+
+/**
+ * Reaps transcript fact extraction runs stranded in "running" or "queued"
+ * after an action timeout or deploy restart. Bounded per transaction and
+ * reschedules itself while a batch comes back full.
+ */
+export const failStaleTranscriptFactRuns = internalMutation({
+  args: { olderThanMinutes: v.number() },
+  returns: v.number(),
+  handler: async (ctx, args): Promise<number> => {
+    const now = Date.now();
+    const cutoff = now - Math.max(1, args.olderThanMinutes) * 60_000;
+    let reaped = 0;
+    let hitCap = false;
+    for (const status of ["running", "queued"] as const) {
+      const stale = await ctx.db
+        .query("transcriptFactRuns")
+        .withIndex("by_status_and_startedAt", (q) =>
+          q.eq("status", status).lt("startedAt", cutoff)
+        )
+        .take(STALE_FACT_RUN_BATCH);
+      if (stale.length === STALE_FACT_RUN_BATCH) hitCap = true;
+      for (const run of stale) {
+        await ctx.db.patch(run._id, {
+          status: "failed",
+          error: "Timed out while extracting transcript facts",
+          finishedAt: now,
+        });
+        const transcript = await ctx.db.get(run.transcriptId);
+        if (transcript && transcript.factsStatus === "queued") {
+          await ctx.db.patch(transcript._id, { factsStatus: "failed" });
+        }
+        reaped += 1;
+      }
+    }
+    if (hitCap) {
+      await ctx.scheduler.runAfter(0, internal.transcripts.failStaleTranscriptFactRuns, {
+        olderThanMinutes: args.olderThanMinutes,
+      });
+    }
+    return reaped;
+  },
+});
+

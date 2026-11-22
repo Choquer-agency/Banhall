@@ -138,4 +138,50 @@ describe("query keep alive", () => {
     await Promise.resolve();
     expect(fake.subscriptions.has(9)).toBe(false);
   });
+
+  it("does not hold streaming delta queries, cursor-paginated pages, or search queries", () => {
+    const fake = fakeClient();
+    installQueryKeepAlive(fake.client, { ttlMs: 60_000 });
+
+    const streamQuery = makeFunctionReference<
+      "query",
+      { id: number; streamArgs: { kind: string; cursors: Array<{ streamId: string; cursor: number }> } },
+      string
+    >("chatV2:listMessages");
+    const releaseStream = fake.client.onUpdate(
+      streamQuery,
+      { id: 10, streamArgs: { kind: "deltas", cursors: [{ streamId: "s1", cursor: 42 }] } },
+      () => {}
+    );
+    releaseStream();
+    expect(fake.subscriptions.has(10)).toBe(false);
+
+    const pagedQuery = makeFunctionReference<
+      "query",
+      { id: number; paginationOpts: { cursor: string | null; numItems: number } },
+      string
+    >("dashboard:listFlatProjects");
+    const releasePage2 = fake.client.onUpdate(
+      pagedQuery,
+      { id: 11, paginationOpts: { cursor: "cursor-page-2", numItems: 20 } },
+      () => {}
+    );
+    releasePage2();
+    expect(fake.subscriptions.has(11)).toBe(false);
+
+    const releasePage1 = fake.client.onUpdate(
+      pagedQuery,
+      { id: 12, paginationOpts: { cursor: null, numItems: 20 } },
+      () => {}
+    );
+    releasePage1();
+    expect(fake.subscriptions.get(12)).toBe(1);
+
+    const searchQuery = makeFunctionReference<"query", { id: number; search: string }, string>(
+      "projects:search"
+    );
+    const releaseSearch = fake.client.onUpdate(searchQuery, { id: 13, search: "acme" }, () => {});
+    releaseSearch();
+    expect(fake.subscriptions.has(13)).toBe(false);
+  });
 });

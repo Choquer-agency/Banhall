@@ -70,6 +70,7 @@ import { createPurgeGuard, type PurgeGuard } from "./lib/purgeBudget";
 import {
   projectDashboardProjectionPatch,
   stageCountBucket,
+  syncDashboardCompanyDerivedYearEnd,
   syncProjectDashboardFields,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
@@ -236,11 +237,21 @@ async function validateProjectTagIds(
 }
 
 
+const LIST_PROJECTS_MAX = 500;
+const LIST_INDUSTRIES_SCAN_MAX = 1_000;
+
 export const listProjects = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
     await requireInternalActor(ctx);
-    const projects = await ctx.db.query("projects").order("desc").collect();
+    const limit = Math.max(1, Math.min(args.limit ?? LIST_PROJECTS_MAX, LIST_PROJECTS_MAX));
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_updatedAt")
+      .order("desc")
+      .take(limit);
     return await Promise.all(
       projects.map(async (project) => {
         const activeGeneration = await findActiveGeneration(ctx, project, [
@@ -330,7 +341,11 @@ export const listIndustries = query({
   args: {},
   handler: async (ctx) => {
     await requireInternalActor(ctx);
-    const projects = await ctx.db.query("projects").collect();
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_updatedAt")
+      .order("desc")
+      .take(LIST_INDUSTRIES_SCAN_MAX);
     return [
       ...new Set(
         projects
@@ -1290,6 +1305,9 @@ export async function insertNewProject(
       1,
       "intake"
     );
+    if (args.fiscalYearEnd !== undefined) {
+      await syncDashboardCompanyDerivedYearEnd(ctx, dashboardProjection.dashboardCompanyKey);
+    }
     return projectId;
 }
 
@@ -2692,15 +2710,20 @@ export const deleteProject = mutation({
       dashboardCompanyCounted: false,
     });
     if (project.dashboardCompanyCounted === true) {
+      const companyKey =
+        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey;
       // Decrement the exact stage bucket the row occupied (2026-08-06
       // second amendment): workflowStage ?? "legacy".
       await upsertDashboardCompany(
         ctx,
-        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
+        companyKey,
         project.clientName,
         -1,
         stageCountBucket(project.workflowStage)
       );
+      if (project.fiscalYearEnd !== undefined) {
+        await syncDashboardCompanyDerivedYearEnd(ctx, companyKey);
+      }
     }
     await terminalizeLiveGenerationWork(ctx, args.projectId, now);
     await schedulePurgePage(ctx, args.projectId, purgePosition(0, null));

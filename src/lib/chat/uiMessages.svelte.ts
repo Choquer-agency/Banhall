@@ -16,6 +16,7 @@
  * Each active stream owns one persistent AI SDK parser. Accepted chunks are
  * consumed once and published at most once per browser animation frame.
  */
+import { untrack } from "svelte";
 import { useQuery, usePaginatedQuery } from "convex-svelte";
 import type { StreamDelta, StreamMessage } from "@convex-dev/agent/validators";
 import {
@@ -73,7 +74,7 @@ export function createUIMessages(
   // which structuredClone()s the assembled message. Deep $state proxies are
   // not cloneable — with plain $state every streaming update threw
   // DataCloneError ("#<Object> could not be cloned") and chat streaming died.
-  let currentThreadId: string | undefined = $state(undefined);
+  let currentThreadId: string | undefined = undefined;
   let cursors: Record<string, number> = $state.raw({});
   let streaming: UIMessage[] = $state.raw([]);
   const projections = new Map<string, ReturnType<typeof createPersistentProjection>>();
@@ -130,7 +131,7 @@ export function createUIMessages(
     const confirmedList = streamListQ.data?.streams?.kind === "list";
     const messages = streamMessages;
     const active = new Set(messages.map(message => message.streamId));
-    const nextCursors = { ...cursors };
+    const nextCursors = { ...untrack(() => cursors) };
     let changed = false;
     for (const [id, projection] of projections) {
       if (confirmedList && !active.has(id)) {

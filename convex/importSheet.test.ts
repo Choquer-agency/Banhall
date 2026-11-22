@@ -499,7 +499,12 @@ function checkReasonsByHand(row: Doc<"ingestionItems">): string[] {
   // It could not be read.
   if (row.status === "failed") reasons.push("could_not_read");
   // It was read, but no text came out (a scan): no preview text and no stored text.
-  if (row.status === "pending_review" && !(row.text ?? "").trim() && row.textStorageId === undefined) {
+  if (
+    row.status === "pending_review" &&
+    !(row.text ?? "").trim() &&
+    (row.textLength ?? 0) === 0 &&
+    row.textStorageId === undefined
+  ) {
     reasons.push("no_text");
   }
   // No fiscal year end, on a category that belongs to a fiscal year: not a
@@ -2929,8 +2934,16 @@ describe("the science code read from a final PD's text", () => {
     });
     await t.action(internal.ingestionSync.extractUploadedItem, { itemId: id });
     const row = await getItem(t, id);
-    expect(row.text!.length).toBeLessThan(text.length);
-    expect(row.text).not.toContain("2.02.09");
+    const companion = await t.run((ctx) =>
+      ctx.db
+        .query("ingestionItemTexts")
+        .withIndex("by_itemId", (q) => q.eq("itemId", id))
+        .unique()
+    );
+    expect(row.text).toBeUndefined();
+    expect(row.textLength).toBe(companion!.text.length);
+    expect(companion!.text.length).toBeLessThan(text.length);
+    expect(companion!.text).not.toContain("2.02.09");
     expect(row).toMatchObject({ status: "pending_review", scienceCode: "2.02.09", scienceCodeSource: "document" });
   });
 

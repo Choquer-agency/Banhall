@@ -19,6 +19,7 @@ import { isProjectDeleting } from "./lib/projectDeletion";
 import { activeClientIdForName } from "./lib/clients";
 import { insertDocumentWithText } from "./lib/documentText";
 import { hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
+import { readIngestionItemText } from "./lib/ingestionItemTexts";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -78,12 +79,13 @@ export const getItemForPort = internalQuery({
         "This file has no client or fiscal year — fix its folder metadata first"
       );
     }
-    if (!item.text && !item.textStorageId) {
+    const previewText = await readIngestionItemText(ctx, item);
+    if (!previewText && !item.textStorageId) {
       domainError("INVALID_STATE", "No extracted text on this item");
     }
     return {
       alreadyPortedProjectId: null,
-      text: item.text ?? null,
+      text: previewText ?? null,
       textStorageId: item.textStorageId ?? null,
       storageId: item.storageId ?? null,
       name: item.name,

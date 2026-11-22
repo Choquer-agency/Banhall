@@ -76,6 +76,7 @@
   // cancels the navigation, and a full load would leave anyway.
   beforeNavigate((navigation) => {
     if (shouldReloadForUpdate(updated.current, navigation) && navigation.to) {
+      navigation.cancel();
       location.href = navigation.to.url.href;
     }
   });
@@ -83,13 +84,26 @@
   // Fallback: a chunk vanished mid-session (deploy landed between page load
   // and navigation). Reload once to recover instead of a dead white screen.
   if (typeof window !== "undefined") {
-    window.addEventListener("vite:preloadError", () => {
+    const onPreloadError = () => {
       const key = "chunk-reload-at";
-      const last = Number(sessionStorage.getItem(key) ?? 0);
+      let last = 0;
+      try {
+        last = Number(sessionStorage.getItem(key) ?? 0);
+      } catch {
+        // Storage can be unavailable in private browsing or restricted contexts.
+      }
       if (Date.now() - last > 10_000) {
-        sessionStorage.setItem(key, String(Date.now()));
+        try {
+          sessionStorage.setItem(key, String(Date.now()));
+        } catch {
+          // Proceed with reload even if storage writes are blocked.
+        }
         location.reload();
       }
+    };
+    window.addEventListener("vite:preloadError", onPreloadError);
+    onDestroy(() => {
+      window.removeEventListener("vite:preloadError", onPreloadError);
     });
   }
 </script>

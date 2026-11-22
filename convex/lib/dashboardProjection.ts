@@ -167,6 +167,67 @@ export async function patchProjectWorkflowStage(
   }
 }
 
+const DERIVED_YEAR_END_READ = 50;
+
+/**
+ * Recomputes the company's latest project fiscal year end (UTC month/day)
+ * and stores it on dashboardCompanies so the All companies table does not
+ * need per-company fallback subscriptions.
+ */
+export async function syncDashboardCompanyDerivedYearEnd(
+  ctx: MutationCtx,
+  companyKey: string
+): Promise<void> {
+  if (!companyKey || companyKey === "\uffff") return;
+  const row = await ctx.db
+    .query("dashboardCompanies")
+    .withIndex("by_companyKey", (q) => q.eq("companyKey", companyKey))
+    .unique();
+  if (!row) return;
+  let latest: number | null = null;
+  let latestRank = Number.MAX_SAFE_INTEGER;
+  let read = 0;
+  for await (const project of ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) =>
+      q.eq("dashboardCompanyKey", companyKey)
+    )
+    .order("asc")) {
+    const rank =
+      project.dashboardFiscalYearRank ??
+      dashboardFiscalYearRank(project.fiscalYearEnd);
+    if (
+      latest !== null &&
+      project.dashboardFiscalYearRank !== undefined &&
+      rank > latestRank
+    ) {
+      break;
+    }
+    if (
+      project.deletionStartedAt === undefined &&
+      project.fiscalYearEnd !== undefined
+    ) {
+      if (latest === null || project.fiscalYearEnd > latest) {
+        latest = project.fiscalYearEnd;
+      }
+      latestRank = Math.min(latestRank, rank);
+    }
+    read += 1;
+    if (read >= DERIVED_YEAR_END_READ) break;
+  }
+  const month = latest !== null ? new Date(latest).getUTCMonth() + 1 : undefined;
+  const day = latest !== null ? new Date(latest).getUTCDate() : undefined;
+  if (
+    row.derivedFiscalYearEndMonth !== month ||
+    row.derivedFiscalYearEndDay !== day
+  ) {
+    await ctx.db.patch(row._id, {
+      derivedFiscalYearEndMonth: month,
+      derivedFiscalYearEndDay: day,
+    });
+  }
+}
+
 export async function syncProjectDashboardFields(
   ctx: MutationCtx,
   projectId: Id<"projects">,
@@ -194,17 +255,24 @@ export async function syncProjectDashboardFields(
     const bucket = stageCountBucket(merged.workflowStage);
     await upsertDashboardCompany(ctx, oldCompanyKey, project.clientName, -1, bucket);
     await upsertDashboardCompany(ctx, patch.dashboardCompanyKey, merged.clientName, 1, bucket);
-  } else if (next.clientName !== undefined) {
-    // A casing/whitespace/diacritic-only correction keeps the company key,
-    // so no count moves; the row label is what the board header shows, so
-    // refresh it or the typo the writer just fixed lives on there. Callers
-    // patch the project before syncing, so the row label is the comparand.
-    const row = await ctx.db
-      .query("dashboardCompanies")
-      .withIndex("by_companyKey", (q) => q.eq("companyKey", patch.dashboardCompanyKey))
-      .unique();
-    if (row && row.clientName !== next.clientName) {
-      await ctx.db.patch(row._id, { clientName: next.clientName, updatedAt: Date.now() });
+    await syncDashboardCompanyDerivedYearEnd(ctx, oldCompanyKey);
+    await syncDashboardCompanyDerivedYearEnd(ctx, patch.dashboardCompanyKey);
+  } else {
+    if (next.clientName !== undefined) {
+      // A casing/whitespace/diacritic-only correction keeps the company key,
+      // so no count moves; the row label is what the board header shows, so
+      // refresh it or the typo the writer just fixed lives on there. Callers
+      // patch the project before syncing, so the row label is the comparand.
+      const row = await ctx.db
+        .query("dashboardCompanies")
+        .withIndex("by_companyKey", (q) => q.eq("companyKey", patch.dashboardCompanyKey))
+        .unique();
+      if (row && row.clientName !== next.clientName) {
+        await ctx.db.patch(row._id, { clientName: next.clientName, updatedAt: Date.now() });
+      }
+    }
+    if ("fiscalYearEnd" in next) {
+      await syncDashboardCompanyDerivedYearEnd(ctx, patch.dashboardCompanyKey);
     }
   }
 }

@@ -323,6 +323,7 @@ describe("listClients and findSimilarClients", () => {
     const result = await s.writer.query(api.clients.listClients, {});
     expect(result).toEqual({
       truncated: false,
+      totalProjects: 6,
       clients: [
         {
           key: "alpha labs",
@@ -686,7 +687,15 @@ describe("previewClientMerge and mergeClients", () => {
 
     const list = await s.writer.query(api.clients.listClients, {});
     expect(list.clients).toEqual([
-      { key: "acme", clientId: f.acmeId, name: "Acme", projectCount: 4, updatedAt: expect.any(Number) },
+      {
+        key: "acme",
+        clientId: f.acmeId,
+        name: "Acme",
+        projectCount: 4,
+        derivedFiscalYearEndMonth: 3,
+        derivedFiscalYearEndDay: 31,
+        updatedAt: expect.any(Number),
+      },
     ]);
   });
 

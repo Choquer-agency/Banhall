@@ -313,10 +313,6 @@ export const resumeStalledProjectCopies = internalMutation({
         .take(STALLED_JOBS_PER_RUN);
       for (const job of stalled) if (await takeStalledProjectCopy(ctx, job)) taken += 1;
     }
-    // 2026-11-18 (review P3-3): a merge's company files whose move stopped
-    // hold up the company's drafts the same way; their sweep runs in its
-    // own transaction so neither can fail the other.
-    await ctx.scheduler.runAfter(0, internal.clients.resumeStalledCompanyFileMoves, {});
     return taken;
   },
 });

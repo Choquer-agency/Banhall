@@ -327,6 +327,98 @@ export function reportNotes(body: CanonicalReportBody): ReportNote[] {
 
 export type ReportSectionMetricMap = Record<ReportSectionKey, SectionMetrics>;
 
+/** Minimal structural shape of a ProseMirror Node for zero-serialization live metrics. */
+export interface ProseMirrorNodeLike {
+  readonly type: { readonly name: string };
+  readonly text?: string | null;
+  readonly childCount: number;
+  forEach(f: (node: ProseMirrorNodeLike) => void): void;
+}
+
+function pmInlineText(node: ProseMirrorNodeLike): { text: string; unsupported: boolean } {
+  if (node.type.name === "text") return { text: node.text ?? "", unsupported: false };
+  if (node.type.name === "hardBreak") return { text: "\n", unsupported: false };
+  if (node.childCount === 0) {
+    // Empty paragraph or heading has no inline children; other leaf nodes are unsupported.
+    return node.type.name === "paragraph" || node.type.name === "heading"
+      ? { text: "", unsupported: false }
+      : { text: "", unsupported: true };
+  }
+  let text = "";
+  let unsupported = false;
+  node.forEach((child) => {
+    if (unsupported) return;
+    const result = pmInlineText(child);
+    if (result.unsupported) {
+      unsupported = true;
+      return;
+    }
+    text += result.text;
+  });
+  return { text, unsupported };
+}
+
+function pmHeadingSectionKey(node: ProseMirrorNodeLike): ReportSectionKey | null {
+  if (node.type.name !== "heading") return null;
+  const text = pmInlineText(node).text
+    .replace(/[\u2014\u2013\u2212]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (/^line 242\s*-\s*scientific(?:\/| or )technological uncertainty$/.test(text)) {
+    return "s242";
+  }
+  if (/^line 244\s*-\s*work performed$/.test(text)) return "s244";
+  if (/^line 246\s*-\s*scientific\/technological advancement$/.test(text)) {
+    return "s246";
+  }
+  return null;
+}
+
+/**
+ * Compute canonical Schedule 60 section metrics directly from a live ProseMirror
+ * document without JSON serialization or Zod parsing on every keystroke.
+ */
+export function reportSectionMetricsFromDoc(doc: ProseMirrorNodeLike): ReportSectionMetricMap {
+  const blocks: Record<ReportSectionKey, string[]> = {
+    s242: [],
+    s244: [],
+    s246: [],
+  };
+  let current: ReportSectionKey | null = null;
+  let stopped = false;
+
+  doc.forEach((node) => {
+    if (stopped) return;
+    const heading = pmHeadingSectionKey(node);
+    if (heading) {
+      current = heading;
+      return;
+    }
+    if (
+      current === "s246" &&
+      node.type.name === "heading" &&
+      /^qa scorecard$/i.test(pmInlineText(node).text.trim())
+    ) {
+      current = null;
+      stopped = true;
+      return;
+    }
+    if (node.type.name !== "paragraph" || !current) return;
+    const result = pmInlineText(node);
+    if (result.unsupported) return;
+    const text = result.text.replace(/^[^\S\n]+|[^\S\n]+$/g, "");
+    if (!text) return;
+    blocks[current].push(text);
+  });
+
+  return {
+    s242: sectionMetrics(blocks.s242.join("\n\n"), "s242"),
+    s244: sectionMetrics(blocks.s244.join("\n\n"), "s244"),
+    s246: sectionMetrics(blocks.s246.join("\n\n"), "s246"),
+  };
+}
+
 /** Canonical live/export metrics: one parser and one shared CRA line model. */
 export function reportSectionMetrics(content: string): ReportSectionMetricMap {
   const report = parseCanonicalReport(content);

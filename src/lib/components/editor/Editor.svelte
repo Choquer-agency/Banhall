@@ -49,6 +49,7 @@
   import {
     reportSectionKeyForHeading,
     reportSectionMetrics,
+    reportSectionMetricsFromDoc,
     type ReportSectionKey,
     type ReportSectionMetricMap,
   } from "$lib/reportSections";
@@ -791,9 +792,11 @@
   let wordCount = $state(0);
   let charCount = $state(0);
   let measuredDoc: PMNode | undefined;
+  let serializedDoc: PMNode | undefined;
   let currentDocumentJson = "";
 
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
+  let slashMenuTimeout: ReturnType<typeof setTimeout> | undefined;
   let pendingSaveChain: Promise<void> = Promise.resolve();
   let lastQueuedContent: string | null = null;
   // Apply external content changes (AI replace, restore, regenerate). Echoes
@@ -819,11 +822,10 @@
     }
   }
 
-  function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
-    if (measuredDoc === ed.state.doc) return currentDocumentJson;
+  function refreshDocumentMetrics(ed: Editor | CoreEditor) {
+    if (measuredDoc === ed.state.doc) return;
     measuredDoc = ed.state.doc;
-    currentDocumentJson = JSON.stringify(ed.getJSON());
-    sectionLimitMetrics = reportSectionMetrics(currentDocumentJson);
+    sectionLimitMetrics = reportSectionMetricsFromDoc(ed.state.doc);
     lineCount = REPORT_SECTION_DEFINITIONS.reduce(
       (total, { key }) => total + sectionLimitMetrics[key].lines,
       0
@@ -835,6 +837,14 @@
     charCount = (
       ed.storage as unknown as { characterCount: { characters: () => number } }
     ).characterCount.characters();
+  }
+
+  function serializeDocument(ed: Editor | CoreEditor): string {
+    refreshDocumentMetrics(ed);
+    if (serializedDoc !== ed.state.doc) {
+      serializedDoc = ed.state.doc;
+      currentDocumentJson = JSON.stringify(ed.getJSON());
+    }
     return currentDocumentJson;
   }
 
@@ -866,12 +876,13 @@
     return save;
   }
 
-  function scheduleSave(json: string) {
+  function scheduleSave(ed: Editor | CoreEditor) {
     if (!onUpdate) return;
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
       saveTimeout = undefined;
-      void enqueueSave(json).catch(() => {});
+      if (ed.isDestroyed) return;
+      void enqueueSave(serializeDocument(ed)).catch(() => {});
     }, 1000);
   }
 
@@ -892,7 +903,10 @@
         handleKeyDown: (view, event) => {
           // Slash command trigger
           if (event.key === "/" && !slashMenu.isOpen) {
-            setTimeout(() => {
+            if (slashMenuTimeout) clearTimeout(slashMenuTimeout);
+            slashMenuTimeout = setTimeout(() => {
+              slashMenuTimeout = undefined;
+              if (view.isDestroyed) return;
               const { from } = view.state.selection;
               const coords = view.coordsAtPos(from);
               slashMenu = {
@@ -917,21 +931,26 @@
           slashMenu.isOpen = false;
         }
 
-        scheduleSave(refreshDocumentMetrics(ed));
+        refreshDocumentMetrics(ed);
+        scheduleSave(ed);
       },
     });
     // Keep the store's editor alive for the component lifetime. The document
-    // identity guard avoids re-parsing metrics on selection-only transactions.
+    // identity guard avoids re-measuring metrics on selection-only transactions.
     const unsubscribe = editorStore.subscribe((e) => {
       editor = e;
       refreshDocumentMetrics(e);
     });
     return () => {
+      if (slashMenuTimeout) {
+        clearTimeout(slashMenuTimeout);
+        slashMenuTimeout = undefined;
+      }
       if (saveTimeout) {
         clearTimeout(saveTimeout);
         saveTimeout = undefined;
-        if (editor && onUpdate) {
-          void enqueueSave(refreshDocumentMetrics(editor)).catch(() => {});
+        if (editor && onUpdate && !editor.isDestroyed) {
+          void enqueueSave(serializeDocument(editor)).catch(() => {});
         }
       }
       unsubscribe();
@@ -1301,7 +1320,7 @@
       await pendingSaveChain;
       return;
     }
-    await enqueueSave(refreshDocumentMetrics(editor));
+    await enqueueSave(serializeDocument(editor));
   }
 
   /** True while a debounced or in-flight autosave has not yet settled. */

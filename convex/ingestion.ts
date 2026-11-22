@@ -76,6 +76,11 @@ import {
   type IngestionItemFields,
 } from "./lib/ingestionSheet";
 import {
+  deleteIngestionItemText,
+  readIngestionItemText,
+  writeIngestionItemText,
+} from "./lib/ingestionItemTexts";
+import {
   adjustWriterFiles,
   choiceForUndo,
   confirmDocumentName,
@@ -220,11 +225,12 @@ async function settleWithWriter(
   ctx: MutationCtx,
   row: IngestionItemFields,
   previousInitials?: string | null,
-  previousReviewerInitials?: string | null
+  previousReviewerInitials?: string | null,
+  itemId?: Id<"ingestionItems">
 ): Promise<IngestionItemFields> {
   const withWriter = await settleInitialsWriter(ctx, row, previousInitials);
   const settled = await settleInitialsReviewer(ctx, withWriter, previousReviewerInitials);
-  return await withDocumentName(ctx, { ...settled, ...previewWriterNames(settled) });
+  return await withDocumentName(ctx, { ...settled, ...(await previewWriterNames(ctx, settled, itemId)) });
 }
 
 /**
@@ -264,9 +270,39 @@ async function settleInitialsReviewer(
  * code; {} otherwise. A file with full text in storage has it read in an
  * action (scheduleNamesRead).
  */
-function previewWriterNames(row: IngestionItemFields): Partial<IngestionItemFields> {
+async function previewWriterNames(
+  ctx: MutationCtx,
+  row: IngestionItemFields,
+  itemId?: Id<"ingestionItems">
+): Promise<Partial<IngestionItemFields>> {
   if (row.textStorageId !== undefined || !needsDocumentWriterNames(row)) return {};
-  return { documentWriterNames: writerNamesFromText(row.text ?? "") };
+  const preview =
+    row.text ?? (itemId ? await readIngestionItemText(ctx, { _id: itemId, text: undefined }) : undefined);
+  return { documentWriterNames: writerNamesFromText(preview ?? "") };
+}
+
+/**
+ * Dual-read wrapper around previewScienceCode: only looks up the companion
+ * ingestionItemTexts row when the settled item is a final PD without a
+ * science code and has no legacy inline text.
+ */
+async function previewScienceCodeForItem(
+  ctx: MutationCtx,
+  itemId: Id<"ingestionItems">,
+  settled: IngestionItemFields
+): Promise<Partial<IngestionItemFields>> {
+  if (settled.text !== undefined) return previewScienceCode(settled);
+  if (
+    settled.category !== "final_pd" ||
+    settled.scienceCode !== undefined ||
+    settled.scienceCodeSource === "person" ||
+    (settled.editedLabels ?? []).includes("scienceCode")
+  ) {
+    return {};
+  }
+  const preview = await readIngestionItemText(ctx, { _id: itemId, text: undefined });
+  if (preview === undefined) return {};
+  return previewScienceCode({ ...settled, text: preview });
 }
 
 /**
@@ -374,7 +410,7 @@ async function patchItem(
   const { _id, _creationTime, ...fields } = before;
   let settled = await withBrainCheckOrder(
     ctx,
-    await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null)
+    await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null, _id)
   );
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
@@ -1430,7 +1466,8 @@ async function approveOneFile(
   const client = found.kind === "client" ? found.client : await createImportCompany(ctx, item.companyKey, found, actor);
   const wholeText = text !== undefined && hasServerReadText(text) ? text : undefined;
   // A file with no original and only its preview keeps the preview: nothing else can be read.
-  const companyText = wholeText ?? (item.storageId === undefined && item.text?.trim() ? item.text : null);
+  const previewText = item.storageId === undefined ? await readIngestionItemText(ctx, item) : undefined;
+  const companyText = wholeText ?? (previewText?.trim() ? previewText : null);
   // The file's own reviewer as the Reviewer column shows it (from its
   // reviewer initials, a pick for them, or a person; an edit after approval
   // is kept through Send back), counted in its writer's reviewCount, so the
@@ -2118,7 +2155,10 @@ export const brainCheckTarget = internalQuery({
     if (!item || item.status !== "approved" || item.brainCheck !== "waiting") {
       domainError("INVALID_STATE", BRAIN_CHECK_GONE);
     }
-    return definedFields({ textStorageId: item.textStorageId, preview: item.text });
+    return definedFields({
+      textStorageId: item.textStorageId,
+      preview: await readIngestionItemText(ctx, item),
+    });
   },
 });
 
@@ -3496,7 +3536,7 @@ export const sheetFileTextSource = internalQuery({
     if (!item) return null;
     return definedFields({
       textStorageId: item.textStorageId,
-      preview: item.text,
+      preview: await readIngestionItemText(ctx, item),
       cutAtImport: importTextCut(item),
     });
   },
@@ -3892,7 +3932,7 @@ export const setSheetLabels = mutation({
       }
       if (patch.category === "final_pd" && item.category !== "final_pd") {
         // Extraction reads the code only for a file that was a final PD then.
-        Object.assign(patch, previewScienceCode(settleItem({ ...stored, ...patch })));
+        Object.assign(patch, await previewScienceCodeForItem(ctx, item._id, settleItem({ ...stored, ...patch })));
       }
       const result = await patchItem(ctx, item, patch, { touch: true });
       if (!result.changed) continue;
@@ -4571,11 +4611,14 @@ const namesBackfillPageValidator = v.object({
   continueCursor: v.string(),
 });
 
-function namesBackfillItem(item: Doc<"ingestionItems">): Infer<typeof namesBackfillItemValidator> {
+async function namesBackfillItem(
+  ctx: QueryCtx,
+  item: Doc<"ingestionItems">
+): Promise<Infer<typeof namesBackfillItemValidator>> {
   return {
     itemId: item._id,
     textStorageId: item.textStorageId ?? null,
-    preview: item.textStorageId === undefined ? (item.text ?? null) : null,
+    preview: item.textStorageId === undefined ? ((await readIngestionItemText(ctx, item)) ?? null) : null,
   };
 }
 
@@ -4591,7 +4634,9 @@ export const documentWriterNamesPage = internalQuery({
       .query("ingestionItems")
       .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
       .paginate({ cursor: args.cursor, numItems: NAMES_BACKFILL_ROWS });
-    const items = page.page.filter(needsDocumentWriterNames).map(namesBackfillItem);
+    const items = await Promise.all(
+      page.page.filter(needsDocumentWriterNames).map((item) => namesBackfillItem(ctx, item))
+    );
     return { items, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });
@@ -4602,7 +4647,7 @@ export const documentWriterNamesItem = internalQuery({
   returns: v.union(namesBackfillItemValidator, v.null()),
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
-    return item && needsDocumentWriterNames(item) ? namesBackfillItem(item) : null;
+    return item && needsDocumentWriterNames(item) ? await namesBackfillItem(ctx, item) : null;
   },
 });
 
@@ -5096,7 +5141,7 @@ async function upsertDiscovered(
       // then, and unchanged bytes are not read again: read it from the
       // stored preview, as a person's change of category does.
       const { _id, _creationTime, ...stored } = existing;
-      Object.assign(movePatch, previewScienceCode(settleItem({ ...stored, ...movePatch })));
+      Object.assign(movePatch, await previewScienceCodeForItem(ctx, existing._id, settleItem({ ...stored, ...movePatch })));
     }
     const { after } = await patchItem(ctx, existing, movePatch);
     noteGroups(after);
@@ -5115,6 +5160,7 @@ async function upsertDiscovered(
     return null;
   }
   // Content changed on the drive; back to the start of the pipeline.
+  await deleteIngestionItemText(ctx, existing._id);
   const { after } = await patchItem(ctx, existing, {
     ...args,
     ...fromPath,
@@ -5123,6 +5169,7 @@ async function upsertDiscovered(
     status: "discovered",
     storageId: undefined,
     text: undefined,
+    textLength: undefined,
     textStorageId: undefined,
     documentWriterNames: undefined,
     extractNote: undefined,
@@ -5373,11 +5420,13 @@ export const markItemProcessed = internalMutation({
       category === "final_pd" && documentCode !== undefined && !personCode
         ? { scienceCode: documentCode, scienceCodeSource: "document" as const }
         : {};
+    await writeIngestionItemText(ctx, current._id, args.text);
     const { after } = await patchItem(ctx, current, {
       ...scienceCode,
       ...(await finishBatchRead(ctx, current, false)),
       storageId: args.storageId,
-      text: args.text,
+      text: undefined,
+      textLength: args.text !== undefined ? (args.text.trim() ? args.text.length : 0) : undefined,
       textStorageId: args.textStorageId,
       extractNote: args.extractNote,
       textCut: args.textCut,
@@ -5995,7 +6044,7 @@ export const backfillIngestionLabels = internalMutation({
       const { _id, _creationTime, ...stored } = item;
       const patch: Partial<IngestionItemFields> =
         item.status === "approved" ? {} : pathFieldsFor(item.path, item.name, item);
-      Object.assign(patch, previewScienceCode(settleItem({ ...stored, ...patch })));
+      Object.assign(patch, await previewScienceCodeForItem(ctx, item._id, settleItem({ ...stored, ...patch })));
       const { after, changed } = await patchItem(ctx, item, patch);
       if (!changed) continue;
       for (const key of pairGroupsTouched(item, after)) groups.add(key);

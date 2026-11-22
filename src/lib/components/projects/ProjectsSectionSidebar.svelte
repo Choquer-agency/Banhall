@@ -38,9 +38,10 @@
     await tick();
     retrying = false;
   }
-  const facetsQ = useQuery(api.dashboard.getFacets, () => (auth.isAuthenticated ? {} : "skip"));
   const totalLabel = $derived(
-    facetsQ.data ? `${facetsQ.data.total}${facetsQ.data.truncated ? "+" : ""}` : null
+    clientsQ.data
+      ? `${clientsQ.data.totalProjects ?? clientsQ.data.clients.reduce((sum, c) => sum + c.projectCount, 0)}${clientsQ.data.truncated ? "+" : ""}`
+      : null
   );
   const view = $derived(projectsViewFromUrl(page.url));
   const selectedKey = $derived(current === "projects" && view.kind === "client" ? view.key : null);
