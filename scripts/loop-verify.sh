@@ -135,21 +135,45 @@ layer_boundaries() {
   return 0
 }
 
-# Bundle hygiene guard: ensure pdf.worker is never pulled into eager app entry chunks.
+# Bundle hygiene guard: ensure pdf.worker is never pulled into eager app entry
+# chunks or any chunk statically imported by them.
 bundle_hygiene() {
   local entry_dir=".svelte-kit/output/client/_app/immutable/entry"
   if [ ! -d "$entry_dir" ]; then
     echo "  skipped (no client entry dir)"
     return 0
   fi
-  local hits
-  hits="$(grep -rn "pdf\.worker" "$entry_dir" || true)"
-  if [ -n "$hits" ]; then
-    echo "loop-verify: pdf.worker leaked into eager app entry chunk:"
-    echo "$hits"
-    return 1
-  fi
-  return 0
+  node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const entryDir = path.resolve(process.argv[1]);
+    const queue = fs.readdirSync(entryDir)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => [path.join(entryDir, f), [f]]);
+    const visited = new Set();
+    const staticImportRe = /(?:^|[;\n])\s*(?:import|export)\s*(?:(?:\*\s*(?:as\s+[\w$]+\s*)?|[\w$]+(?:\s*,\s*(?:\*\s*as\s+[\w$]+|\{[^}]*\}))?|\{[^}]*\})\s*from\s*)?["'\''](\.[^"'\'']+\.js)["'\'']/g;
+    const leaks = [];
+    while (queue.length > 0) {
+      const [file, chain] = queue.shift();
+      if (visited.has(file) || !fs.existsSync(file)) continue;
+      visited.add(file);
+      const src = fs.readFileSync(file, "utf8");
+      if (/pdf\.worker/.test(src)) {
+        leaks.push(chain.join(" -> "));
+      }
+      for (const m of src.matchAll(staticImportRe)) {
+        const target = path.resolve(path.dirname(file), m[1]);
+        if (!visited.has(target)) {
+          queue.push([target, [...chain, path.relative(path.dirname(entryDir), target)]]);
+        }
+      }
+    }
+    if (leaks.length > 0) {
+      console.error("loop-verify: pdf.worker leaked into eager static import graph:");
+      for (const leak of leaks) console.error("  " + leak);
+      process.exit(1);
+    }
+  ' "$entry_dir"
 }
 
 step preflight preflight

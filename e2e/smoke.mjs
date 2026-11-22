@@ -53,22 +53,38 @@ async function run() {
   const consoleErrors = [];
   page.on("pageerror", (err) => consoleErrors.push(err.message));
 
-  try {
-    // 1. Root / sign-in shell renders without crashing.
-    const homeRes = await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded", timeout: 20_000 });
-    assert(homeRes && homeRes.status() < 500, `GET / returned ${homeRes?.status()}`);
+  const authenticated = Boolean(STORAGE_STATE && existsSync(STORAGE_STATE));
 
-    // 2. Public invalid client review token refuses cleanly without 500 or raw stack trace.
+  try {
+    // 1. Root renders or redirects cleanly to sign-in with visible content.
+    const homeRes = await page.goto(`${BASE_URL}/`, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    assert(homeRes && homeRes.status() === 200, `GET / returned ${homeRes?.status()}`);
+    if (authenticated) {
+      await page.locator("h1, main").first().waitFor({ state: "visible", timeout: 15_000 });
+    } else {
+      await page.waitForURL((url) => url.pathname === "/login", { timeout: 15_000 });
+      await page.locator("form").first().waitFor({ state: "visible", timeout: 15_000 });
+    }
+
+    // 2. Public invalid client review token must settle out of loading and show its refusal message.
     const reviewRes = await page.goto(`${BASE_URL}/review/invalid-smoke-token`, {
       waitUntil: "domcontentloaded",
       timeout: 20_000,
     });
-    assert(reviewRes && reviewRes.status() < 500, `GET /review/invalid-smoke-token returned ${reviewRes?.status()}`);
+    assert(reviewRes && reviewRes.status() === 200, `GET /review/invalid-smoke-token returned ${reviewRes?.status()}`);
+    await page.getByRole("heading", { name: "Report Not Found" }).waitFor({ state: "visible", timeout: 15_000 });
 
-    // 3-5. Core workspace routes render or redirect cleanly to sign-in.
+    // 3-5. Core workspace routes return HTTP 200 and either render (authenticated) or redirect to /login.
     for (const path of ["/my-work", "/projects", "/project/new"]) {
       const res = await page.goto(`${BASE_URL}${path}`, { waitUntil: "domcontentloaded", timeout: 20_000 });
-      assert(res && res.status() < 500, `GET ${path} returned ${res?.status()}`);
+      assert(res && res.status() === 200, `GET ${path} returned ${res?.status()}`);
+      if (authenticated) {
+        await page.locator("h1").first().waitFor({ state: "visible", timeout: 15_000 });
+        assert(new URL(page.url()).pathname === path, `Expected ${path}, landed on ${page.url()}`);
+      } else {
+        await page.waitForURL((url) => url.pathname === "/login", { timeout: 15_000 });
+        await page.locator("form").first().waitFor({ state: "visible", timeout: 15_000 });
+      }
     }
 
     assert(consoleErrors.length === 0, `Uncaught page errors: ${consoleErrors.join("; ")}`);

@@ -2176,6 +2176,7 @@
         {hoveredCommentId}
         {pendingHighlight}
         onClearPending={() => (pendingHighlight = null)}
+        onBeforeAcceptEdit={flushEditor}
       />
     {/if}
 

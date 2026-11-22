@@ -30,6 +30,7 @@
     hoveredCommentId,
     pendingHighlight,
     onClearPending,
+    onBeforeAcceptEdit,
   }: {
     projectId: Id<"projects">;
     reportId: Id<"reports">;
@@ -44,6 +45,7 @@
       y?: number;
     } | null;
     onClearPending: () => void;
+    onBeforeAcceptEdit?: () => Promise<unknown>;
   } = $props();
 
   const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, reportId }));
@@ -62,6 +64,9 @@
     accepting = { ...accepting, [commentId]: true };
     acceptErrors = Object.fromEntries(Object.entries(acceptErrors).filter(([id]) => id !== commentId));
     try {
+      if (onBeforeAcceptEdit) {
+        await onBeforeAcceptEdit();
+      }
       await acceptEdit({ commentId });
       activeId = null;
     } catch (error) {
