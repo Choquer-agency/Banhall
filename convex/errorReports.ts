@@ -2,7 +2,7 @@ import { query, mutation, internalMutation, type MutationCtx } from "./_generate
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { getCurrentUserOrNull } from "./lib/auth";
+import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { hasCapability, requireCapability } from "./lib/roleCapabilities";
 import { ANTHROPIC_CREDIT_NOTICE_SOURCE } from "../shared/anthropicCreditFallback";
 
@@ -330,7 +330,7 @@ export const listFeatureRequests = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return [];
+    if (!user || user.isAnonymous === true || !user.role) return [];
     const reports = await ctx.db.query("errorReports").order("desc").take(300);
     return reports
       .filter((r) => r.reportType === "feature")
@@ -351,8 +351,7 @@ export const listFeatureRequests = query({
 export const toggleUpvote = mutation({
   args: { id: v.id("errorReports") },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    const user = await requireInternalActor(ctx);
     const report = await ctx.db.get(args.id);
     if (!report || report.reportType !== "feature") {
       throw new Error("Feature request not found");

@@ -558,3 +558,51 @@ describe("signupAllowed", () => {
     ).resolves.toBe(false);
   });
 });
+
+describe("invite escalation guards (T0-5)", () => {
+  test("blocks a manager from inviting a deactivated admin row and blocks inviting any active authId account", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        email: "former-admin@banhall.com",
+        role: "admin",
+      });
+    });
+
+    const mgrResults = await s.manager.mutation(api.invites.createInvites, {
+      emails: ["former-admin@banhall.com", "roleless@banhall.com"],
+      role: "writer",
+    });
+    expect(mgrResults.map((r) => [r.email, r.status])).toEqual([
+      ["former-admin@banhall.com", "already_member"],
+      ["roleless@banhall.com", "already_member"],
+    ]);
+  });
+
+  test("onCreate always applies invite.role instead of resurrecting a higher prior role on an unlinked row", async () => {
+    const s = await setup();
+    const preExistingId = await s.t.run(async (ctx) =>
+      ctx.db.insert("users", {
+        email: "demoted@banhall.com",
+        role: "admin",
+      }),
+    );
+    await insertInvite(s, {
+      email: "demoted@banhall.com",
+      token: "demoted-token",
+      role: "writer",
+    });
+    await s.t.mutation(api.invites.confirmInviteNames, {
+      token: "demoted-token",
+      firstName: "Dev",
+      lastName: "One",
+    });
+    await s.t.mutation(internal.auth.onCreate, {
+      model: "user",
+      doc: { _id: "auth-demoted", email: "demoted@banhall.com", name: "Dev One" },
+    });
+    const updated = await s.t.run((ctx) => ctx.db.get(preExistingId));
+    expect(updated?.authId).toBe("auth-demoted");
+    expect(updated?.role).toBe("writer");
+  });
+});

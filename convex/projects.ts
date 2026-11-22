@@ -23,6 +23,7 @@ import {
   type ProjectScopedTable,
 } from "./lib/projectScopedTables";
 import { deleteStorageIfUnreferenced, STORAGE_REFERENCE_FIELDS } from "./lib/storage";
+import { revokeProjectBrainSource } from "./brain";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -237,7 +238,7 @@ async function validateProjectTagIds(
 export const listProjects = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     const projects = await ctx.db.query("projects").order("desc").collect();
     return await Promise.all(
       projects.map(async (project) => {
@@ -254,8 +255,9 @@ export const listProjects = query({
                 activeGeneration?.status === "awaiting_input"
               ? activeGeneration.status
               : null;
+        const { shareToken: _shareToken, ...safeProject } = project;
         return {
-          ...project,
+          ...safeProject,
           writer: await resolveLiveUserLabel(ctx, project.writer, project.createdBy),
           interviewer: await resolveLiveUserLabel(
             ctx,
@@ -326,7 +328,7 @@ export const findSameProject = query({
 export const listIndustries = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     const projects = await ctx.db.query("projects").collect();
     return [
       ...new Set(
@@ -2927,6 +2929,43 @@ export const purgeProjectPage = internalMutation({
         await db.patch(rowId(row), patch);
         guard.noteRowTouched(row, false);
         writes += 1;
+        continue;
+      }
+      if (entry.disposition === "scrub") {
+        const patch: Record<string, string> = {};
+        for (const [field, replacement] of Object.entries(entry.scrubFields ?? {})) {
+          if (row[field] !== undefined && row[field] !== replacement) {
+            patch[field] = replacement;
+          }
+        }
+        if (Object.keys(patch).length === 0) continue;
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
+        await db.patch(rowId(row), patch);
+        guard.noteRowTouched(row, false);
+        writes += 1;
+        continue;
+      }
+      if (entry.disposition === "revoke") {
+        const source = row as unknown as Doc<"brainSources">;
+        if (
+          source.status === "revoked" &&
+          source.content === "[redacted]" &&
+          source.title === "[redacted]"
+        ) {
+          continue;
+        }
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
+        const changed = await revokeProjectBrainSource(ctx, source);
+        if (changed) {
+          guard.noteRowTouched(row, false);
+          writes += 4;
+        }
         continue;
       }
       const result = await deleteRowWithChildren(

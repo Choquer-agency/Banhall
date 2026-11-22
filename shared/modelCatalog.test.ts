@@ -499,8 +499,9 @@ describe("settings, endpoints and routing", () => {
   });
 
   test("requires parameters on tool calls and raises max price to an explicit pick", () => {
-    expect(openRouterProviderPreferences({ usesTools: false })).toBeUndefined();
+    expect(openRouterProviderPreferences({ usesTools: false })).toEqual({ data_collection: "deny" });
     expect(openRouterProviderPreferences({ usesTools: true, maxPrice: { prompt: 5, completion: 30 } })).toEqual({
+      data_collection: "deny",
       require_parameters: true,
       max_price: { prompt: 5, completion: 30 },
     });
@@ -518,6 +519,7 @@ describe("settings, endpoints and routing", () => {
       expect(openRouterProviderPreferences({ usesTools: false, anthropicModel: isAnthropicOpenRouterModel(id) })).toEqual({
         only: ["anthropic"],
         allow_fallbacks: false,
+        data_collection: "deny",
       });
     }
     expect(isAnthropicOpenRouterModel("~anthropic/claude-sonnet-latest")).toBe(true);

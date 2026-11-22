@@ -257,7 +257,7 @@
   // Edit details, bulk edit and delete (shared with the company page).
   let dialogs: ProjectCardDialogs | null = $state(null);
 
-  const canDelete = (row: ProjectsTableRow) => canDeleteProject(viewer, row.createdBy, row.deleting);
+  const canDelete = (row: ProjectsTableRow) => canDeleteProject(viewer, row.createdBy, row.deleting, row.ownerId);
 
   /** Focus the visible search field (rail search, Home's search handoff). */
   export function focusSearch(options: { select?: boolean } = {}) {

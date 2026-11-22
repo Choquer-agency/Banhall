@@ -9,6 +9,7 @@ import {
   requireRole,
 } from "./lib/auth";
 import { domainError, sha256 } from "./lib/contracts";
+import { limitUserAction } from "./lib/aiRateLimits";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { deleteStorageIfUnreferenced, isStorageReferenced, uploadClaimFor } from "./lib/storage";
 import { findActiveGeneration } from "./lib/activeGeneration";
@@ -1143,7 +1144,8 @@ export const requestTranscriptFacts = mutation({
   handler: async (ctx, args) => {
     const transcript = await ctx.db.get(args.transcriptId);
     if (!transcript || transcript.archivedAt !== undefined) return null;
-    if (!(await getInternalProjectAccessOrNull(ctx, transcript.projectId))) return null;
+    const access = await getInternalProjectAccessOrNull(ctx, transcript.projectId);
+    if (!access) return null;
     if ((await transcriptFactsMode(ctx)) === "off") return null;
     // Facts read turns. Turns an older parser built, or a build still
     // running, are not ready: rebuild if nothing holds the row, and extract
@@ -1158,6 +1160,7 @@ export const requestTranscriptFacts = mutation({
     // A recent attempt that is still running or just failed is left alone;
     // a ready run made stale by a role correction is extracted again now.
     if (run && run.status !== "ready" && Date.now() - run.startedAt < FACT_RUN_STALE_MS) return null;
+    await limitUserAction(ctx, "transcriptFactsPerUser", access.user._id);
     await ctx.db.patch(transcript._id, { factsStatus: "queued" });
     await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, {
       transcriptId: transcript._id,

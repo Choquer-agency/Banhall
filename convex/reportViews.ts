@@ -4,10 +4,11 @@ import { v } from "convex/values";
 import {
   getInternalProjectAccessOrNull,
   getProjectAccess,
-  requireCurrentUser,
+  requireInternalActor,
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { limitProjectAction } from "./lib/aiRateLimits";
 
 export const logClientView = mutation({
   args: {
@@ -24,6 +25,7 @@ export const logClientView = mutation({
     if (!viewerName || viewerName.length > 100) {
       domainError("INVALID_INPUT", "Enter a reviewer name under 100 characters");
     }
+    await limitProjectAction(ctx, "clientViewPerProject", args.projectId);
     const reportId = access.project.sharedReportId;
     const snapshotId = access.project.sharedReportSnapshotId;
     if (!reportId || !snapshotId) {
@@ -150,7 +152,7 @@ export const getViewSummary = query({
 export const getLastViewedMap = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     const projects = await ctx.db.query("projects").take(500);
     const result: Record<string, number> = {};
     for (const project of projects) {

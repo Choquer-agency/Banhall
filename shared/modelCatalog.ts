@@ -1496,6 +1496,7 @@ export type OpenRouterProviderPreferences = {
   allow_fallbacks?: false;
   require_parameters?: true;
   max_price?: MaxPrice;
+  data_collection?: "allow" | "deny";
 };
 
 /**
@@ -1549,15 +1550,17 @@ export function openRouterProviderPreferences(args: {
   maxPrice?: MaxPrice;
   /** The request's model is Anthropic's (isAnthropicOpenRouterModel). */
   anthropicModel?: boolean;
-}): OpenRouterProviderPreferences | undefined {
-  const preferences: OpenRouterProviderPreferences = {};
+}): OpenRouterProviderPreferences {
+  const preferences: OpenRouterProviderPreferences = {
+    data_collection: "deny",
+  };
   if (args.anthropicModel) {
     preferences.only = OPENROUTER_ANTHROPIC_PROVIDER.only;
     preferences.allow_fallbacks = OPENROUTER_ANTHROPIC_PROVIDER.allow_fallbacks;
   }
   if (args.usesTools) preferences.require_parameters = true;
   if (args.maxPrice) preferences.max_price = args.maxPrice;
-  return Object.keys(preferences).length > 0 ? preferences : undefined;
+  return preferences;
 }
 
 // ─── Tracks (2026-10-22 decision) ───────────────────────────────────────────

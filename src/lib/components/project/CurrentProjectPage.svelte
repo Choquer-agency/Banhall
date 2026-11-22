@@ -101,7 +101,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
-  import { projectCapabilityAllows } from "../../../../shared/capabilities";
+  import { hasCapability, projectCapabilityAllows } from "../../../../shared/capabilities";
   import { layoutMotion } from "$lib/motion/layoutMotion";
   import { loadAgentChatPanel } from "$lib/components/chat/chatModules";
 
@@ -1712,13 +1712,15 @@
                 </svg>
               {/snippet}
             </IconAction>
-            <IconAction label="Financial" href={`/project/${projectId}/financial`}>
-              {#snippet icon()}
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              {/snippet}
-            </IconAction>
+            {#if hasCapability(user?.role, "financial.read")}
+              <IconAction label="Financial" href={`/project/${projectId}/financial`}>
+                {#snippet icon()}
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                {/snippet}
+              </IconAction>
+            {/if}
         {:else if awaitingSelection}
           <IconAction
             label={candidateMaximized ? "Minimize" : "Maximize"}

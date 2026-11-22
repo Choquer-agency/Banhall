@@ -15,7 +15,11 @@ import {
   vWorkflowId,
   type WorkflowId,
 } from "@convex-dev/workflow";
-import { requireInternalProjectAccess, getInternalProjectAccessOrNull } from "./lib/auth";
+import {
+  requireInternalActor,
+  requireInternalProjectAccess,
+  getInternalProjectAccessOrNull,
+} from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -371,9 +375,22 @@ export const cancelResearch = mutation({
   args: { sessionId: v.id("researchSessions") },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    await requireInternalActor(ctx);
     const session = await ctx.db.get(args.sessionId);
     if (!session) return null;
-    await requireInternalProjectAccess(ctx, session.projectId);
+    const { project, user } = await requireInternalProjectAccess(ctx, session.projectId);
+    const canCancel =
+      session.requestedBy === user._id ||
+      project.ownerId === user._id ||
+      project.createdBy === user._id ||
+      user.role === "manager" ||
+      user.role === "admin";
+    if (!canCancel) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only the person who started this research, the project owner, or a manager can cancel it"
+      );
+    }
     if (!ACTIVE_STATUSES.has(session.status)) return null;
     if (session.workflowId) {
       await cancel(ctx, components.researchWorkflow, session.workflowId as WorkflowId);

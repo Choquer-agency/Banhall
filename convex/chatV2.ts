@@ -171,6 +171,13 @@ import {
   type PreparedChatWebSearch,
 } from "./ai/chatWebSearch";
 import {
+  activeClientAfterMerges,
+  activeClientForKey,
+  companyIdentityNames,
+} from "./lib/clients";
+import { dashboardCompanyKey } from "../shared/dashboardProjection";
+import { domainStem, websiteHost } from "./lib/importBrainCopy";
+import {
   listThreadWebSources,
   resolveThreadWebSearch,
   threadWebSearchOn,
@@ -1124,7 +1131,19 @@ export const setActiveAlternative = mutation({
     await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
-    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const { project, user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const canSwitch =
+      thread.createdBy === user._id ||
+      project.ownerId === user._id ||
+      project.createdBy === user._id ||
+      user.role === "manager" ||
+      user.role === "admin";
+    if (!canSwitch) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only the conversation starter, project owner, or a manager can switch active responses"
+      );
+    }
     await refuseWhileReplyRuns(ctx, args.threadId, user._id);
     const path = await readChatPath(ctx, args.threadId, thread.activeTipPromptMessageId);
     const leaf = path.newestLeafUnder(args.promptMessageId);
@@ -1151,7 +1170,7 @@ export const abortStreaming = mutation({
     // 2026-10-19 (Phase A): a domain refusal, so the panel explains it and
     // the crash toast stays quiet.
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
-    await requireInternalProjectAccess(ctx, thread.projectId);
+    const { project, user } = await requireInternalProjectAccess(ctx, thread.projectId);
 
     const turn = await ctx.db
       .query("chatTurns")
@@ -1159,6 +1178,19 @@ export const abortStreaming = mutation({
         q.eq("agentThreadId", args.threadId).eq("order", args.order)
       )
       .unique();
+    const canAbort =
+      turn?.userId === user._id ||
+      thread.createdBy === user._id ||
+      project.ownerId === user._id ||
+      project.createdBy === user._id ||
+      user.role === "manager" ||
+      user.role === "admin";
+    if (!canAbort) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only the sender, project owner, or a manager can stop this reply"
+      );
+    }
     const appTurnStopped =
       turn?.status === "queued" || turn?.status === "running";
     if (appTurnStopped) {
@@ -3044,16 +3076,45 @@ export const prepareChatWebSearch = internalQuery({
     if (!thread || (await isProjectDeleting(ctx, thread.projectId))) return null;
     const project = await ctx.db.get(thread.projectId);
     if (!project) return null;
+    const rawClient = project.clientId
+      ? await ctx.db.get(project.clientId)
+      : await activeClientForKey(ctx, dashboardCompanyKey(project.clientName));
+    const client = rawClient ? await activeClientAfterMerges(ctx, rawClient) : null;
+    const companyNames = client
+      ? await companyIdentityNames(ctx, client, project._id)
+      : undefined;
     const placeholders = await projectPlaceholderMap(
       ctx,
       project,
-      await listProjectTranscripts(ctx, project._id)
+      await listProjectTranscripts(ctx, project._id),
+      [],
+      companyNames
     );
+    const baseKnown = webSearchKnownNames(project, placeholders);
+    const host = websiteHost(client?.website);
+    const stem = host ? domainStem(host) : null;
+    const knownNames = {
+      organizations: [
+        ...new Set([
+          ...baseKnown.organizations,
+          ...(companyNames?.organizations ?? []),
+          ...(host ? [host] : []),
+          ...(stem ? [stem] : []),
+        ]),
+      ],
+      people: [
+        ...new Set([
+          ...baseKnown.people,
+          ...(companyNames?.people ?? []),
+        ]),
+      ],
+      titles: baseKnown.titles,
+    };
     return {
       projectId: project._id,
       ...prepareWebSearchQuery(args.query, {
         placeholders,
-        knownNames: webSearchKnownNames(project, placeholders),
+        knownNames,
       }),
     };
   },

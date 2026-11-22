@@ -1189,3 +1189,107 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
     },
   };
 }
+
+export type NominatedReportBrainCopyResult =
+  | { ok: true; title: string; content: string }
+  | { ok: false; logReason: string };
+
+/**
+ * 2026-11-21 (Policy #3): strict client/person de-identification and leak
+ * verification for `brain.nominateFromReport`, matching the Import Brain copy
+ * standard (`scrubImportText` + independent `findIdentityLeak`). Never quotes
+ * a leaked word in `logReason`.
+ */
+export function scrubNominatedReportForBrain(input: {
+  rawContent: string;
+  projectTitle: string;
+  formalTitle?: string;
+  clientName: string;
+  writer?: string;
+  writerName?: string;
+  interviewer?: string;
+  interviewees?: readonly string[];
+  company?: Pick<Doc<"clients">, "name" | "website"> | null;
+  identity?: { organizations: readonly string[]; people: readonly string[] };
+  fiscalYear?: number;
+  score: number;
+}): NominatedReportBrainCopyResult {
+  const text = input.rawContent.normalize("NFC").replace(INVISIBLE_CHARACTERS, "");
+  if (!text.trim()) {
+    return { ok: false, logReason: IMPORT_BRAIN_REFUSALS.no_text };
+  }
+
+  const organizations = [
+    ...new Set(
+      [
+        input.clientName,
+        input.company?.name,
+        ...(input.identity?.organizations ?? []),
+      ]
+        .map((v) => v?.trim())
+        .filter((v): v is string => Boolean(v))
+    ),
+  ];
+
+  const host = websiteHost(input.company?.website);
+  const stem = host ? domainStem(host) : null;
+
+  const people = [
+    ...new Set(
+      [
+        input.writer,
+        input.writerName,
+        input.interviewer,
+        ...(input.interviewees ?? []),
+        ...(input.identity?.people ?? []),
+        ...cleanDocumentWriterNames(writerNamesFromText(visibleText(text))),
+        ...peopleNamedByCues(text),
+      ]
+        .map((v) => v?.trim())
+        .filter((v): v is string => Boolean(v))
+    ),
+  ];
+
+  // Also remove project titles from body prose, matching deidentify(rawContent, project).
+  const alsoRemove = [input.projectTitle, input.formalTitle]
+    .map((v) => v?.trim())
+    .filter((v): v is string => Boolean(v));
+  const alsoRemoveNames = alsoRemove.filter((word) => alsoRemoveLiteral(word) === null);
+
+  const variants = companyNameVariants(organizations, stem ? [stem] : []);
+  const content = scrubImportText(
+    text,
+    {
+      organizations,
+      people,
+      hosts: host ? [host] : [],
+      alsoRemove,
+    },
+    variants
+  );
+
+  // Independent leak verification for company names, aliases, and website stem.
+  const companyLeak = findIdentityLeak(content, organizations, stem ? [stem] : []);
+  if (companyLeak !== null) {
+    return { ok: false, logReason: IMPORT_BRAIN_LEAK_LOG_REASON };
+  }
+
+  // Independent leak verification for multi-word person names.
+  const personLeak = findIdentityLeak(
+    content,
+    people.filter((name) => alsoRemoveWords(name).length >= 2)
+  );
+  if (personLeak !== null) {
+    return { ok: false, logReason: IMPORT_BRAIN_PERSON_LEAK_LOG_REASON };
+  }
+
+  // Also check literal project title strings did not survive verbatim.
+  const titleLeak = findAlsoRemoveLeak(content, alsoRemoveNames);
+  if (titleLeak !== null) {
+    return { ok: false, logReason: IMPORT_BRAIN_LEAK_LOG_REASON };
+  }
+
+  const baseTitle = importBrainTitle(input.fiscalYear);
+  const title = `${baseTitle} (writer-rated ${input.score}/100)`;
+  return { ok: true, title, content };
+}

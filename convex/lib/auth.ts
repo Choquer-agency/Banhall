@@ -101,9 +101,10 @@ export async function requireProjectCreatorOrAdmin(
   const access = await requireInternalProjectAccess(ctx, projectId, options);
   if (
     access.project.createdBy !== access.user._id &&
+    access.project.ownerId !== access.user._id &&
     access.user.role !== "admin"
   ) {
-    domainError("NOT_AUTHORIZED", "Project creator or admin access required");
+    domainError("NOT_AUTHORIZED", "Project owner, creator, or admin access required");
   }
   return access;
 }

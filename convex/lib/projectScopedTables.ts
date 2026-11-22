@@ -29,7 +29,7 @@
  */
 import type { TableNames } from "../_generated/dataModel";
 
-export type ProjectScopedDisposition = "delete" | "detach" | "keep";
+export type ProjectScopedDisposition = "delete" | "detach" | "scrub" | "revoke" | "keep";
 
 export type ProjectScopedChild = {
   table: TableNames;
@@ -54,8 +54,8 @@ export type ProjectScopedTable = {
   field: string;
   disposition: ProjectScopedDisposition;
   /**
-   * Index whose first field is `field`; required for `delete` and `detach`
-   * so a page is one index range read, never a scan.
+   * Index whose first field is `field`; required for `delete`, `detach`,
+   * `scrub`, and `revoke` so a page is one index range read, never a scan.
    */
   index?: string;
   children?: readonly ProjectScopedChild[];
@@ -73,6 +73,11 @@ export type ProjectScopedTable = {
    * registry stays keyed on the project reference itself.
    */
   clearWith?: readonly string[];
+  /**
+   * `scrub` only: fields holding raw client prose that are overwritten with a
+   * redacted marker while keeping the aggregate audit record intact.
+   */
+  scrubFields?: Readonly<Record<string, string>>;
 };
 
 export const PROJECT_SCOPED_TABLES = [
@@ -249,7 +254,8 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "notifications", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Rows that outlive the project: clear the reference.
   { table: "aiUsage", field: "projectId", disposition: "detach", index: "by_projectId" },
-  { table: "brainFeedbackQueue", field: "projectId", disposition: "detach", index: "by_projectId" },
+  // 2026-11-21 (T2-4): project feedback rows carry client prose; erase with the project.
+  { table: "brainFeedbackQueue", field: "projectId", disposition: "delete", index: "by_projectId" },
   {
     table: "ingestionItems",
     field: "portedProjectId",
@@ -258,14 +264,25 @@ export const PROJECT_SCOPED_TABLES = [
     // The ported document dies with the project; the port's actor stays as history.
     clearWith: ["portedDocumentId", "portedAt"],
   },
+  // 2026-11-21 (T2-4): QA item feedback carries client prose and loses its project scrubber.
+  { table: "qaItemFeedback", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-11-21 (T2-4): preserve aggregate comparison metrics while redacting raw client draft prose.
+  {
+    table: "comparisons",
+    field: "projectId",
+    disposition: "scrub",
+    index: "by_projectId",
+    scrubFields: {
+      banhallDraftText: "[redacted]",
+      baselineDraftText: "[redacted]",
+    },
+  },
+  // 2026-11-21 (T2-4): revoke and unlearn Brain sources nominated from the deleted project.
+  { table: "brainSources", field: "sourceProjectId", disposition: "revoke", index: "by_sourceProjectId" },
   // Audit and decision rows the product never deletes (ask first to change).
   { table: "writerReviews", field: "projectId", disposition: "keep" },
-  { table: "comparisons", field: "projectId", disposition: "keep" },
   { table: "reviewDecisions", field: "projectId", disposition: "keep" },
-  { table: "qaItemFeedback", field: "projectId", disposition: "keep" },
   { table: "reportEditDistance", field: "projectId", disposition: "keep" },
-  // Brain revoke-and-tombstone on project delete is a separate follow-up.
-  { table: "brainSources", field: "sourceProjectId", disposition: "keep" },
 ] as const satisfies readonly ProjectScopedTable[];
 
 /**

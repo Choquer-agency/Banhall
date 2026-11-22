@@ -133,7 +133,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
-  import { projectCapabilityAllows } from "../../../../shared/capabilities";
+  import { hasCapability, projectCapabilityAllows } from "../../../../shared/capabilities";
   import { setProposalSectionSource } from "$lib/chat/proposalSection";
 
   const auth = useAuth();
@@ -431,7 +431,10 @@
       }
     });
   });
-  const canDeleteThisProject = $derived(canDeleteProject(user, project?.createdBy));
+  const canDeleteThisProject = $derived(
+    canDeleteProject(user, project?.createdBy, false, project?.ownerId)
+  );
+  const canReadFinancial = $derived(hasCapability(user?.role, "financial.read"));
   // Same authority as publishForReview: project.setStage (the current
   // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
@@ -2134,11 +2137,13 @@
   );
 
   const topBarMoreItems = $derived.by((): TopBarMoreItem[] => {
-    const financial: TopBarMoreItem = { id: "financial", label: "Financial", href: `/project/${projectId}/financial` };
+    const financialItems: TopBarMoreItem[] = canReadFinancial
+      ? [{ id: "financial", label: "Financial", href: `/project/${projectId}/financial` }]
+      : [];
     // Reading the interview (H4): the phone bar keeps its More dots with the
     // project tools that need no report; wider screens show none (F2, H3).
     if (showReadingInterview) {
-      return [...(report ? [{ id: "history", label: "History", onSelect: () => (showHistory = true) }] : []), financial];
+      return [...(report ? [{ id: "history", label: "History", onSelect: () => (showHistory = true) }] : []), ...financialItems];
     }
     if (!reportActionsVisible) return [];
     return [
@@ -2166,8 +2171,8 @@
         ? [{ id: "compare", label: "Compare with the one-shot draft", onSelect: () => (ghostCompareOpen = true) }]
         : []),
       { id: "history", label: "History", onSelect: () => (showHistory = true) },
-      financial,
-      // Paper K4 (2026-10-07): only for the project's creator or an admin.
+      ...financialItems,
+      // Paper K4 (2026-10-07): only for the project's owner, creator or an admin.
       ...(canDeleteThisProject
         ? [{ id: "delete", label: "Delete project", onSelect: openDeleteDialog, danger: true }]
         : []),

@@ -694,3 +694,60 @@ export const setWriterWeight = mutation({
     return { weight: args.weight };
   },
 });
+
+/**
+ * 2026-11-21 (T2-4): Admin-only account offboarding. Revokes all active Better
+ * Auth sessions for the user and strips their internal role and auth link so
+ * they immediately lose access while preserving attribution on historical rows.
+ * Refuses self-deactivation and refuses deactivating the last active Admin.
+ */
+export const deactivateUser = mutation({
+  args: { userId: v.id("users") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const caller = await requireRole(ctx, ["admin"]);
+    if (caller._id === args.userId) {
+      domainError("INVALID_INPUT", "You cannot deactivate your own account.");
+    }
+    const target = await ctx.db.get(args.userId);
+    if (!target) domainError("NOT_FOUND", "User not found");
+
+    if (target.role === "admin") {
+      const allUsers = await ctx.db.query("users").take(500);
+      const otherActiveAdmins = allUsers.filter(
+        (u) =>
+          u._id !== target._id &&
+          u.role === "admin" &&
+          u.isAnonymous !== true &&
+          Boolean(u.authId)
+      );
+      if (otherActiveAdmins.length === 0) {
+        domainError(
+          "INVALID_STATE",
+          "Cannot deactivate the last active administrator."
+        );
+      }
+    }
+
+    if (target.authId) {
+      try {
+        const authContext = await createAuth(ctx).$context;
+        await authContext.internalAdapter.deleteUserSessions(target.authId);
+      } catch (error) {
+        // In unit tests without a mounted Better Auth component, continue
+        // stripping role/authId only when the component itself is absent;
+        // surface genuine runtime errors in production.
+        const msg = error instanceof Error ? error.message : String(error);
+        if (!msg.includes("is not registered")) {
+          throw error;
+        }
+      }
+    }
+
+    await ctx.db.patch(target._id, {
+      role: undefined,
+      authId: undefined,
+    });
+    return null;
+  },
+});

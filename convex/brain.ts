@@ -57,7 +57,13 @@ import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
 import { deidentify } from "./lib/deidentify";
-import { companyOtherNames } from "./lib/clients";
+import {
+  activeClientAfterMerges,
+  activeClientForKey,
+  companyIdentityNames,
+  companyOtherNames,
+} from "./lib/clients";
+import { scrubNominatedReportForBrain } from "./lib/importBrainCopy";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import {
   getCurrentUserOrNull,
@@ -533,25 +539,51 @@ export const nominateFromReport = internalMutation({
     if (!project || isEvaluationProject(project)) return;
     const rawContent = extractPlainText(await readReportContent(ctx, report));
     if (!rawContent.trim()) return;
-    // CAP-1: this row becomes firm-wide Brain knowledge, and both its content
-    // and its title reach drafting prompts (the title as the exemplar label).
-    // Scrub client identifiers out of both before they leave the project.
-    const content = deidentify(rawContent, project);
+    // Policy #3 (2026-11-21): apply the same strict company/alias/website/person
+    // scrub and independent leak verification as Import Brain copies before any
+    // report prose enters the shared Brain queue.
+    const rawClient = project.clientId
+      ? await ctx.db.get(project.clientId)
+      : await activeClientForKey(ctx, dashboardCompanyKey(project.clientName));
+    const company = rawClient ? await activeClientAfterMerges(ctx, rawClient) : null;
+    const identity = company
+      ? await companyIdentityNames(ctx, company, project._id)
+      : undefined;
+    const fiscalYear = project.fiscalYearEnd
+      ? new Date(project.fiscalYearEnd).getFullYear()
+      : undefined;
+    const scrubbed = scrubNominatedReportForBrain({
+      rawContent,
+      projectTitle: project.title,
+      formalTitle: project.sredTitle,
+      clientName: project.clientName,
+      writer: project.writer,
+      writerName: args.writerName,
+      interviewer: project.interviewer,
+      interviewees: project.interviewees,
+      company,
+      identity,
+      fiscalYear,
+      score: args.score,
+    });
+    if (!scrubbed.ok) {
+      // Never quote a leaked identifier in logs.
+      console.info(`nominateFromReport refused: ${scrubbed.logReason}`);
+      return;
+    }
     // A match an Admin revoked is left alone (no new nomination).
     await importSource(
       ctx,
       {
         kind: "pd_pair",
-        title: `${deidentify(project.title, project)} (writer-rated ${args.score}/100)`,
+        title: scrubbed.title,
         industry: project.industry ?? "general",
         writerName: args.writerName,
         // Conservative default weight; the admin reweights on approval.
         writerTier: 0.4,
         docType: "pd",
-        fiscalYear: project.fiscalYearEnd
-          ? new Date(project.fiscalYearEnd).getFullYear()
-          : undefined,
-        content,
+        fiscalYear,
+        content: scrubbed.content,
         sourceProjectId: report.projectId,
         // Never auto-approve: the nomination lands in the pending queue.
       },
@@ -1856,6 +1888,38 @@ export async function revokeBrainSourceRow(
     reason: "No RAG entry to erase",
     at: Date.now(),
   });
+}
+
+/**
+ * 2026-11-21 (T2-4): called during project erasure for each `brainSources`
+ * row linked to the deleted project. Revokes and schedules unlearn across all
+ * vector indexes, then redacts stored prose and title. Idempotent on retries.
+ */
+export async function revokeProjectBrainSource(
+  ctx: MutationCtx,
+  source: Doc<"brainSources">
+): Promise<boolean> {
+  if (
+    source.status === "revoked" &&
+    source.content === "[redacted]" &&
+    source.title === "[redacted]"
+  ) {
+    return false;
+  }
+  await revokeBrainSourceRow(
+    ctx,
+    source,
+    "system:project_erasure",
+    "Source project deleted"
+  );
+  const refreshed = await ctx.db.get(source._id);
+  if (refreshed) {
+    await patchBrainSource(ctx, refreshed, {
+      title: "[redacted]",
+      content: "[redacted]",
+    });
+  }
+  return true;
 }
 
 // ─── Old-page copies an Admin decides (final review of #48 to #51, P2-1) ───

@@ -153,6 +153,17 @@ export async function openRouterChatCompletion(
     if (input.signal?.aborted) throw callerAbortError();
     const budget = attemptBudget();
     const timeoutMs = budget.timeoutMs;
+    const existingProvider =
+      input.body.provider && typeof input.body.provider === "object"
+        ? (input.body.provider as Record<string, unknown>)
+        : {};
+    const requestBody = {
+      ...input.body,
+      provider: {
+        ...existingProvider,
+        data_collection: "deny",
+      },
+    };
     try {
       response = await fetch(OPENROUTER_URL, {
         method: "POST",
@@ -163,7 +174,7 @@ export async function openRouterChatCompletion(
           "X-Title": "Banhall",
           ...(input.headers ?? {}),
         },
-        body: JSON.stringify(input.body),
+        body: JSON.stringify(requestBody),
         signal: attemptSignal(timeoutMs, input.signal),
       });
     } catch (error) {

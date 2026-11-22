@@ -343,7 +343,7 @@ test.each(Object.keys(REQUESTS) as RequestName[])(
     const body = JSON.parse(routed.body) as Record<string, unknown>;
     const directBody = JSON.parse(direct.body) as Record<string, unknown>;
     expect(body.model).toBe(OPENROUTER_ANTHROPIC_REQUEST_IDS[directBody.model as string]);
-    expect(body.provider).toEqual({ only: ["anthropic"], allow_fallbacks: false });
+    expect(body.provider).toEqual({ only: ["anthropic"], allow_fallbacks: false, data_collection: "deny" });
     expect(Object.keys(body).at(-1)).toBe("provider");
     delete body.provider;
     body.model = directBody.model;

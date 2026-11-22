@@ -174,7 +174,13 @@ export const createInvites = mutation({
         .query("users")
         .withIndex("by_email", (q) => q.eq("email", email))
         .take(5);
-      if (members.some((member) => member.authId)) {
+      if (
+        members.some(
+          (member) =>
+            member.authId ||
+            (member.role !== undefined && !canManageInvite(viewer.role, member.role))
+        )
+      ) {
         results.push({ email, status: "already_member" as const });
         continue;
       }

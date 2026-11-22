@@ -22,6 +22,7 @@ import {
   NameHistoryTooLongError,
 } from "./lib/clients";
 import { linkKeyProjectsPage } from "./companyFiles";
+import { deleteStorageIfUnreferenced } from "./lib/storage";
 import { contactsInMerge, MERGE_COMPANY_CONTACT_LIMIT, moveContactsInMerge } from "./companyContacts";
 import { validatedIndustry } from "./projects";
 import {
@@ -1910,6 +1911,152 @@ export const backfillClientsStep = internalMutation({
         : { companyKey, projectCursor: page.continueCursor },
       stats
     );
+    return null;
+  },
+});
+
+const DELETE_CLIENT_BATCH = 100;
+
+async function deleteClientLeftoversBatch(
+  ctx: MutationCtx,
+  clientId: Id<"clients">
+): Promise<boolean> {
+  let more = false;
+
+  const contacts = await ctx.db
+    .query("companyContacts")
+    .withIndex("by_clientId", (q) => q.eq("clientId", clientId))
+    .take(DELETE_CLIENT_BATCH + 1);
+  if (contacts.length > DELETE_CLIENT_BATCH) more = true;
+  for (const contact of contacts.slice(0, DELETE_CLIENT_BATCH)) {
+    await ctx.db.delete(contact._id);
+  }
+
+  const events = await ctx.db
+    .query("companyFileEvents")
+    .withIndex("by_clientId_and_at", (q) => q.eq("clientId", clientId))
+    .take(DELETE_CLIENT_BATCH + 1);
+  if (events.length > DELETE_CLIENT_BATCH) more = true;
+  for (const event of events.slice(0, DELETE_CLIENT_BATCH)) {
+    await ctx.db.delete(event._id);
+  }
+
+  const reads = await ctx.db
+    .query("companyWebsiteReads")
+    .withIndex("by_clientId_and_at", (q) => q.eq("clientId", clientId))
+    .take(DELETE_CLIENT_BATCH + 1);
+  if (reads.length > DELETE_CLIENT_BATCH) more = true;
+  for (const read of reads.slice(0, DELETE_CLIENT_BATCH)) {
+    await ctx.db.delete(read._id);
+  }
+
+  const files = await ctx.db
+    .query("companyFiles")
+    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId))
+    .take(DELETE_CLIENT_BATCH + 1);
+  if (files.length > DELETE_CLIENT_BATCH) more = true;
+  for (const file of files.slice(0, DELETE_CLIENT_BATCH)) {
+    await ctx.db.delete(file._id);
+    if (file.storageId) {
+      await deleteStorageIfUnreferenced(ctx, file.storageId);
+    }
+    await ctx.scheduler.runAfter(
+      0,
+      internal.companyFiles.deleteRemovedFileLeftovers,
+      { companyFileId: file._id }
+    );
+  }
+
+  return more;
+}
+
+/**
+ * Paginated continuation for `clients.deleteClient` when a deleted client had
+ * more contacts, file events, website reads, or company files than one
+ * transaction should remove inline.
+ */
+export const cleanupDeletedClientLeftovers = internalMutation({
+  args: { clientId: v.id("clients") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const more = await deleteClientLeftoversBatch(ctx, args.clientId);
+    if (more) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.clients.cleanupDeletedClientLeftovers,
+        { clientId: args.clientId }
+      );
+    }
+    return null;
+  },
+});
+
+/**
+ * 2026-11-21 (T2-4): Admin-only client erasure. Refuses while any project
+ * still references the client (by `clientId` or `dashboardCompanyKey`) or
+ * while a company-file merge transfer is active. Deletes the client row, its
+ * empty dashboard projection row, contacts, file events, website reads, and
+ * company files (plus unreferenced storage blobs and text/search pieces).
+ */
+export const deleteClient = mutation({
+  args: { clientId: v.id("clients") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["admin"]);
+    const client = await ctx.db.get(args.clientId);
+    if (!client) return null;
+
+    if (client.companyFilesMovingTo !== undefined) {
+      domainError(
+        "INVALID_STATE",
+        "Wait for company file transfer to finish before deleting this client."
+      );
+    }
+
+    const linkedProject = await ctx.db
+      .query("projects")
+      .withIndex("by_clientId", (q) => q.eq("clientId", client._id))
+      .first();
+    if (linkedProject) {
+      domainError(
+        "INVALID_STATE",
+        "Delete or reassign all projects for this client before deleting the client."
+      );
+    }
+
+    const keyedProject = await ctx.db
+      .query("projects")
+      .withIndex("by_dashboardCompanyKey", (q) =>
+        q.eq("dashboardCompanyKey", client.nameKey)
+      )
+      .first();
+    if (keyedProject) {
+      domainError(
+        "INVALID_STATE",
+        "Delete or reassign all projects for this client before deleting the client."
+      );
+    }
+
+    const dashboardRow = await dashboardCompanyForKey(ctx, client.nameKey);
+    if (dashboardRow && dashboardRow.projectCount > 0) {
+      domainError(
+        "INVALID_STATE",
+        "This client still has active projects in the dashboard."
+      );
+    }
+
+    const more = await deleteClientLeftoversBatch(ctx, client._id);
+    if (dashboardRow) {
+      await ctx.db.delete(dashboardRow._id);
+    }
+    await ctx.db.delete(client._id);
+    if (more) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.clients.cleanupDeletedClientLeftovers,
+        { clientId: client._id }
+      );
+    }
     return null;
   },
 });

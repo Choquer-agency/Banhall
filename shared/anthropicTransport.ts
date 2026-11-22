@@ -51,6 +51,7 @@ export const OPENROUTER_ANTHROPIC_BASE_URL = "https://openrouter.ai/api";
 export const OPENROUTER_ANTHROPIC_PROVIDER = {
   only: ["anthropic"],
   allow_fallbacks: false,
+  data_collection: "deny",
 } as const;
 
 /**

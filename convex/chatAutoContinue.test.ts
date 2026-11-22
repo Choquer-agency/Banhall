@@ -331,7 +331,10 @@ describe("Stop and newer turns", () => {
     const result = await f.chain(f.promptMessageId);
     if (result.kind !== "linked") throw new Error("expected a link");
     const turn = await f.turnOf(f.promptMessageId);
-    expect(await f.other.mutation(api.chatV2.abortStreaming, { threadId: f.threadId, order: turn.order })).toBe(true);
+    await expect(
+      f.other.mutation(api.chatV2.abortStreaming, { threadId: f.threadId, order: turn.order })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    expect(await f.actor.mutation(api.chatV2.abortStreaming, { threadId: f.threadId, order: turn.order })).toBe(true);
     expect((await f.turnOf(result.promptMessageId)).status).toBe("aborted");
   });
 

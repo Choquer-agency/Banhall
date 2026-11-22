@@ -220,7 +220,7 @@ describe("a direct credit refusal falls back to OpenRouter in the same call", ()
     expect(routed.headers.authorization).toBe(`Bearer ${OPENROUTER_KEY}`);
     expect(routed.headers["x-api-key"]).toBeUndefined();
     expect(JSON.stringify(routed)).not.toContain(ANTHROPIC_KEY);
-    expect(routed.body.provider).toEqual({ only: ["anthropic"], allow_fallbacks: false });
+    expect(routed.body.provider).toEqual({ only: ["anthropic"], allow_fallbacks: false, data_collection: "deny" });
     expect(routed.body.model).toBe("anthropic/claude-sonnet-5");
     expect({ ...routed.body, model: direct.body.model, provider: undefined }).toEqual({ ...direct.body, provider: undefined });
 
@@ -653,7 +653,7 @@ describe("the report chat assistant", () => {
     expect(routed.body).toEqual({
       ...withoutEagerStreaming(direct.body),
       model: "anthropic/claude-sonnet-5",
-      provider: { only: ["anthropic"], allow_fallbacks: false },
+      provider: { only: ["anthropic"], allow_fallbacks: false, data_collection: "deny" },
     });
 
     expect(await usageRows(t)).toMatchObject([

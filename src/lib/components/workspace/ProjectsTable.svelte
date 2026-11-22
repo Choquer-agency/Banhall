@@ -46,8 +46,9 @@
     };
     /** The project is mid-deletion (server-projected); hides Duplicate. */
     deleting?: boolean;
-    /** Who created the project; only they or an admin may delete it. */
+    /** Who created or owns the project; creator, current owner, or admin may delete it. */
     createdBy?: string;
+    ownerId?: string;
   };
 
   export type ProjectsTableColumns = Record<ProjectColumnId, boolean>;

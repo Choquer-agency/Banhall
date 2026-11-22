@@ -53,6 +53,9 @@ function projectScrubber(ctx: QueryCtx) {
       projects.set(projectId, await ctx.db.get(projectId));
     }
     const project = projectId ? (projects.get(projectId) ?? null) : null;
+    if (projectId && (!project || project.deletionStartedAt !== undefined)) {
+      return null;
+    }
     if (isEvaluationProject(project)) return null;
     return (text: string, limit: number) =>
       deidentify(text, project).slice(0, limit);

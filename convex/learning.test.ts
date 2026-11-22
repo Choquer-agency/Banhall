@@ -417,7 +417,7 @@ describe("proposal wording edits leave their project de-identified", () => {
     );
   });
 
-  test("a row whose project is gone still gets contact scrubbing", async () => {
+  test("a row whose project is gone is skipped so unscrubbed client names never enter a digest (T2-4)", async () => {
     const t = convexTest(schema, modules);
     await seedEdit(t, { withProject: false });
 
@@ -426,20 +426,7 @@ describe("proposal wording edits leave their project de-identified", () => {
       { limit: 10 },
     );
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0].payload.originalText).toContain(
-      "[redacted email].\n613\n555\n0134",
-    );
-    expect(rows[0].payload.editedText).toContain(
-      "[redacted phone].\n613\n555\n0134",
-    );
-    const combined = `${rows[0].payload.originalText} ${rows[0].payload.editedText}`;
-    expect(combined).not.toContain("jo@acme.ca");
-    expect(combined).not.toContain("555-0134");
-    expect(combined).toContain("[redacted email]");
-    expect(combined).toContain("[redacted phone]");
-    // No project record means no name pass — that is the accepted trade.
-    expect(combined).toContain("Acme Farms");
+    expect(rows).toEqual([]);
   });
 });
 

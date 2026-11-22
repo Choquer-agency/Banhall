@@ -2138,3 +2138,86 @@ describe("fiscal year end and industry fall back to the newest project's (2026-1
     });
   });
 });
+
+describe("deleteClient (T2-4)", () => {
+  it("is admin-only, refuses while any project remains, and removes client, contacts, and files when empty", async () => {
+    const s = await setup();
+    const clientId = await insertClient(s, "Delete Me Co");
+    await insertCompany(s, "Delete Me Co", 1);
+    const projectId = await insertProject(s, {
+      clientName: "Delete Me Co",
+      clientId,
+    });
+    const storageId = await s.t.run(async (ctx) => {
+      const blob = await ctx.storage.store(new Blob(["company file bytes"]));
+      await ctx.db.insert("companyContacts", {
+        clientId,
+        firstName: "Pat",
+        lastName: "Lee",
+        role: "CTO",
+        email: "pat@deleteme.ca",
+        isMain: true,
+        createdBy: s.adminId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.insert("companyFiles", {
+        clientId,
+        fileName: "deck.txt",
+        fileType: "txt",
+        textLength: 0,
+        hasText: false,
+        textHash: "empty",
+        textPreview: "",
+        wordCount: 0,
+        processingStatus: "ready",
+        storageId: blob,
+        uploadedBy: s.adminId,
+        createdAt: 1,
+      });
+      return blob;
+    });
+
+    await expect(
+      s.manager.mutation(api.clients.deleteClient, { clientId })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+
+    await expect(
+      s.admin.mutation(api.clients.deleteClient, { clientId })
+    ).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+
+    // Remove the blocking project and zero the dashboard count.
+    await s.t.run(async (ctx) => {
+      await ctx.db.delete(projectId);
+      const row = await ctx.db
+        .query("dashboardCompanies")
+        .withIndex("by_companyKey", (q) => q.eq("companyKey", "delete me co"))
+        .unique();
+      if (row) await ctx.db.patch(row._id, { projectCount: 0 });
+    });
+
+    await s.admin.mutation(api.clients.deleteClient, { clientId });
+
+    const remaining = await s.t.run(async (ctx) => ({
+      client: await ctx.db.get(clientId),
+      dashboard: await ctx.db
+        .query("dashboardCompanies")
+        .withIndex("by_companyKey", (q) => q.eq("companyKey", "delete me co"))
+        .unique(),
+      contacts: await ctx.db
+        .query("companyContacts")
+        .withIndex("by_clientId", (q) => q.eq("clientId", clientId))
+        .collect(),
+      files: await ctx.db
+        .query("companyFiles")
+        .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId))
+        .collect(),
+      blob: await ctx.storage.get(storageId),
+    }));
+    expect(remaining.client).toBeNull();
+    expect(remaining.dashboard).toBeNull();
+    expect(remaining.contacts).toEqual([]);
+    expect(remaining.files).toEqual([]);
+    expect(remaining.blob).toBeNull();
+  });
+});

@@ -170,6 +170,12 @@ describe("project-scoped table registry", () => {
         expect(entry.disposition, `${entry.table}: only detach entries clear siblings`).toBe("detach");
         expect(topLevelFields(entry.table), `${entry.table}.${sibling} is not a schema field`).toContain(sibling);
       }
+      if (entry.scrubFields) {
+        expect(entry.disposition, `${entry.table}: only scrub entries declare scrubFields`).toBe("scrub");
+        for (const field of Object.keys(entry.scrubFields)) {
+          expect(topLevelFields(entry.table), `${entry.table}.${field} is not a schema field`).toContain(field);
+        }
+      }
       if (entry.blob) {
         const json = tables[entry.table].validator.json as {
           value: Record<string, { fieldType: { type: string; tableName?: string } }>;
@@ -660,6 +666,8 @@ const blobStored = (s: Setup, storageId: Id<"_storage">) =>
 const indexedEntries = registry.filter((e) => e.disposition !== "keep");
 const keepEntries = registry.filter((e) => e.disposition === "keep");
 const detachEntries = registry.filter((e) => e.disposition === "detach");
+const scrubEntries = registry.filter((e) => e.disposition === "scrub");
+const revokeEntries = registry.filter((e) => e.disposition === "revoke");
 const deleteEntries = registry.filter((e) => e.disposition === "delete");
 const entryIndexOf = (table: string) => PROJECT_SCOPED_TABLES.findIndex((e) => e.table === table);
 
@@ -667,16 +675,16 @@ describe("deleteProject erasure", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("purges delete rows and blobs, clears detach fields, keeps keep rows, deletes the project last", async () => {
+  it("purges delete rows and blobs, clears detach fields, scrubs/revokes prose rows, keeps keep rows, deletes the project last", async () => {
     const s = await setup();
     const seeded = await seedProjectRows(s, s.projectId);
     const retained = await seedProjectRows(s, s.retainedProjectId);
     // The fixture reaches EVERY registry entry: a row referencing the project
-    // exists through each delete/detach index, and each keep row by id.
+    // exists through each indexed disposition, and each non-delete row by id.
     for (const entry of indexedEntries) {
       expect((await rowsReferencing(s, entry, s.projectId)).length, `${refKey(entry)} not seeded`).toBeGreaterThan(0);
     }
-    for (const entry of [...keepEntries, ...detachEntries]) {
+    for (const entry of [...keepEntries, ...detachEntries, ...scrubEntries, ...revokeEntries]) {
       expect(seeded.byRef[refKey(entry)], `${refKey(entry)} row id not recorded`).toBeDefined();
     }
 
@@ -744,6 +752,30 @@ describe("deleteProject erasure", () => {
     expect(port).toMatchObject({ portedBy: "porter", status: "approved" });
     expect(port!.portedDocumentId).toBeUndefined();
     expect(port!.portedAt).toBeUndefined();
+    // Scrub: aggregate row survives, raw prose fields are redacted.
+    for (const entry of scrubEntries) {
+      const row = await rowById(s, seeded.byRef[refKey(entry)]);
+      expect(row, `${refKey(entry)} row was deleted`).not.toBeNull();
+      for (const [field, replacement] of Object.entries(entry.scrubFields ?? {})) {
+        expect(row![field], `${entry.table}.${field} not scrubbed`).toBe(replacement);
+      }
+      const retainedRow = await rowById(s, retained.byRef[refKey(entry)]);
+      expect(retainedRow).not.toBeNull();
+      for (const [field, replacement] of Object.entries(entry.scrubFields ?? {})) {
+        expect(retainedRow![field], `${entry.table}.${field} scrubbed on retained project`).not.toBe(replacement);
+      }
+    }
+    // Revoke: Brain sources from the deleted project are revoked and redacted.
+    for (const entry of revokeEntries) {
+      const row = await rowById(s, seeded.byRef[refKey(entry)]);
+      expect(row, `${refKey(entry)} row was deleted`).not.toBeNull();
+      expect(row!.status).toBe("revoked");
+      expect(row!.title).toBe("[redacted]");
+      expect(row!.content).toBe("[redacted]");
+      const retainedRow = await rowById(s, retained.byRef[refKey(entry)]);
+      expect(retainedRow?.status).toBe("approved");
+      expect(retainedRow?.title).toBe("t");
+    }
     // Keep: every row still points at the deleted project.
     for (const entry of keepEntries) {
       const row = await rowById(s, seeded.byRef[refKey(entry)]);

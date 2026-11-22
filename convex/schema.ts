@@ -3996,7 +3996,8 @@ export default defineSchema({
     .index("by_industry", ["industry"])
     .index("by_scienceCode", ["scienceCode"])
     .index("by_importItemId", ["importItemId"])
-    .index("by_importContentHash", ["importContentHash"]),
+    .index("by_importContentHash", ["importContentHash"])
+    .index("by_sourceProjectId", ["sourceProjectId"]),
 
   // 2026-11-17 (Brain reads at volume): every import file linked to a
   // source, by its `ingestionItems.contentHash`, whether it matched by bytes

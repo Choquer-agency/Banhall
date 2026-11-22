@@ -18,6 +18,7 @@ import {
   type PMNode,
 } from "./lib/reportEdits";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
+import { limitProjectAction } from "./lib/aiRateLimits";
 
 const COMMENTER_COLORS = [
   "#818CF8",
@@ -109,6 +110,7 @@ export const addComment = mutation({
       if (!commenter || commenter.projectId !== args.projectId) {
         domainError("NOT_AUTHORIZED", "Reviewer identity does not belong to this project");
       }
+      await limitProjectAction(ctx, "clientCommentPerProject", args.projectId);
       commenterType = "client";
       commenterId = commenter._id;
     }
@@ -269,6 +271,9 @@ export const getOrCreateCommenter = mutation({
     const found = existing.find(
       (commenter) => commenter.name.toLowerCase() === name.toLowerCase()
     );
+    if (!found) {
+      await limitProjectAction(ctx, "clientCommenterPerProject", args.projectId);
+    }
     const commenter = found
       ? found
       : await ctx.db.get(

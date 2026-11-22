@@ -24,6 +24,7 @@ import {
   preferenceTextKey,
 } from "../lib/preferenceCheck";
 import { domainError } from "../lib/contracts";
+import { limitUserAction } from "../lib/aiRateLimits";
 import type { RunSignal } from "../writerMemory";
 
 const WITHDRAWN_MESSAGE = "The work this suggestion came from was removed, so it was withdrawn.";
@@ -197,6 +198,7 @@ export const saveText = action({
     if (context.withdrawn) domainError("INVALID_STATE", WITHDRAWN_MESSAGE);
     const check = checkPreferenceText(text, context);
     if (!check.ok) domainError("INVALID_INPUT", PREFERENCE_REFUSAL_WORDS[check.reason]);
+    await limitUserAction(ctx, "writerMemorySavePerUser", userId);
     const styleOnly = await styleOnlyTexts(ctx, [text], "writer-memory:check");
     if (!styleOnly.has(0)) {
       domainError("INVALID_INPUT", "This reads as a fact about the work, not a way of writing. Describe how you like to write instead.");

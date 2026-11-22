@@ -108,7 +108,7 @@ describe("openRouterAnthropicBody", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "x", cache_control: { type: "ephemeral", ttl: "1h" } }] }],
     };
     const wire = openRouterAnthropicBody(body);
-    expect(wire).toEqual({ ...body, model: "anthropic/claude-sonnet-5", provider: { only: ["anthropic"], allow_fallbacks: false } });
+    expect(wire).toEqual({ ...body, model: "anthropic/claude-sonnet-5", provider: { only: ["anthropic"], allow_fallbacks: false, data_collection: "deny" } });
     // The model keeps its position; the pin is the only new key, last.
     expect(Object.keys(wire!)).toEqual([...Object.keys(body), "provider"]);
     expect(body.model).toBe("claude-sonnet-5");
@@ -120,7 +120,7 @@ describe("openRouterAnthropicBody", () => {
   });
 
   it("pins first-party Anthropic with fallbacks off and never asks for ZDR routing", () => {
-    expect(OPENROUTER_ANTHROPIC_PROVIDER).toEqual({ only: ["anthropic"], allow_fallbacks: false });
+    expect(OPENROUTER_ANTHROPIC_PROVIDER).toEqual({ only: ["anthropic"], allow_fallbacks: false, data_collection: "deny" });
     expect(OPENROUTER_ANTHROPIC_PROVIDER).not.toHaveProperty("zdr");
     expect(OPENROUTER_ANTHROPIC_PROVIDER).not.toHaveProperty("order");
   });

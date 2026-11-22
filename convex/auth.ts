@@ -106,7 +106,9 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
             authId: authUser._id,
             firstName,
             lastName,
-            role: existing.role ?? invite.role,
+            // Always take the accepted invite's role; never resurrect a dormant
+            // higher role left on a pre-created or deactivated user row.
+            role: invite.role,
             ...(existing.initials === undefined && initials ? { initials } : {}),
           });
           userId = existing._id;
