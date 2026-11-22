@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,9 +24,9 @@ jobs:
       PUBLIC_CONVEX_URL: https://placeholder.convex.cloud
       PUBLIC_CONVEX_SITE_URL: https://placeholder.convex.site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -43,9 +46,9 @@ jobs:
       PUBLIC_CONVEX_URL: https://placeholder.convex.cloud
       PUBLIC_CONVEX_SITE_URL: https://placeholder.convex.site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm

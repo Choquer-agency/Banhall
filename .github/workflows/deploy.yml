@@ -12,6 +12,9 @@ on:
           - staging
           - production
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
@@ -21,9 +24,12 @@ jobs:
     name: Verification gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      PUBLIC_CONVEX_URL: https://placeholder.convex.cloud
+      PUBLIC_CONVEX_SITE_URL: https://placeholder.convex.site
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -32,15 +38,35 @@ jobs:
       - name: Run loop-verify gate
         run: bash scripts/loop-verify.sh
 
+  component:
+    name: Component suite (browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUBLIC_CONVEX_URL: https://placeholder.convex.cloud
+      PUBLIC_CONVEX_SITE_URL: https://placeholder.convex.site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Component tests (vitest browser)
+        run: npm run test:component
+
   deploy-convex:
     name: Deploy Convex (${{ inputs.environment }})
-    needs: verify
+    needs: [verify, component]
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -63,8 +89,8 @@ jobs:
     environment: ${{ inputs.environment }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
