@@ -348,8 +348,8 @@ describe("tracks and the picker", () => {
     expect(await resolved()).toEqual(expected);
     const rows = await t.run((ctx) => ctx.db.query("modelRoleAssignments").collect());
     expect(rows.find((item) => item.role === "analysis")).toMatchObject({
-      track: "claude-sonnet",
-      modelId: "claude-sonnet-5-5",
+      track: "claude-haiku",
+      modelId: "claude-haiku-5-5",
       previousModelId: "xiaomi/mimo-v2.6-pro",
     });
   });
@@ -394,7 +394,7 @@ describe("reservation and frozen generations", () => {
       writing: "claude-sonnet-5-5",
       condense: "claude-sonnet-5-5",
       retrieval_brief: "claude-haiku-5-5",
-      analysis: "claude-sonnet-5-5",
+      analysis: "claude-haiku-5-5",
       planning: "claude-sonnet-5-5",
       checking: "claude-sonnet-5-5",
     });
@@ -558,7 +558,7 @@ describe("reservation and frozen generations", () => {
       writing: "claude-sonnet-5",
       condense: "claude-sonnet-5",
       retrieval_brief: "claude-haiku-5-5",
-      analysis: "claude-sonnet-5",
+      analysis: "claude-haiku-5-5",
       planning: "claude-sonnet-5",
       checking: "claude-sonnet-5",
     });
@@ -576,7 +576,7 @@ describe("reservation and frozen generations", () => {
         fromModelId: "claude-sonnet-5-5",
         toModelId: "claude-sonnet-5",
         at: expect.any(Number),
-        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        roles: ["writing", "planning", "checking", "condense"],
         writer: true,
       },
     ]);
@@ -667,7 +667,7 @@ describe("reservation and frozen generations", () => {
         fromModelId: "claude-sonnet-5-5",
         toModelId: "claude-sonnet-5",
         at: expect.any(Number),
-        roles: ["planning", "checking", "condense", "analysis"],
+        roles: ["planning", "checking", "condense"],
       },
     ]);
     // A later writer-started step moves the writer model too, once.
@@ -1254,8 +1254,11 @@ describe("prompt versions", () => {
     // Re-read after 2026-11-21: science_code moved from Sonnet to Haiku with
     // a strict enum tool; before it they were sha256:f413fe0b... and
     // sha256:114d6015....
-    expect(await hashPromptProgram()).toBe("sha256:c70a8350524b58faf49be1e242ac4c5a87ff8171b754d45e2448e95361a7f145");
-    expect(await legacyPromptVersion()).toBe("sha256:773d1517e8c812922d1ff323d00ca179f9a3a7f2f868db3bb6f13ec9312ec141");
+    // Re-read after 2026-11-21 (PR 4): analysis role moved to Haiku,
+    // generation step policy adds per-step effort, and chat defaults updated;
+    // before it they were sha256:c70a8350... and sha256:773d1517....
+    expect(await hashPromptProgram()).toBe("sha256:ba4c91c264df1ad84c118aa38053e72824f41e4dc836f2494da407b5aa5c8be9");
+    expect(await legacyPromptVersion()).toBe("sha256:650ea0c22599d997d4abe52718cb3aef6fd7b34a8d6331356afaff3b4f6ecb84");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

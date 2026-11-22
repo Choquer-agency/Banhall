@@ -933,10 +933,10 @@ describe("the step table and its resolver (owner decision 43)", () => {
       brief: ["planning", SONNET, {}],
       seeds: ["planning", SONNET, {}],
       seedFeedback: ["planning", SONNET, {}],
-      section: ["writer", OPUS, {}],
-      repair: ["writer", OPUS, {}],
+      section: ["writer", OPUS, { output_config: { effort: "medium" } }],
+      repair: ["writer", OPUS, { output_config: { effort: "medium" } }],
       // a1 finding 2: compression no longer thinks.
-      compression: ["writer", OPUS, { thinking: { type: "disabled" } }],
+      compression: ["writer", OPUS, { output_config: { effort: "low" }, thinking: { type: "disabled" } }],
       selfCheck: ["checking", HAIKU, {}],
       consistency: ["checking", HAIKU, {}],
       qa: ["checking", HAIKU, {}],
@@ -946,17 +946,22 @@ describe("the step table and its resolver (owner decision 43)", () => {
     } satisfies Record<GenerationStep, unknown>);
   });
 
-  it("asks an always-thinking helper model for low effort, the way the unforced path does, and nothing else of any other model", () => {
+  it("asks an always-thinking model for each step's effort, keeps thinking off on helper and compression steps, and leaves non-always-thinking models alone", () => {
     const opusEntry = { id: OPUS, label: "Opus 5.5", provider: "Anthropic", gateway: "anthropic" as const, reasoning: false, forcedToolChoice: false };
     const opusHelpers = freeze({ planning: OPUS, checking: OPUS }, [opusEntry]);
     for (const step of GENERATION_STEPS) {
       const route = resolveGenerationStep({ freeze: opusHelpers, step, writerModel: SONNET });
-      const off = GENERATION_STEP_POLICY[step].source !== "writer" || step === "compression";
-      expect([step, route.request], step).toEqual([step, off ? { thinking: { type: "disabled" } } : {}]);
+      const off = GENERATION_STEP_POLICY[step].thinking === "off";
+      const expected = route.model === OPUS
+        ? { output_config: { effort: GENERATION_STEP_POLICY[step].effort }, ...(off ? { thinking: { type: "disabled" } } : {}) }
+        : off
+          ? { thinking: { type: "disabled" } }
+          : {};
+      expect([step, route.request], step).toEqual([step, expected]);
     }
     // The same model id, known only from its seed entry, is recognised too.
     expect(resolveGenerationStep({ freeze: freeze({ planning: OPUS }), step: "brief", writerModel: SONNET }).request).toEqual({
-      thinking: { type: "disabled" },
+      output_config: { effort: "medium" },
     });
     // Sonnet 5 and Haiku 4.5 helpers keep their request exactly.
     expect(resolveGenerationStep({ freeze: freeze({ checking: HAIKU }), step: "qa", writerModel: OPUS }).request).toEqual({});
@@ -1112,8 +1117,22 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       expect(now.submit_retrieval_brief.models).toEqual([HAIKU]);
       if (mode === "single") {
         expectBackgroundChecks(now, "single");
-        expect(now.section).toEqual(before.section);
-        expect(now.repair).toEqual(before.repair);
+        // Opus 5.5 section and repair now explicitly request medium effort
+        // instead of falling back to low effort when thinking: disabled is stripped.
+        const opusSectionAndRepair = wire.sent.filter(
+          (item) => (stageOf(item.json) === "section" || stageOf(item.json) === "repair") && item.json.model === OPUS
+        );
+        expect(opusSectionAndRepair.length).toBeGreaterThan(0);
+        for (const request of opusSectionAndRepair) {
+          expect(request.json.output_config).toEqual({ effort: "medium" });
+          expect(request.json.thinking).toBeUndefined();
+        }
+        const pinnedEffort = await stagesOf(opusSectionAndRepair, (json) => ({
+          ...asPinned(json),
+          output_config: { effort: "low" },
+        }));
+        expect(pinnedEffort.section).toEqual(before.section);
+        expect(pinnedEffort.repair).toEqual(before.repair);
         // 2026-10-29 (third, item 4): QA reads the frozen source evidence
         // before the analysis; the pins above compare the rest of it.
         const qa = wire.sent.filter((item) => stageOf(item.json) === "submit_qa_scorecard");
@@ -1161,7 +1180,25 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       const { wire } = await run(scenario, "beforeStepRouting");
       expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
       expectStrictTools(wire.sent, [OPUS]);
-      const stages = await stagesOf(beforeFinalTextChecks(wire.sent), asPinned);
+      // For cached-prefix seed calls on always-thinking models, toolOnlyReplyLine
+      // now sits on the uncached user message tail instead of mutating system
+      // (preserving the 1h prompt cache prefix across tool names).
+      const restoreSeedReplyLine = (json: Record<string, unknown>): Record<string, unknown> => {
+        const base = asPinned(json);
+        if (stageOf(json) !== "submit_seed_batch" || json.model !== OPUS) return base;
+        const messages = base.messages as Array<{ role: string; content: unknown }> | undefined;
+        const first = messages?.[0];
+        if (!first || !Array.isArray(first.content) || first.content.length < 2) return base;
+        const tail = first.content.at(-1) as { type?: string; text?: string } | undefined;
+        if (!tail?.text?.startsWith("Reply only by calling ")) return base;
+        expect(String(base.system)).not.toContain("Reply only by calling ");
+        return {
+          ...base,
+          system: `${String(base.system)}\n\n${tail.text}`,
+          messages: [{ ...first, content: first.content.slice(0, -1) }, ...messages.slice(1)],
+        };
+      };
+      const stages = await stagesOf(beforeFinalTextChecks(wire.sent), restoreSeedReplyLine);
       expect(beforeBackgroundQa(stages)).toEqual(beforeBackgroundQa(PINNED_771AF202[scenario]));
       if (scenario.startsWith("single:")) expectBackgroundChecks(stages, "single");
       if (scenario.startsWith("compare:")) expectBackgroundChecks(stages, "compare");
@@ -1169,7 +1206,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     }
   );
 
-  it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
+  it("an always-thinking planning or checking model an admin assigned runs at medium effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
     const now = await stagesOf(wire.sent, (json) =>
       withoutOneUncertaintyJson(
@@ -1181,7 +1218,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);
     }
     for (const request of wire.sent.filter((item) => [...PLANNING_STAGES, ...CHECKING_STAGES].includes(stageOf(item.json)))) {
-      expect(request.json.output_config).toEqual({ effort: "low" });
+      expect(request.json.output_config).toEqual({ effort: "medium" });
       expect(request.json.thinking).toBeUndefined();
       expect(request.json.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     }

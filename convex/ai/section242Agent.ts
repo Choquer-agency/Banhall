@@ -46,7 +46,8 @@ export async function runSection242Agent(
   // 2026-10-30 (owner, item 2): the project record's company name, for the claimant line.
   claimantName?: string,
   // 2026-11-02 (proposed): the public background block ("" when none).
-  webBackground: string = ""
+  webBackground: string = "",
+  onCacheWarm?: () => void
 ): Promise<string> {
   const request = buildSectionDraftRequest({
     instructions: buildSection242Instructions(styleOverrides),
@@ -60,13 +61,28 @@ export async function runSection242Agent(
     briefBlock,
     ...(webBackground ? { webBackground } : {}),
   });
-  const response = await client.messages.create({
+  const params = {
     model,
     max_tokens: sectionAnswerTokenBudget(model),
     thinking: SECTION_242_REQUEST.thinking,
     system: request.system,
     messages: request.messages,
-  });
+  };
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    onCacheWarm?.();
+  };
+  let response;
+  try {
+    response =
+      onCacheWarm && client.messages.createStreaming
+        ? await client.messages.createStreaming(params, { onFirstEvent: release })
+        : await client.messages.create(params);
+  } finally {
+    release();
+  }
 
   return requireTextResponse(response, "Section 242 agent");
 }

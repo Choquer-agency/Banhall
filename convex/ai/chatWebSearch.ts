@@ -38,8 +38,8 @@ import { CONTEXT_SCAFFOLDS, neutralizeMarkers, neutralizeWriterLabel } from "./t
 
 // ─── Limits and cost ─────────────────────────────────────────────────────────
 
-/** The model research's "gpt" provider uses, with OpenRouter's native search. */
-export const CHAT_WEB_SEARCH_MODEL = RESEARCH_MODELS.gpt;
+/** Fast OpenRouter search model (GPT-6 Luna) for chat web search and draft background lookups. */
+export const CHAT_WEB_SEARCH_MODEL = "openai/gpt-6-luna";
 /** The aiUsage call site of every chat web search. */
 export const CHAT_WEB_SEARCH_CALL_SITE = "chat_web_search";
 /** The longest query the model may write. */

@@ -761,13 +761,11 @@ export const CHAT_THINKING = {
 };
 
 /**
- * Owner, 2026-10-21: edits must be thorough and realistic, so every chat step
- * thinks at xhigh, one level above the model default (high on Sonnet 5; an
- * unset effort would be only medium on Opus 5.5). xhigh is the level Anthropic
- * recommends for multistep tool work. The step after a long list result and
- * the recovery pass keep their own, lower levels (below).
+ * Chat turns default to high effort, keeping multistep tool work thorough
+ * without spending xhigh thinking tokens on every routine message. The step
+ * after a long list result and the recovery pass keep their own lower levels.
  */
-export const CHAT_EFFORT = "xhigh" as const;
+export const CHAT_EFFORT = "high" as const;
 
 /**
  * Anthropic options for every chat step: thinking as above, plus automatic
@@ -782,12 +780,9 @@ export const CHAT_PROVIDER_OPTIONS = {
 /**
  * Per-step ceiling shared by thinking, tool-call JSON, and answer text. Without
  * it the request inherits the model's 128K output ceiling, which is not a sane
- * worst case for one turn in a chat rail. Sonnet 5 defaults to high effort and
- * adaptive thinking can eat a tight budget, truncating the reply with
- * finishReason "length" — so this leaves real headroom for a dense report edit
- * rather than trimming to the smallest plausible number. 2026-10-21: 32768,
- * up from 16384, so steps at xhigh (CHAT_EFFORT) can think deeply and still
- * reach their tool call or answer.
+ * worst case for one turn in a chat rail. Adaptive thinking can eat a tight
+ * budget and truncate the reply with finishReason "length", so 32768 leaves
+ * real headroom for a dense report edit rather than trimming too closely.
  */
 export const CHAT_MAX_OUTPUT_TOKENS = 32768;
 
@@ -811,8 +806,8 @@ export const CHAT_RECOVERY_MAX_STEPS = 5;
  * limit: the closing note and a `step_limit` Continue offer. Review R1 P2-1:
  * 150 seconds, because a step that thinks to the output limit took 140 to
  * 168 seconds. 2026-10-21: 300 seconds, since the limit doubled to 32768
- * tokens and steps think at xhigh. The low-effort recovery pass keeps its
- * own 150 seconds (CHAT_RECOVERY_MIN_REMAINING_MS): it plans briefly.
+ * tokens. The low-effort recovery pass keeps its own 150 seconds
+ * (CHAT_RECOVERY_MIN_REMAINING_MS): it plans briefly.
  */
 export const CHAT_MIN_STEP_REMAINING_MS = 300_000;
 
@@ -900,18 +895,11 @@ export const CHAT_STEP_LIMIT_REPLY_OTHER =
   "I stopped at the step limit for one reply. The rest can continue from here.";
 
 /**
- * 2026-10-19 (the 2026-10-07 deviation chat failure). In all four failed "address
- * each deviation" turns (PD08 on 09-29, PD13 c on 10-07) the step after a long
- * deviationInventory result spent the whole output limit thinking: no tool
- * call and no text, so the 10-01 cut-off rules above (which need a cut tool
- * call) never fired and the writer read a generic "Try again". A step that
- * follows a list result now thinks at medium effort, and a step that still
- * thinks to the limit gets one recovery pass (see `streamChatReply`).
- * 2026-10-21 (owner: edits thorough and realistic): high, up from medium,
- * one level under the other steps' xhigh, with the output limit doubled to
- * 32768 so the deeper planning has room to reach its tool call.
+ * A step that follows a long list tool result (deviationInventory or
+ * compareReferencePd) runs one effort tier below CHAT_EFFORT so it reaches
+ * its tool call instead of exhausting the output limit thinking.
  */
-export const CHAT_LIST_STEP_EFFORT = "high" as const;
+export const CHAT_LIST_STEP_EFFORT = "medium" as const;
 
 /** The read-only tools whose long result the next step has to plan over. */
 const LIST_TOOLS: ReadonlySet<string> = new Set(["deviationInventory", "compareReferencePd"]);

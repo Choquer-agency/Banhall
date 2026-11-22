@@ -94,7 +94,7 @@ const STYLE_CHECK_SCHEMA: Anthropic.Tool.InputSchema = {
 /** The model's style-only check: the indexes of the texts that are only about how to write. */
 async function styleOnlyTexts(ctx: ActionCtx, texts: readonly string[], callSite: string): Promise<Set<number>> {
   if (texts.length === 0) return new Set();
-  const { client, model } = await clientForRole(ctx, "learning_digest", { callSite });
+  const { client, model } = await clientForRole(ctx, "analysis", { callSite });
   const answer = await generateStructured<{ verdicts: Array<{ index: number; styleOnly: boolean }> }>(client, {
     model,
     system: STYLE_CHECK_SYSTEM_PROMPT,

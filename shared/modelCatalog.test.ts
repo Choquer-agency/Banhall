@@ -560,10 +560,11 @@ const liveRow = (id: string) => {
 };
 
 describe("roles follow tracks", () => {
-  test("every Sonnet role follows claude-sonnet and the six Haiku roles follow claude-haiku", () => {
+  test("every Sonnet role follows claude-sonnet and the seven Haiku roles follow claude-haiku", () => {
     const haikuRoles = MODEL_ROLES.filter((role) => ROLE_POLICIES[role].track === "claude-haiku").sort();
-    // file_labels: 2026-10-26, Phase B4. science_code: 2026-11-21 (Haiku + strict enum tool).
+    // file_labels: 2026-10-26, Phase B4. science_code & analysis: 2026-11-21 (Haiku).
     expect(haikuRoles).toEqual([
+      "analysis",
       "brain_context",
       "feedback_summary",
       "file_labels",

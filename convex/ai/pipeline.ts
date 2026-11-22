@@ -1346,10 +1346,43 @@ export async function runPipelineForModel(
     qaCalibrationDigestId && qaCalibration?.trim()
       ? [qaCalibrationDigestId]
       : undefined;
+  // Stagger Lines 244 and 246 until Line 242 begins streaming (or finishes /
+  // hits a short fallback timeout) so they read Line 242's warm prompt cache
+  // instead of racing three cold cache writes in parallel.
+  let releaseWarm!: () => void;
+  let warmTimer: ReturnType<typeof setTimeout> | undefined;
+  const cacheWarm = new Promise<void>((resolve) => {
+    let done = false;
+    releaseWarm = () => {
+      if (done) return;
+      done = true;
+      if (warmTimer !== undefined) clearTimeout(warmTimer);
+      resolve();
+    };
+    warmTimer = setTimeout(releaseWarm, 15_000);
+  });
+  const section242Promise = runSection242Agent(
+    anthropicFor("generation:section:242", styleDigestIds),
+    analysis,
+    modelId,
+    brainExemplars.s242,
+    lengthBudgetBlock("s242", lengthTarget),
+    styleGuidance,
+    styleOverrides,
+    briefBlock,
+    "",
+    claimantName,
+    "",
+    releaseWarm
+  );
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
-    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
-    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
+    section242Promise,
+    cacheWarm.then(() =>
+      runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName)
+    ),
+    cacheWarm.then(() =>
+      runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName)
+    ),
   ]);
   // PSOS-49: a bannedWords waiver exempts this writer from the mechanical scrub.
   let section242 = scrubBannedWordsUnlessWaived(raw242, styleOverrides.bannedWords);
