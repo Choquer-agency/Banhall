@@ -179,6 +179,25 @@ function fillHeaderField(xml: string, label: string, value: string): string {
   return xml.slice(0, paragraphEnd) + run + xml.slice(paragraphEnd);
 }
 
+export function formatExportProjectNumber(projectNumber?: string | null): string {
+  const trimmed = projectNumber?.trim();
+  if (!trimmed) return "01";
+  if (/^\d+$/.test(trimmed)) return trimmed.padStart(2, "0");
+  return trimmed;
+}
+
+function fillProjectNumber(xml: string, projectNumber?: string): string {
+  const marker = "<w:t>Project: 01</w:t>";
+  const index = xml.indexOf(marker);
+  if (index < 0) throw new Error('Template header field "Project: 01" was not found');
+  const formatted = formatExportProjectNumber(projectNumber);
+  return (
+    xml.slice(0, index) +
+    `<w:t>Project: ${escapeXml(formatted)}</w:t>` +
+    xml.slice(index + marker.length)
+  );
+}
+
 function fillScienceCode(xml: string, value: CraScienceCode): string {
   const lineIndex = xml.indexOf("<w:t>206</w:t>");
   if (lineIndex < 0) throw new Error("Template line 206 marker was not found");
@@ -224,15 +243,14 @@ export async function exportToTemplateDocx(
   xml = fillTitleBox(xml, report.title);
   // Each label is already followed by a space in the template.
   xml = fillHeaderField(xml, "Name of Claimant:", report.clientName);
+  xml = fillProjectNumber(xml, report.projectNumber);
   if (!report.fiscalYearEnd) throw new Error("Taxation year end is required");
   const taxationYear = new Date(report.fiscalYearEnd);
   if (Number.isNaN(taxationYear.getTime())) {
     throw new Error("Taxation year end is invalid");
   }
-  // The year end is a calendar day stored as a timestamp: midnight UTC from
-  // the Projects page and the importer, local midnight from the project
-  // page. Reading it in UTC gives the chosen day for both anywhere in the
-  // Americas; the browser's own zone printed a UTC midnight a day early.
+  // The year end is a calendar day stored as a UTC midnight timestamp; read
+  // in UTC so the chosen day prints identically in every browser time zone.
   xml = fillHeaderField(
     xml,
     "Taxation Year Ending",

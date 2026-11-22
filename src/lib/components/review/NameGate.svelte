@@ -48,7 +48,7 @@
         {projectTitle}
       </h2>
       <p class="mt-1 text-sm text-gray-500">
-        {clientName} has shared this report for your review.
+        Banhall has shared this SR&amp;ED report for {clientName} for your review.
       </p>
 
       <form onsubmit={handleSubmit} class="mt-5 flex flex-col gap-4">

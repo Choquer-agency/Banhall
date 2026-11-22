@@ -232,7 +232,10 @@
         source: isManual ? undefined : d?.source,
         url:
           typeof window !== "undefined"
-            ? window.location.pathname + window.location.search
+            ? (window.location.pathname + window.location.search).replace(
+                /(\/review\/)[^/?#]+/gi,
+                "$1[redacted]"
+              )
             : "",
         userNote: note.trim() || undefined,
         breadcrumbs: getBreadcrumbs().map((b) => ({
@@ -249,11 +252,11 @@
         return;
       }
       sonner.dismiss(ERROR_TOAST_ID);
-      sonner.success("Sent. Thanks — we've got the details.");
+      sonner.success("Sent. Thanks - we've got the details.");
       detected = null;
       closeModal();
     } catch {
-      sonner.error("Couldn't send — please try again.");
+      sonner.error("Couldn't send - please try again.");
     } finally {
       sending = false;
     }
@@ -263,16 +266,19 @@
   // rendered inside the modal, so recomputing on open is enough).
   const crumbCount = $derived(modalMode ? getBreadcrumbs().length : 0);
 
-  // Sign-in and invite pages (J1 to J9) have no floating "Flag issue": on a
-  // phone it covered the footer, and signed-out visitors have nothing to flag.
-  const onAuthPage = $derived(/^\/(login|signup)(\/|$)/.test(page.url.pathname));
+  // Sign-in, invite, and external client review pages hide the internal
+  // floating "Flag issue" button so signed-out visitors and external clients
+  // never see internal feedback tooling.
+  const hideFlagButton = $derived(/^\/(login|signup|review)(\/|$)/.test(page.url.pathname));
 
   // Workspace rail integration (2026-08-10): the rail's "Flag issue" row
   // raises this custom event; the floating button hides inside the
   // workspace shell (layout.css :has rule) so the action lives in one
   // place per surface.
   $effect(() => {
-    const open = () => (modalMode = "manual");
+    const open = () => {
+      if (!hideFlagButton) modalMode = "manual";
+    };
     window.addEventListener("banhall:flag-issue", open);
     return () => window.removeEventListener("banhall:flag-issue", open);
   });
@@ -281,7 +287,7 @@
 <!-- AUTO path renders through the global sonner toaster (see notifyError). -->
 
 <!-- ── MANUAL: floating flag button, bottom-left ─────────────────────── -->
-{#if !onAuthPage}
+{#if !hideFlagButton}
 <button
   data-flag-issue-floating
   onclick={() => (modalMode = "manual")}

@@ -807,7 +807,12 @@
   function settleOutstanding(json: string, acknowledged: boolean) {
     const index = outstandingSaves.indexOf(json);
     if (index >= 0) outstandingSaves = [...outstandingSaves.slice(0, index), ...outstandingSaves.slice(index + 1)];
-    if (acknowledged) lastAcknowledgedSave = json;
+    if (acknowledged) {
+      lastAcknowledgedSave = json;
+    } else if (lastQueuedContent === json) {
+      // Allow a subsequent retry or flush to resend the failed document.
+      lastQueuedContent = null;
+    }
   }
 
   function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
@@ -918,8 +923,13 @@
       refreshDocumentMetrics(e);
     });
     return () => {
-      if (saveTimeout) clearTimeout(saveTimeout);
-      saveTimeout = undefined;
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+        saveTimeout = undefined;
+        if (editor && onUpdate) {
+          void enqueueSave(refreshDocumentMetrics(editor)).catch(() => {});
+        }
+      }
       unsubscribe();
     };
   });
@@ -1011,8 +1021,15 @@
         outstandingSaves = [];
         lastAcknowledgedSave = null;
         // The server's copy may replace the Section headings; the reading
-        // presentation otherwise refuses any change to them.
-        ed.chain().setMeta(SECTION_HEADINGS_EXTERNAL, true).setContent(parsed, { emitUpdate: false }).run();
+        // presentation otherwise refuses any change to them. Keep external
+        // replacements out of the undo stack so Cmd+Z never reverts to a
+        // previous report or pre-restore document.
+        ed
+          .chain()
+          .setMeta(SECTION_HEADINGS_EXTERNAL, true)
+          .setMeta("addToHistory", false)
+          .setContent(parsed, { emitUpdate: false })
+          .run();
         refreshDocumentMetrics(ed);
       }
     }
@@ -1281,6 +1298,11 @@
       return;
     }
     await enqueueSave(refreshDocumentMetrics(editor));
+  }
+
+  /** True while a debounced or in-flight autosave has not yet settled. */
+  export function hasPendingSave(): boolean {
+    return saveTimeout !== undefined || outstandingSaves.length > 0;
   }
 
   /** Scroll the surrounding `.overflow-y-auto` container to a doc position. */

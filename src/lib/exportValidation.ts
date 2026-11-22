@@ -36,6 +36,7 @@ export interface ExportPreflightInput {
     clientName: string;
     fiscalYearEnd?: number;
     scienceCode?: string;
+    projectNumber?: string;
   };
 }
 
@@ -50,6 +51,7 @@ export interface CanonicalExportReport {
   clientName: string;
   fiscalYearEnd?: number;
   scienceCode?: string;
+  projectNumber?: string;
   body: CanonicalReportBody;
 }
 
@@ -111,6 +113,7 @@ export function canonicalizeExportPreflight(
     clientName: input.project.clientName.trim(),
     fiscalYearEnd: input.project.fiscalYearEnd,
     scienceCode: input.project.scienceCode?.trim() || undefined,
+    projectNumber: input.project.projectNumber?.trim() || undefined,
     body,
   });
 }

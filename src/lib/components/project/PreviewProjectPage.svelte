@@ -9,9 +9,10 @@
 
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
-  import { goto, pushState, replaceState } from "$app/navigation";
+  import { beforeNavigate, goto, pushState, replaceState } from "$app/navigation";
   import { goToLogin } from "$lib/auth/goToLogin";
   import { resolve } from "$app/paths";
+  import { registerSaveHold } from "$lib/workspace/saveHold";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import { page } from "$app/state";
   import { useConvexClient, useQuery, useMutation, useAction } from "convex-svelte";
@@ -260,6 +261,7 @@
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
   const publishForReview = useMutation(api.projects.publishForReview);
+  const unpublishReview = useMutation(api.projects.unpublishReview);
   // 2026-09-24 (transcript method): Add, Replace and Remove on the Sources tab.
   const addTranscriptMut = useMutation(api.transcripts.addTranscript);
   const replaceTranscriptMut = useMutation(api.transcripts.replaceTranscript);
@@ -446,7 +448,7 @@
   let saving = $state(false);
   let saveError = $state("");
   let localRevision = $state(0);
-  let pendingSaves = 0;
+  let pendingSaves = $state(0);
   let saveChain: Promise<void> = Promise.resolve();
   let showHistory = $state(false);
   // Iterative-mode cancel (button lives in the PageBar; modal below).
@@ -486,8 +488,18 @@
   } | null>(null);
   let copied = $state(false);
   let sharing = $state(false);
+  let unpublishing = $state(false);
   let shareError = $state("");
   let shareLink = $state("");
+  const isSharedActive = $derived(Boolean(project?.sharedReportId));
+  const sharedCopyStale = $derived(
+    Boolean(
+      project?.sharedReportId &&
+        report &&
+        (project.sharedReportId !== report._id ||
+          (project.sharedReportRevisionNumber ?? null) !== (report.revisionNumber ?? 0))
+    )
+  );
   let exporting = $state(false);
   let hoveredCommentId = $state<string | null>(null);
   let pendingChatHighlight = $state<{
@@ -879,47 +891,120 @@
       goToLogin();
     }
   });
+  const revisionByReport = new Map<Id<"reports">, number>();
+  let trackedReportId: Id<"reports"> | null = null;
   $effect(() => {
-    if (report && pendingSaves === 0) localRevision = report.revisionNumber ?? 0;
+    const currentId = report?._id ?? null;
+    if (currentId !== trackedReportId) {
+      trackedReportId = currentId;
+      saveError = "";
+      if (report) {
+        const rev = report.revisionNumber ?? 0;
+        localRevision = rev;
+        revisionByReport.set(report._id, rev);
+      }
+    } else if (report && pendingSaves === 0) {
+      const rev = report.revisionNumber ?? 0;
+      localRevision = rev;
+      revisionByReport.set(report._id, rev);
+    }
   });
 
-
-  async function handleEditorUpdate(json: string) {
-    if (!report) return;
-    const reportId = report._id;
+  async function handleEditorUpdate(targetReportId: Id<"reports">, json: string) {
     pendingSaves += 1;
     saving = true;
-    saveError = "";
+    if (targetReportId === report?._id) saveError = "";
     const save = async () => {
       // Take a restore-point checkpoint of the prior state at most once every
       // 5 minutes of active editing (deduped + log-thinned server-side).
       const now = Date.now();
       if (now - lastSnapshotAt > 300_000) {
         lastSnapshotAt = now;
-        createSnapshot({ reportId, reason: "manual" }).catch(() => {});
+        createSnapshot({ reportId: targetReportId, reason: "manual" }).catch(() => {});
       }
-      localRevision = await updateReport({
-        reportId,
+      const expectedRevision =
+        revisionByReport.get(targetReportId) ??
+        (targetReportId === report?._id ? localRevision : 0);
+      const nextRevision = await updateReport({
+        reportId: targetReportId,
         content: json,
-        expectedRevisionNumber: localRevision,
+        expectedRevisionNumber: expectedRevision,
       });
+      revisionByReport.set(targetReportId, nextRevision);
+      if (targetReportId === report?._id) {
+        localRevision = nextRevision;
+      }
     };
-    saveChain = saveChain.then(save, save);
+    const thisSave = saveChain.then(save, save);
+    saveChain = thisSave.catch(() => {});
     try {
-      await saveChain;
+      await thisSave;
     } catch (error) {
-      saveError = userErrorMessage(error, "The report could not be saved.");
+      if (targetReportId === report?._id) {
+        saveError = userErrorMessage(error, "The report could not be saved.");
+      }
+      // Rethrow so Editor.svelte clears lastQueuedContent and allows retry/flush.
+      throw error;
     } finally {
       pendingSaves -= 1;
       saving = pendingSaves > 0;
     }
   }
+
+  async function retrySave() {
+    if (!report || !editorRef) return;
+    // Re-sync expected revision from the live server copy before retrying.
+    const latestRev = report.revisionNumber ?? 0;
+    localRevision = latestRev;
+    revisionByReport.set(report._id, latestRev);
+    saveError = "";
+    try {
+      await editorRef.flushPendingSave();
+    } catch {
+      /* surfaced via saveError */
+    }
+  }
+
   async function flushEditor(): Promise<number> {
     await editorRef?.flushPendingSave();
     await saveChain;
     if (saveError) throw new Error(saveError);
     return localRevision;
   }
+
+  function hasUnsavedEditorChanges(): boolean {
+    return pendingSaves > 0 || Boolean(editorRef?.hasPendingSave()) || Boolean(saveError);
+  }
+
+  const releaseEditorSaveHold = registerSaveHold(hasUnsavedEditorChanges);
+  onDestroy(releaseEditorSaveHold);
+
+  let allowingUnsavedLeave = false;
+  beforeNavigate((navigation) => {
+    if (allowingUnsavedLeave || !hasUnsavedEditorChanges()) return;
+    if (
+      !navigation.willUnload &&
+      navigation.to?.url.pathname === navigation.from?.url.pathname
+    ) {
+      return;
+    }
+    navigation.cancel();
+    if (navigation.willUnload) return;
+    if (saveError) return;
+    const destination = navigation.to?.url;
+    if (!destination) return;
+    void flushEditor()
+      .then(() => {
+        allowingUnsavedLeave = true;
+        return goto(destination.href);
+      })
+      .catch(() => {
+        /* saveError stays visible with Retry */
+      })
+      .finally(() => {
+        allowingUnsavedLeave = false;
+      });
+  });
 
   // BNH-45: writer-tunable report length (client email — shorter for quick
   // review, full to write right up to the CRA line limits).
@@ -1066,13 +1151,18 @@
     openStart("review");
   }
 
-  async function handleCopyShareLink() {
-    if (!project || !report || sharing) return;
+  async function handlePublishReview() {
+    if (!project || !report || sharing || unpublishing) return;
     sharing = true;
     shareError = "";
     try {
-      await publishForReview({ projectId, reportId: report._id });
-      shareLink = `${window.location.origin}/review/${project.shareToken}`;
+      await flushEditor();
+      const published = await publishForReview({ projectId, reportId: report._id });
+      const token =
+        published && typeof published === "object" && "shareToken" in published && typeof published.shareToken === "string"
+          ? published.shareToken
+          : project.shareToken;
+      shareLink = `${window.location.origin}/review/${token}`;
     } catch (error) {
       shareError = userErrorMessage(
         error,
@@ -1080,6 +1170,39 @@
       );
     } finally {
       sharing = false;
+    }
+  }
+
+  async function handleCopyShareLink() {
+    if (!project || !report) return;
+    if (isSharedActive && project.shareToken) {
+      shareError = "";
+      shareLink = `${window.location.origin}/review/${project.shareToken}`;
+      return;
+    }
+    await handlePublishReview();
+  }
+
+  async function handleUnpublishReview(rotateToken = false) {
+    if (!project || unpublishing || sharing) return;
+    unpublishing = true;
+    shareError = "";
+    try {
+      await unpublishReview({ projectId, rotateToken });
+      shareLink = "";
+      copied = false;
+      toast.success(
+        rotateToken
+          ? "Review link stopped and reset."
+          : "Client review access stopped."
+      );
+    } catch (error) {
+      shareError = userErrorMessage(
+        error,
+        "Could not stop client review sharing."
+      );
+    } finally {
+      unpublishing = false;
     }
   }
 
@@ -1130,7 +1253,7 @@
         .replace(/[^a-zA-Z0-9\s\-]/g, "")
         .replace(/\s+/g, "_");
       // Lazy imports: file-saver touches browser globals at module init (SSR).
-      const [{ exportToTemplateDocx }, { saveAs }] = await Promise.all([
+      const [{ exportToTemplateDocx, formatExportProjectNumber }, { saveAs }] = await Promise.all([
         import("$lib/exportTemplateDocx"),
         import("file-saver"),
       ]);
@@ -1139,7 +1262,10 @@
         sha256Hex(JSON.stringify(canonical)),
         sha256Hex(blob),
       ]);
-      saveAs(blob, `${safeClient}_Schedule60_FY${year}.docx`);
+      const projectSuffix = canonical.projectNumber?.trim()
+        ? `_P${formatExportProjectNumber(canonical.projectNumber).replace(/[^a-zA-Z0-9\-]/g, "")}`
+        : "";
+      saveAs(blob, `${safeClient}_Schedule60_FY${year}${projectSuffix}.docx`);
       await completeExport({ exportId, canonicalDtoHash, documentHash });
       pendingExport = null;
     } catch (error) {
@@ -1172,16 +1298,22 @@
       await runExport(canonical, authorized.exportId);
     } catch (error) {
       // Filing-readiness and field gates come back as structured domain
-      // errors — show them in the validation dialog, not a raw toast.
+      // errors - show them in the validation dialog, not a raw toast.
       const code = userErrorCode(error);
-      if (code === "EVIDENCE_REQUIRED" || code === "INVALID_INPUT") {
+      if (
+        code === "EVIDENCE_REQUIRED" ||
+        code === "INVALID_INPUT" ||
+        code === "NOT_DRAFTED"
+      ) {
         // 2026-11-02: a Line over its CRA limit is refused by the server too.
         const labelFor = (message: string) =>
-          message.includes("over the CRA limit")
-            ? "CRA limit"
-            : code === "INVALID_INPUT"
-              ? "Science code"
-              : "Filing readiness";
+          code === "NOT_DRAFTED" || message.includes("[NOT GENERATED]")
+            ? "Draft incomplete"
+            : message.includes("over the CRA limit")
+              ? "CRA limit"
+              : code === "INVALID_INPUT"
+                ? "Science code"
+                : "Filing readiness";
         exportValidation = {
           errors: userErrorMessage(error, "The export is blocked.")
             .split("\n")
@@ -2017,7 +2149,18 @@
         disabled: startingReview,
       },
       ...(canShare
-        ? [{ id: "share", label: sharing ? "Publishing..." : "Share review link", onSelect: handleCopyShareLink, disabled: sharing }]
+        ? [
+            {
+              id: "share",
+              label: sharing
+                ? "Publishing..."
+                : isSharedActive
+                  ? "Manage review link"
+                  : "Share review link",
+              onSelect: handleCopyShareLink,
+              disabled: sharing || unpublishing,
+            },
+          ]
         : []),
       ...(ghostSnapshot
         ? [{ id: "compare", label: "Compare with the one-shot draft", onSelect: () => (ghostCompareOpen = true) }]
@@ -2033,6 +2176,12 @@
 </script>
 
 <svelte:window
+  onbeforeunload={(event) => {
+    if (hasUnsavedEditorChanges()) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  }}
   onpopstate={() => {
     const url = new URL(window.location.href);
     seedSummaryRequested = url.searchParams.get("view") === "summary";
@@ -2148,10 +2297,20 @@
             <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
           {/if}
           {#if saveError}
-            <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
+            <span class="inline-flex max-w-72 items-center gap-1.5 text-xs text-red-700" role="alert">
+              <span class="truncate">Save failed: {saveError}</span>
+              <button
+                type="button"
+                onclick={retrySave}
+                disabled={saving}
+                class="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[0.7rem] font-medium text-red-800 transition-colors hover:bg-red-100 disabled:opacity-50"
+              >
+                Retry
+              </button>
+            </span>
           {/if}
           {#if shareError}
-            <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Share failed: {shareError}</span>
+            <span class="inline-flex max-w-60 truncate text-xs text-red-700" role="alert">Share failed: {shareError}</span>
           {/if}
           {#if showIterativeStepper && generation?.iterativeModelLabel}
             <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
@@ -2568,21 +2727,23 @@
                 </p>
               {/if}
               <!-- Editor column -->
-              <Editor
-                bind:this={editorRef}
-                content={report.content}
-                onUpdate={handleEditorUpdate}
-                onComment={handleComment}
-                onAskAI={handleAskAI}
-                onAskShorten={askShorten}
-                {shorteningLine}
-                onResearch={handleResearch}
-                editable={true}
-                readOnly={reportReadOnly}
-                {commentRanges}
-                onHoverComment={(id) => (hoveredCommentId = id)}
-                presentation="reading"
-              />
+              {#key report._id}
+                <Editor
+                  bind:this={editorRef}
+                  content={report.content}
+                  onUpdate={(json) => handleEditorUpdate(report._id, json)}
+                  onComment={handleComment}
+                  onAskAI={handleAskAI}
+                  onAskShorten={askShorten}
+                  {shorteningLine}
+                  onResearch={handleResearch}
+                  editable={true}
+                  readOnly={reportReadOnly}
+                  {commentRanges}
+                  onHoverComment={(id) => (hoveredCommentId = id)}
+                  presentation="reading"
+                />
+              {/key}
 
               <!-- Supporting panels (QA lives in the side panel, BNH-47) -->
               <div class="mt-8 mb-12">
@@ -3144,9 +3305,22 @@
             Review link published
           </h3>
           <p class="mt-1.5 text-sm leading-relaxed text-gray-600">
-            The current report is available for client review. Anyone with this link
-            can read it and leave comments.
+            Clients see the snapshot you published, not later edits. Anyone with
+            this link can read that copy and leave comments until you stop sharing.
           </p>
+          {#if sharedCopyStale}
+            <div class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span>You have edited the report since this link was published.</span>
+              <button
+                type="button"
+                onclick={handlePublishReview}
+                disabled={sharing || unpublishing}
+                class="shrink-0 rounded-md bg-amber-700 px-2.5 py-1 font-semibold text-white transition-colors hover:bg-amber-800 disabled:opacity-50"
+              >
+                {sharing ? "Updating..." : "Update shared copy"}
+              </button>
+            </div>
+          {/if}
           <label for="published-review-link" class="mt-5 block text-xs font-medium uppercase tracking-wide text-gray-500">
             Client review link
           </label>
@@ -3161,25 +3335,46 @@
           {#if shareError}
             <p class="mt-2 text-sm text-red-700" role="alert">{shareError}</p>
           {/if}
-          <div class="mt-5 flex justify-end gap-2">
-            <button
-              type="button"
-              onclick={() => {
-                shareLink = "";
-                shareError = "";
-                copied = false;
-              }}
-              class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onclick={copyPublishedReviewLink}
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              {copied ? "Copied!" : "Copy link"}
-            </button>
+          <div class="mt-5 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onclick={() => handleUnpublishReview(false)}
+                disabled={unpublishing || sharing}
+                class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+              >
+                {unpublishing ? "Stopping..." : "Stop sharing"}
+              </button>
+              <button
+                type="button"
+                onclick={() => handleUnpublishReview(true)}
+                disabled={unpublishing || sharing}
+                class="rounded-lg px-2.5 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-50"
+                title="Stop sharing and issue a new link so the old URL can never be reused"
+              >
+                Stop &amp; reset link
+              </button>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick={() => {
+                  shareLink = "";
+                  shareError = "";
+                  copied = false;
+                }}
+                class="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-chrome"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onclick={copyPublishedReviewLink}
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+              >
+                {copied ? "Copied!" : "Copy link"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

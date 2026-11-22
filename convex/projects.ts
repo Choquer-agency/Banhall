@@ -2280,20 +2280,47 @@ export const publishForReview = mutation({
     if (await reportNeedsQaScore(ctx, report)) {
       domainError("QA_SCORE_REQUIRED", "The current report needs a completed QA score before client review.");
     }
+    const hydrated = await reportWithBody(ctx, report);
+    const now = Date.now();
+    const revisionNumber = hydrated.revisionNumber ?? 0;
+    const contentHash = hydrated.contentHash ?? (await sha256(hydrated.content));
+    const snapshotId = await ctx.db.insert("reportSnapshots", {
+      projectId: args.projectId,
+      reportId: report._id,
+      content: hydrated.content,
+      reason: "publish_review",
+      label: "Shared for client review",
+      createdByRole: "writer",
+      createdAt: now,
+      provenanceId: hydrated.provenanceId,
+      sourceRevisionNumber: revisionNumber,
+      contentHash,
+    });
     await ctx.db.patch(args.projectId, {
       sharedReportId: report._id,
+      sharedReportSnapshotId: snapshotId,
+      sharedReportRevisionNumber: revisionNumber,
+      sharedReportPublishedAt: now,
       status: "client_review",
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     // BNH-10 / CAP-2: freeze the post-edit distance at client publish.
     await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
       reportId: report._id,
     });
+    return {
+      snapshotId,
+      revisionNumber,
+      shareToken: project.shareToken,
+    };
   },
 });
 
 export const unpublishReview = mutation({
-  args: { projectId: v.id("projects") },
+  args: {
+    projectId: v.id("projects"),
+    rotateToken: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     // Same authority as publishForReview (CAP-3 / D-2): current Owner,
     // Manager, or Admin; createdBy is not consulted.
@@ -2301,11 +2328,17 @@ export const unpublishReview = mutation({
     await requireCapability(ctx, "project.setStage", {
       ownedBy: project.ownerId ? [project.ownerId] : [],
     });
+    const nextShareToken = args.rotateToken ? generateShareToken() : project.shareToken;
     await ctx.db.patch(args.projectId, {
       sharedReportId: undefined,
+      sharedReportSnapshotId: undefined,
+      sharedReportRevisionNumber: undefined,
+      sharedReportPublishedAt: undefined,
+      ...(args.rotateToken ? { shareToken: nextShareToken } : {}),
       status: project.status === "client_review" ? "review" : project.status,
       updatedAt: Date.now(),
     });
+    return { shareToken: nextShareToken };
   },
 });
 

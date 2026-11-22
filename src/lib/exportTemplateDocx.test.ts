@@ -12,7 +12,7 @@ import { exportToTemplateDocx } from "./exportTemplateDocx";
 const TEMPLATE = readFileSync(fileURLToPath(new URL("../../static/templates/schedule60.docx", import.meta.url)));
 const MARK = "[INFERRED: the source asks for stability over time, not single-point checks]";
 
-type ProjectOverrides = { clientName?: string; fiscalYearEnd?: number };
+type ProjectOverrides = { clientName?: string; fiscalYearEnd?: number; projectNumber?: string };
 
 async function exportedXml(s244: string | null, project: ProjectOverrides = {}): Promise<string> {
   const content = JSON.stringify(
@@ -52,10 +52,22 @@ function cellTextHolding(xml: string, text: string): string {
 const BODY = "Readiness was first judged from single readings.";
 
 describe("exportToTemplateDocx header", () => {
-  test("writes the claimant name beside its label and leaves the project box alone", async () => {
+  test("writes the claimant name beside its label and defaults the project box to 01", async () => {
     const xml = await exportedXml(BODY);
     expect(cellTextHolding(xml, "Name of Claimant:")).toBe("Name of Claimant: Example Co");
     expect(cellTextHolding(xml, "Project: 01")).toBe("Project: 01");
+  });
+
+  test("writes the project number in the project header box, zero-padding single digits", async () => {
+    const padded = await exportedXml(BODY, { projectNumber: "2" });
+    expect(cellTextHolding(padded, "Project: 02")).toBe("Project: 02");
+    expect(padded).not.toContain("Project: 01");
+
+    const twoDigit = await exportedXml(BODY, { projectNumber: "12" });
+    expect(cellTextHolding(twoDigit, "Project: 12")).toBe("Project: 12");
+
+    const custom = await exportedXml(BODY, { projectNumber: "A&B" });
+    expect(custom).toContain("Project: A&amp;B");
   });
 
   test("writes the taxation year end beside its label, not in the divider row below", async () => {

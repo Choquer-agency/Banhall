@@ -265,7 +265,7 @@
   let saving = $state(false);
   let saveError = $state("");
   let localRevision = $state(0);
-  let pendingSaves = 0;
+  let pendingSaves = $state(0);
   let saveChain: Promise<void> = Promise.resolve();
   let showHistory = $state(false);
   // Iterative-mode cancel (button lives in the PageBar; modal below).
@@ -699,11 +699,13 @@
         expectedRevisionNumber: localRevision,
       });
     };
-    saveChain = saveChain.then(save, save);
+    const thisSave = saveChain.then(save, save);
+    saveChain = thisSave.catch(() => {});
     try {
-      await saveChain;
+      await thisSave;
     } catch (error) {
       saveError = userErrorMessage(error, "The report could not be saved.");
+      throw error;
     } finally {
       pendingSaves -= 1;
       saving = pendingSaves > 0;
@@ -949,7 +951,7 @@
         .replace(/[^a-zA-Z0-9\s\-]/g, "")
         .replace(/\s+/g, "_");
       // Lazy imports: file-saver touches browser globals at module init (SSR).
-      const [{ exportToTemplateDocx }, { saveAs }] = await Promise.all([
+      const [{ exportToTemplateDocx, formatExportProjectNumber }, { saveAs }] = await Promise.all([
         import("$lib/exportTemplateDocx"),
         import("file-saver"),
       ]);
@@ -958,7 +960,10 @@
         sha256Hex(JSON.stringify(canonical)),
         sha256Hex(blob),
       ]);
-      saveAs(blob, `${safeClient}_Schedule60_FY${year}.docx`);
+      const projectSuffix = canonical.projectNumber?.trim()
+        ? `_P${formatExportProjectNumber(canonical.projectNumber).replace(/[^a-zA-Z0-9\-]/g, "")}`
+        : "";
+      saveAs(blob, `${safeClient}_Schedule60_FY${year}${projectSuffix}.docx`);
       await completeExport({ exportId, canonicalDtoHash, documentHash });
       pendingExport = null;
     } catch (error) {
@@ -991,16 +996,22 @@
       await runExport(canonical, authorized.exportId);
     } catch (error) {
       // Filing-readiness and field gates come back as structured domain
-      // errors — show them in the validation dialog, not a raw toast.
+      // errors - show them in the validation dialog, not a raw toast.
       const code = userErrorCode(error);
-      if (code === "EVIDENCE_REQUIRED" || code === "INVALID_INPUT") {
+      if (
+        code === "EVIDENCE_REQUIRED" ||
+        code === "INVALID_INPUT" ||
+        code === "NOT_DRAFTED"
+      ) {
         // 2026-11-02: a Line over its CRA limit is refused by the server too.
         const labelFor = (message: string) =>
-          message.includes("over the CRA limit")
-            ? "CRA limit"
-            : code === "INVALID_INPUT"
-              ? "Science code"
-              : "Filing readiness";
+          code === "NOT_DRAFTED" || message.includes("[NOT GENERATED]")
+            ? "Draft incomplete"
+            : message.includes("over the CRA limit")
+              ? "CRA limit"
+              : code === "INVALID_INPUT"
+                ? "Science code"
+                : "Filing readiness";
         exportValidation = {
           errors: userErrorMessage(error, "The export is blocked.")
             .split("\n")
@@ -1857,17 +1868,19 @@
               {@render projectMetadata()}
 
               <!-- Editor column -->
-              <Editor
-                bind:this={editorRef}
-                content={report.content}
-                onUpdate={handleEditorUpdate}
-                onComment={handleComment}
-                onAskAI={handleAskAI}
-                onResearch={handleResearch}
-                editable={true}
-                {commentRanges}
-                onHoverComment={(id) => (hoveredCommentId = id)}
-              />
+              {#key report._id}
+                <Editor
+                  bind:this={editorRef}
+                  content={report.content}
+                  onUpdate={handleEditorUpdate}
+                  onComment={handleComment}
+                  onAskAI={handleAskAI}
+                  onResearch={handleResearch}
+                  editable={true}
+                  {commentRanges}
+                  onHoverComment={(id) => (hoveredCommentId = id)}
+                />
+              {/key}
 
               <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
               <div class="mt-8 mb-12">

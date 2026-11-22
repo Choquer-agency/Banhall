@@ -65,13 +65,22 @@
         id: c._id,
         from: c.highlightFrom,
         to: c.highlightTo,
+        text: c.highlightText,
         active: c._id === activeCommentId,
         isClient: c.commenterType === "client",
       }))
   );
 </script>
 
-{#if projectQ.data === undefined}
+{#if projectQ.error}
+  <!-- Load error -->
+  <div class="flex flex-1 flex-col items-center justify-center bg-canvas px-4 text-center">
+    <h1 class="text-title">Unable to load report</h1>
+    <p class="mt-1 max-w-sm text-sm text-gray-500">
+      We could not load this review page right now. Refresh the page or contact your Banhall consultant.
+    </p>
+  </div>
+{:else if projectQ.data === undefined}
   <!-- Loading -->
   <div class="flex flex-1 items-center justify-center bg-canvas">
     <Spinner />
@@ -85,7 +94,7 @@
       </svg>
     </div>
     <h1 class="text-title">Report Not Found</h1>
-    <p class="mt-1 text-sm text-gray-500">This review link may be invalid or expired.</p>
+    <p class="mt-1 text-sm text-gray-500">This review link may be invalid or no longer active.</p>
   </div>
 {:else if !commenter}
   <!-- Name gate -->
@@ -94,18 +103,34 @@
     clientName={projectQ.data.clientName}
     onEnter={handleNameEnter}
   />
-{:else if !reportQ.data}
-  <!-- Report not ready -->
+{:else if reportQ.error}
+  <!-- Report load error -->
+  <div class="flex flex-1 flex-col items-center justify-center bg-canvas px-4 text-center">
+    <h1 class="text-title">Unable to load report</h1>
+    <p class="mt-1 max-w-sm text-sm text-gray-500">
+      We could not load the report text right now. Refresh the page or try again shortly.
+    </p>
+  </div>
+{:else if reportQ.data === undefined}
+  <!-- Report loading -->
   <div class="flex flex-1 flex-col items-center justify-center bg-canvas px-4">
     <Spinner />
     <h1 class="text-title mt-4">{projectQ.data.title}</h1>
-    <p class="mt-1 text-sm text-gray-500">The report is being prepared. This page will update automatically.</p>
+    <p class="mt-1 text-sm text-gray-500">Loading the report...</p>
+  </div>
+{:else if reportQ.data === null}
+  <!-- Report unpublished or not ready -->
+  <div class="flex flex-1 flex-col items-center justify-center bg-canvas px-4 text-center">
+    <h1 class="text-title">{projectQ.data.title}</h1>
+    <p class="mt-1 max-w-sm text-sm text-gray-500">
+      This report is not currently shared for review. Contact your Banhall consultant if you need access.
+    </p>
   </div>
 {:else}
   {@const project = projectQ.data}
   {@const report = reportQ.data}
   <div class="flex flex-1 flex-col bg-canvas">
-    <!-- Top bar — public client header: same fir bar + baseline rule as AppNav,
+    <!-- Top bar - public client header: same fir bar + baseline rule as AppNav,
          but no internal navigation (access is via the share token). -->
     <header class="sticky top-0 z-50 w-full">
       <div class="w-full bg-navy">
@@ -131,11 +156,11 @@
       <div class="nav-baseline h-0.5 w-full"></div>
     </header>
 
-    <!-- Main content with margin comments — same layout as writer page -->
+    <!-- Main content with margin comments - side-by-side on wide screens, stacked below on narrow screens -->
     <div bind:this={scrollEl} class="flex-1 overflow-y-auto">
-      <div class="relative mx-auto max-w-[68.75rem] px-6 py-8">
+      <div class="relative mx-auto flex max-w-[68.75rem] flex-col gap-8 px-4 py-8 sm:px-6 xl:block">
         <!-- Editor column -->
-        <div class="max-w-[42.5rem]">
+        <div class="w-full max-w-[42.5rem]">
           <ReadOnlyEditor
             bind:this={editorComponent}
             content={report.content}
@@ -148,8 +173,8 @@
           </p>
         </div>
 
-        <!-- Margin comments — positioned to the right -->
-        <div class="absolute top-8 right-6" style="left: calc(42.5rem + 2rem + 1.5rem); width: 16rem">
+        <!-- Margin comments - positioned to the right on wide viewports, stacked cleanly on smaller screens -->
+        <div class="w-full max-w-[42.5rem] xl:absolute xl:top-8 xl:right-6 xl:left-[calc(42.5rem+2rem+1.5rem)] xl:w-64 xl:max-w-none">
           <MarginComments
             projectId={project._id}
             reportId={report._id}

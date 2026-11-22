@@ -1,7 +1,42 @@
 <script module lang="ts">
   import type { Editor } from "@tiptap/core";
 
-  /** Block types the "Paragraph" menu offers (the slash menu's text blocks). */
+  /** Block types detected in the selection (including legacy blocks so writers can flatten them). */
+  const DETECTED_BLOCK_TYPES: Array<{
+    label: string;
+    isActive: (editor: Editor) => boolean;
+  }> = [
+    {
+      label: "Heading 2",
+      isActive: (editor) => editor.isActive("heading", { level: 2 }),
+    },
+    {
+      label: "Heading 3",
+      isActive: (editor) => editor.isActive("heading", { level: 3 }),
+    },
+    {
+      label: "Bullet list",
+      isActive: (editor) => editor.isActive("bulletList"),
+    },
+    {
+      label: "Numbered list",
+      isActive: (editor) => editor.isActive("orderedList"),
+    },
+    {
+      label: "Quote",
+      isActive: (editor) => editor.isActive("blockquote"),
+    },
+    {
+      label: "Code block",
+      isActive: (editor) => editor.isActive("codeBlock"),
+    },
+  ];
+
+  /**
+   * Schedule 60 exports only plain paragraphs under the fixed Line headings.
+   * Only Paragraph is offered so writers cannot create unsupported blocks,
+   * while still letting them flatten legacy lists, quotes, or subheadings.
+   */
   const BLOCK_TYPES: Array<{
     label: string;
     isActive: (editor: Editor) => boolean;
@@ -9,33 +44,10 @@
   }> = [
     {
       label: "Paragraph",
-      isActive: (editor) => editor.isActive("paragraph"),
-      apply: (editor) => editor.chain().focus().setParagraph().run(),
-    },
-    {
-      label: "Heading 2",
-      isActive: (editor) => editor.isActive("heading", { level: 2 }),
-      apply: (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-    },
-    {
-      label: "Heading 3",
-      isActive: (editor) => editor.isActive("heading", { level: 3 }),
-      apply: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-    },
-    {
-      label: "Bullet list",
-      isActive: (editor) => editor.isActive("bulletList"),
-      apply: (editor) => editor.chain().focus().toggleBulletList().run(),
-    },
-    {
-      label: "Numbered list",
-      isActive: (editor) => editor.isActive("orderedList"),
-      apply: (editor) => editor.chain().focus().toggleOrderedList().run(),
-    },
-    {
-      label: "Quote",
-      isActive: (editor) => editor.isActive("blockquote"),
-      apply: (editor) => editor.chain().focus().toggleBlockquote().run(),
+      isActive: (editor) =>
+        editor.isActive("paragraph") &&
+        !DETECTED_BLOCK_TYPES.some((type) => type.isActive(editor)),
+      apply: (editor) => editor.chain().focus().clearNodes().setParagraph().run(),
     },
   ];
 </script>
@@ -94,7 +106,7 @@
     void revision;
     const { from, to } = editor.state.selection;
     return {
-      block: BLOCK_TYPES.find((type) => type.label !== "Paragraph" && type.isActive(editor))?.label ?? "Paragraph",
+      block: DETECTED_BLOCK_TYPES.find((type) => type.isActive(editor))?.label ?? "Paragraph",
       bold: editor.isActive("bold"),
       italic: editor.isActive("italic"),
       underline: editor.isActive("underline"),

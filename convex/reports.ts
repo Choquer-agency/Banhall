@@ -23,7 +23,7 @@ import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { reportSectionMetrics } from "../src/lib/reportSections";
+import { parseCanonicalReport, reportSectionMetrics } from "../src/lib/reportSections";
 import { getPendingReportProvenance, getReportBody, reportWithBody, writeReportBody, type ReportWithBody } from "./lib/reportBodies";
 import { deleteProvenanceIfUnheld, materializePendingReportProvenance, stageProvenanceForEdit } from "./lib/editProvenance";
 import { internal } from "./_generated/api";
@@ -40,6 +40,21 @@ export const getLatestReport = query({
       if (!reportId) return null;
       const report = await ctx.db.get(reportId);
       if (!report || report.projectId !== args.projectId) return null;
+      const snapshotId = access.project.sharedReportSnapshotId;
+      if (snapshotId) {
+        const snapshot = await ctx.db.get(snapshotId);
+        if (snapshot && snapshot.reportId === report._id && snapshot.projectId === args.projectId) {
+          return {
+            ...report,
+            content: snapshot.content,
+            contentHash: snapshot.contentHash ?? report.contentHash,
+            revisionNumber:
+              access.project.sharedReportRevisionNumber ??
+              snapshot.sourceRevisionNumber ??
+              report.revisionNumber,
+          };
+        }
+      }
       return await reportWithBody(ctx, report);
     }
     const report = await ctx.db
@@ -396,6 +411,7 @@ async function exportSnapshot(
       clientName: project.clientName,
       fiscalYearEnd: project.fiscalYearEnd,
       scienceCode: project.scienceCode?.trim() || undefined,
+      projectNumber: project.projectNumber?.trim() || undefined,
     },
   };
 }
@@ -477,6 +493,12 @@ export const authorizeExport = mutation({
         "A valid CRA T4088 line 206 field-of-science code is required for export"
       );
     }
+    // Refuse exporting unfinished sections that still hold [NOT GENERATED]
+    // server-side as well as in the export dialog.
+    const notDrafted = parseCanonicalReport(report.content)
+      .diagnostics.filter((diagnostic) => diagnostic.code === "NOT_DRAFTED")
+      .map((diagnostic) => diagnostic.message);
+    if (notDrafted.length > 0) domainError("INVALID_INPUT", notDrafted.join("\n"));
     // 2026-11-02 (owner): a manager may apply an Assistant change that runs a
     // Line past its CRA limit (report.overrideRules), but the filing form
     // cannot hold it: the export dialog already refuses, and the server

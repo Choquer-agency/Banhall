@@ -4,14 +4,12 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import DatePicker from "$lib/components/ui/DatePicker.svelte";
   import { PencilSimpleIcon, PlusIcon } from "phosphor-svelte";
-
-  function toDateInput(ts: number | null): string {
-    if (!ts) return "";
-    const d = new Date(ts);
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${d.getFullYear()}-${m}-${day}`;
-  }
+  import {
+    fiscalYearFromTimestampUtc,
+    formatFiscalYearEndUtc,
+    parseCalendarDateUtc,
+    toCalendarDateInputUtc,
+  } from "../../../../shared/fiscalYearDate";
 
   /** BNH-36: view/edit the client's fiscal year-end on the project header. */
   let {
@@ -37,9 +35,10 @@
     if (readonly) return;
     saving = true;
     try {
+      const parsed = parseCalendarDateUtc(value);
       await update({
         projectId,
-        fiscalYearEnd: value ? new Date(`${value}T00:00:00`).getTime() : undefined,
+        fiscalYearEnd: parsed ?? undefined,
       });
       editing = false;
     } finally {
@@ -50,10 +49,9 @@
 
 {#if readonly}
   {#if fiscalYearEnd}
-    {@const d = new Date(fiscalYearEnd)}
     <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-[calc(5/3)] text-gray-800">
-      <span>{d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
-      <span class="text-[0.6875rem] text-gray-400">(Fiscal {d.getFullYear()})</span>
+      <span>{formatFiscalYearEndUtc(fiscalYearEnd, "en-US")}</span>
+      <span class="text-[0.6875rem] text-gray-400">(Fiscal {fiscalYearFromTimestampUtc(fiscalYearEnd)})</span>
     </p>
   {:else}
     <p class="text-xs leading-[calc(5/3)] italic text-gray-400">Not set</p>
@@ -95,14 +93,13 @@
     Set fiscal year-end
   </button>
 {:else}
-  {@const d = new Date(fiscalYearEnd)}
   <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-[calc(5/3)] text-gray-800">
-    <span>{d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>
-    <span class="text-[0.6875rem] text-gray-400">(Fiscal {d.getFullYear()})</span>
+    <span>{formatFiscalYearEndUtc(fiscalYearEnd, "en-US")}</span>
+    <span class="text-[0.6875rem] text-gray-400">(Fiscal {fiscalYearFromTimestampUtc(fiscalYearEnd)})</span>
     <button
       type="button"
       onclick={() => {
-        value = toDateInput(fiscalYearEnd);
+        value = toCalendarDateInputUtc(fiscalYearEnd);
         editing = true;
       }}
       aria-label="Edit fiscal year-end"

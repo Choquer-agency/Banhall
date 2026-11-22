@@ -64,7 +64,6 @@ describe("/project/questionnaire submit", () => {
     });
     await render(QuestionnairePage, {});
 
-    await clickText("Back");
     await expect.poll(() => document.querySelector("#title")).not.toBeNull();
     setInputValue("#title", "Project Verdant F2024");
     setInputValue("#clientName", "GreenStem Nurseries Inc.");
@@ -120,7 +119,6 @@ describe("/project/questionnaire submit", () => {
       })
     );
     await render(QuestionnairePage, {});
-    await clickText("Back");
     await expect.poll(() => document.querySelector("#title")).not.toBeNull();
     setInputValue("#title", "Project Verdant F2024");
     setInputValue("#clientName", "GreenStem Nurseries Inc.");
@@ -144,5 +142,27 @@ describe("/project/questionnaire submit", () => {
       .poll(() => __mutationCalls("generations:requestGeneration").length)
       .toBe(2);
     expect(__mutationCalls("projects:createProject")).toHaveLength(1);
+  });
+
+  it("keeps the saved project message when generation fails with a non-rate-limit error", async () => {
+    __setMutationResult("projects:createProject", {
+      projectId: "project-q",
+      transcriptIds: ["transcript-q"],
+    });
+    __setMutationError(
+      "generations:requestGeneration",
+      new Error("Provider unavailable")
+    );
+    await render(QuestionnairePage, {});
+    await expect.poll(() => document.querySelector("#title")).not.toBeNull();
+    setInputValue("#title", "Project Verdant F2024");
+    setInputValue("#clientName", "GreenStem Nurseries Inc.");
+    await clickText("Start Questionnaire");
+    await advanceToReview();
+    await clickText("Generate Report");
+
+    await expect
+      .poll(() => document.body.textContent)
+      .toContain("Your project and answers are saved, but the report run could not start.");
   });
 });

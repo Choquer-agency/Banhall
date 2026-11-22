@@ -339,6 +339,9 @@ export default defineSchema({
     // Active generation fencing and an explicitly published review revision.
     activeGenerationId: v.optional(v.id("generations")),
     sharedReportId: v.optional(v.id("reports")),
+    sharedReportSnapshotId: v.optional(v.id("reportSnapshots")),
+    sharedReportRevisionNumber: v.optional(v.number()),
+    sharedReportPublishedAt: v.optional(v.number()),
     // Filing approval is deliberately human-authored and becomes stale when
     // evidence or the approved report revision changes.
     filingAttestation: v.optional(
@@ -3273,7 +3276,10 @@ export default defineSchema({
       v.literal("milestone"),
       // Untouched AI draft frozen at candidate selection — the post-edit
       // distance baseline (BNH-10 flywheel).
-      v.literal("generated")
+      v.literal("generated"),
+      // Immutable client-review snapshot frozen when publishForReview runs so
+      // live post-publish edits never leak onto /review/[shareToken].
+      v.literal("publish_review")
     ),
     // Stable key for workflow-labelled snapshots (e.g. R0/R1/R4/R5).
     milestoneKey: v.optional(v.string()),
