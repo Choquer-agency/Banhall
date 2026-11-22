@@ -67,7 +67,7 @@
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
-    "@sveltejs/adapter-vercel": "^6.3.4",
+    "@sveltejs/adapter-vercel": "^6.3.5",
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tailwindcss/vite": "^4.3.2",
