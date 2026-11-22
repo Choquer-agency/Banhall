@@ -142,7 +142,7 @@
         <!-- Hover or focus reveals Duplicate and Delete; they keep their place
              in the header either way, so the title never reflows. -->
         <DuplicateProjectButton projectId={row.id} projectTitle={row.title} deleting={row.deleting} class="-my-1" />
-        <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} class="-my-1" />
+        <DeleteProjectButton projectId={row.id} projectTitle={row.title} createdBy={row.createdBy} ownerId={row.ownerId} deleting={row.deleting} class="-my-1" />
       {/if}
     {/if}
   </header>

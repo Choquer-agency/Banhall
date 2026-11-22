@@ -231,8 +231,16 @@ export async function companyIdentityNames(
     }
     if (project.clientName !== client.name) organizations.add(project.clientName);
   }
+  const contacts = await ctx.db
+    .query("companyContacts")
+    .withIndex("by_clientId", (q) => q.eq("clientId", client._id))
+    .take(500);
+  for (const contact of contacts) {
+    const fullName = `${contact.firstName} ${contact.lastName}`.trim();
+    if (fullName) people.push(fullName);
+  }
   // The company's own name too: a project may write it with other case or
   // accents (review, 2026-10-26); a map that already hides it adds nothing.
   organizations.add(client.name);
-  return { organizations: [...organizations], people };
+  return { organizations: [...organizations], people: [...new Set(people)] };
 }

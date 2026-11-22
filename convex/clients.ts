@@ -15,6 +15,7 @@ import { syncProjectDashboardFields } from "./lib/dashboardProjection";
 import {
   activeClientAfterMerges,
   activeClientForKey,
+  companyFilesMovingInto,
   companyOtherNames,
   dashboardCompanyForKey,
   linkKeyProjects,
@@ -2006,7 +2007,10 @@ export const deleteClient = mutation({
     const client = await ctx.db.get(args.clientId);
     if (!client) return null;
 
-    if (client.companyFilesMovingTo !== undefined) {
+    if (
+      client.companyFilesMovingTo !== undefined ||
+      (await companyFilesMovingInto(ctx, client._id))
+    ) {
       domainError(
         "INVALID_STATE",
         "Wait for company file transfer to finish before deleting this client."

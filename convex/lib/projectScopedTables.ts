@@ -29,7 +29,7 @@
  */
 import type { TableNames } from "../_generated/dataModel";
 
-export type ProjectScopedDisposition = "delete" | "detach" | "scrub" | "revoke" | "keep";
+export type ProjectScopedDisposition = "delete" | "detach" | "scrub" | "revoke" | "withdraw" | "keep";
 
 export type ProjectScopedChild = {
   table: TableNames;
@@ -55,7 +55,7 @@ export type ProjectScopedTable = {
   disposition: ProjectScopedDisposition;
   /**
    * Index whose first field is `field`; required for `delete`, `detach`,
-   * `scrub`, and `revoke` so a page is one index range read, never a scan.
+   * `scrub`, `revoke`, and `withdraw` so a page is one index range read, never a scan.
    */
   index?: string;
   children?: readonly ProjectScopedChild[];
@@ -254,8 +254,6 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "notifications", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Rows that outlive the project: clear the reference.
   { table: "aiUsage", field: "projectId", disposition: "detach", index: "by_projectId" },
-  // 2026-11-21 (T2-4): project feedback rows carry client prose; erase with the project.
-  { table: "brainFeedbackQueue", field: "projectId", disposition: "delete", index: "by_projectId" },
   {
     table: "ingestionItems",
     field: "portedProjectId",
@@ -277,8 +275,13 @@ export const PROJECT_SCOPED_TABLES = [
       baselineDraftText: "[redacted]",
     },
   },
-  // 2026-11-21 (T2-4): revoke and unlearn Brain sources nominated from the deleted project.
+  // 2026-11-21 (T2-4): revoke and unlearn Brain sources BEFORE withdrawing
+  // brainFeedbackQueue so withdrawSourceFeedback can still resolve linked rows.
   { table: "brainSources", field: "sourceProjectId", disposition: "revoke", index: "by_sourceProjectId" },
+  // 2026-11-21 (T2-4): approved project feedback is withdrawn, detached, and redacted
+  // (preserving withdrawal markers so published draft_style digests turn off);
+  // unapproved feedback rows are deleted outright.
+  { table: "brainFeedbackQueue", field: "projectId", disposition: "withdraw", index: "by_projectId" },
   // Audit and decision rows the product never deletes (ask first to change).
   { table: "writerReviews", field: "projectId", disposition: "keep" },
   { table: "reviewDecisions", field: "projectId", disposition: "keep" },

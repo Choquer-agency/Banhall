@@ -24,6 +24,7 @@ import {
 } from "./lib/projectScopedTables";
 import { deleteStorageIfUnreferenced, STORAGE_REFERENCE_FIELDS } from "./lib/storage";
 import { revokeProjectBrainSource } from "./brain";
+import { feedbackApprovedAt, turnOffWithdrawnPublishedSet } from "./lib/learningWithdrawal";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -2965,6 +2966,40 @@ export const purgeProjectPage = internalMutation({
         if (changed) {
           guard.noteRowTouched(row, false);
           writes += 4;
+        }
+        continue;
+      }
+      if (entry.disposition === "withdraw") {
+        const feedback = row as unknown as Doc<"brainFeedbackQueue">;
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
+        if (feedback.status === "approved") {
+          const now = Date.now();
+          const withdrawnAt = feedback.withdrawnAt ?? now;
+          const withdrawnApprovedAt =
+            feedback.withdrawnApprovedAt ?? (await feedbackApprovedAt(ctx, feedback));
+          await ctx.db.patch(feedback._id, {
+            projectId: undefined,
+            reportId: undefined,
+            body: "[redacted]",
+            ...(feedback.suggestedRule !== undefined
+              ? { suggestedRule: "[redacted]" }
+              : {}),
+            ...(feedback.reviewNote !== undefined
+              ? { reviewNote: "[redacted]" }
+              : {}),
+            withdrawnAt,
+            withdrawnApprovedAt,
+          });
+          await turnOffWithdrawnPublishedSet(ctx, now);
+          guard.noteRowTouched(row, false);
+          writes += 2;
+        } else {
+          await ctx.db.delete(feedback._id);
+          guard.noteRowTouched(row, false);
+          writes += 1;
         }
         continue;
       }

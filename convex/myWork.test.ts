@@ -189,8 +189,9 @@ describe("Home reads (ui-design-final.md section 9)", () => {
     expect(rows.map((row) => row.projectTitle)).toEqual(["Second", "Pipeline project"]);
     expect(rows[0]).toMatchObject({ clientName: "Beta", workflowStage: "intake", stageIsFallback: true });
     expect(rows[1]).toMatchObject({ workflowStage: "drafting", stageIsFallback: false });
-    // Home offers Delete only to the creator or an admin, so the row says who created it.
+    // Home offers Delete to the creator, owner, or an admin, so the row says who created and owns it.
     expect(rows[0].createdBy).toBe(f.ownerId);
+    expect(rows[1].ownerId).toBe(f.ownerId);
   });
 
   it("reads at most ten recorded ids", async () => {

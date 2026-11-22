@@ -277,8 +277,9 @@ export const listRecentProjects = query({
         workflowStage: project.workflowStage ?? "intake",
         stageIsFallback: project.workflowStage === undefined,
         updatedAt: project.updatedAt,
-        // Decides who sees Delete on the row (creator or admin).
+        // Decides who sees Delete on the row (creator, owner, or admin).
         createdBy: project.createdBy,
+        ownerId: project.ownerId,
       });
     }
     return rows;

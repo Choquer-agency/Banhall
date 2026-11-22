@@ -668,6 +668,7 @@ const keepEntries = registry.filter((e) => e.disposition === "keep");
 const detachEntries = registry.filter((e) => e.disposition === "detach");
 const scrubEntries = registry.filter((e) => e.disposition === "scrub");
 const revokeEntries = registry.filter((e) => e.disposition === "revoke");
+const withdrawEntries = registry.filter((e) => e.disposition === "withdraw");
 const deleteEntries = registry.filter((e) => e.disposition === "delete");
 const entryIndexOf = (table: string) => PROJECT_SCOPED_TABLES.findIndex((e) => e.table === table);
 
@@ -684,7 +685,7 @@ describe("deleteProject erasure", () => {
     for (const entry of indexedEntries) {
       expect((await rowsReferencing(s, entry, s.projectId)).length, `${refKey(entry)} not seeded`).toBeGreaterThan(0);
     }
-    for (const entry of [...keepEntries, ...detachEntries, ...scrubEntries, ...revokeEntries]) {
+    for (const entry of [...keepEntries, ...detachEntries, ...scrubEntries, ...revokeEntries, ...withdrawEntries]) {
       expect(seeded.byRef[refKey(entry)], `${refKey(entry)} row id not recorded`).toBeDefined();
     }
 
@@ -776,6 +777,11 @@ describe("deleteProject erasure", () => {
       expect(retainedRow?.status).toBe("approved");
       expect(retainedRow?.title).toBe("t");
     }
+    // Withdraw: pending feedback rows from the deleted project are deleted outright.
+    for (const entry of withdrawEntries) {
+      expect(await rowById(s, seeded.byRef[refKey(entry)]), `${refKey(entry)} pending row survived`).toBeNull();
+      expect(await rowById(s, retained.byRef[refKey(entry)]), `${refKey(entry)} retained row deleted`).not.toBeNull();
+    }
     // Keep: every row still points at the deleted project.
     for (const entry of keepEntries) {
       const row = await rowById(s, seeded.byRef[refKey(entry)]);
@@ -799,6 +805,97 @@ describe("deleteProject erasure", () => {
       expect((await rowById(s, retained.byRef[refKey(entry)]))?.[entry.field]).toBe(s.retainedProjectId);
     }
     expect(await pendingJobs(s)).toEqual([]);
+  });
+
+  it("withdraws and redacts approved project feedback and turns off a published draft_style digest that drew on it", async () => {
+    const s = await setup();
+    const { sourceId, feedbackId, digestId } = await s.t.run(async (ctx) => {
+      const sourceId = await ctx.db.insert("brainSources", {
+        kind: "pd_pair",
+        status: "approved",
+        title: "Acme thermal control note",
+        industry: "software",
+        writerTier: 1,
+        docType: "pd",
+        content: "Client-specific thermal control prose.",
+        ragKey: `rag-fb-${s.projectId}`,
+        sourceHash: `sh-fb-${s.projectId}`,
+        sourceProjectId: s.projectId,
+        createdBy: "erasure-admin",
+        createdAt: 10,
+      });
+      const feedbackId = await ctx.db.insert("brainFeedbackQueue", {
+        fromUserId: "erasure-admin",
+        projectId: s.projectId,
+        body: "Acme Thermal Corp uses proprietary flux valve wording.",
+        suggestedRule: "Prefer Acme phrasing.",
+        reviewNote: "Approved for style.",
+        status: "approved",
+        brainSourceId: sourceId,
+        createdAt: 10,
+      });
+      const digestId = await ctx.db.insert("learningDigests", {
+        kind: "draft_style",
+        content: "Published style guidance built from project feedback.",
+        sourceCount: 1,
+        feedbackCutoff: 10,
+        model: "claude-sonnet-5",
+        createdAt: 20,
+        admission: {
+          admittedCount: 1,
+          excludedCount: 0,
+          feedbackCutoff: 10,
+          producers: [{ producerId: "erasure-admin", count: 1 }],
+          streams: [
+            {
+              stream: "brainFeedbackQueue",
+              admittedCount: 1,
+              excludedCount: 0,
+              signalIds: [feedbackId],
+              producers: [{ producerId: "erasure-admin", count: 1 }],
+              missingWriterCount: 0,
+              missingProjectCount: 0,
+              insufficientDiversityCount: 0,
+              writerCount: 1,
+              projectCount: 1,
+            },
+          ],
+        },
+      });
+      await ctx.db.insert("learningDigestSelections", {
+        kind: "draft_style",
+        selectedDigestId: digestId,
+        actorKind: "system",
+        action: "select",
+        selectedAt: 30,
+      });
+      return { sourceId, feedbackId, digestId };
+    });
+
+    await s.admin.mutation(api.projects.deleteProject, { projectId: s.projectId });
+    await drain(s);
+
+    const state = await s.t.run(async (ctx) => ({
+      source: await ctx.db.get(sourceId),
+      feedback: await ctx.db.get(feedbackId),
+      latestSelection: await ctx.db
+        .query("learningDigestSelections")
+        .withIndex("by_kind", (q) => q.eq("kind", "draft_style"))
+        .order("desc")
+        .first(),
+    }));
+    expect(state.source?.status).toBe("revoked");
+    expect(state.source?.content).toBe("[redacted]");
+    expect(state.feedback).not.toBeNull();
+    expect(state.feedback?.projectId).toBeUndefined();
+    expect(state.feedback?.body).toBe("[redacted]");
+    expect(state.feedback?.suggestedRule).toBe("[redacted]");
+    expect(state.feedback?.reviewNote).toBe("[redacted]");
+    expect(state.feedback?.withdrawnAt).toBeDefined();
+    expect(state.feedback?.withdrawnApprovedAt).toBeDefined();
+    expect(state.latestSelection?.selectedDigestId).toBeNull();
+    expect(state.latestSelection?.action).toBe("source_withdrawn");
+    expect(digestId).toBeDefined();
   });
 
   it("keeps a blob another project's document still references", async () => {

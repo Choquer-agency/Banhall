@@ -2220,4 +2220,23 @@ describe("deleteClient (T2-4)", () => {
     expect(remaining.files).toEqual([]);
     expect(remaining.blob).toBeNull();
   });
+
+  it("refuses deletion while another client is moving company files into it", async () => {
+    const s = await setup();
+    const targetId = await insertClient(s, "Target Co");
+    const sourceId = await insertClient(s, "Source Co");
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(sourceId, { companyFilesMovingTo: targetId });
+    });
+
+    await expect(
+      s.admin.mutation(api.clients.deleteClient, { clientId: targetId })
+    ).rejects.toMatchObject({ data: { code: "INVALID_STATE" } });
+
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(sourceId, { companyFilesMovingTo: undefined });
+    });
+    await s.admin.mutation(api.clients.deleteClient, { clientId: targetId });
+    expect(await s.t.run((ctx) => ctx.db.get(targetId))).toBeNull();
+  });
 });
