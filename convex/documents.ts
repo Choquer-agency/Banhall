@@ -277,8 +277,6 @@ export const uploadDocument = mutation({
   },
 });
 
-const LIST_DOCUMENTS_MAX = 500;
-
 export const listDocuments = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
@@ -288,7 +286,7 @@ export const listDocuments = query({
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .take(LIST_DOCUMENTS_MAX);
+      .collect();
 
     // Metadata + a download URL for files with stored bytes.
     return await Promise.all(

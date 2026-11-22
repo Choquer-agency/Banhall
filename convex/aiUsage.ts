@@ -363,8 +363,6 @@ function rankedRows(
 }
 
 const USAGE_REPORT_MAX_ROWS = 20_000;
-const USAGE_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
-const USAGE_PRUNE_BATCH = 200;
 
 /**
  * Admin-only usage report for a date range. Bounded to USAGE_REPORT_MAX_ROWS
@@ -469,6 +467,7 @@ export const usageReport = query({
     return {
       totals,
       truncated,
+      maxRows: USAGE_REPORT_MAX_ROWS,
       byProject: rankedRows(byProject, projectLabels),
       byWriter: rankedRows(byWriter, writerLabels),
       byModel: rankedRows(byModel, modelLabels),
@@ -478,29 +477,6 @@ export const usageReport = query({
         .map(([day, aggregate]) => ({ day, ...aggregate }))
         .sort((a, b) => (a.day < b.day ? -1 : 1)),
     };
-  },
-});
-
-/**
- * Deletes raw aiUsage rows older than 180 days in bounded batches.
- * Hourly aggregates stay in aiUsageRollups.
- */
-export const pruneOldUsage = internalMutation({
-  args: {},
-  returns: v.number(),
-  handler: async (ctx): Promise<number> => {
-    const cutoff = Date.now() - USAGE_RETENTION_MS;
-    const oldRows = await ctx.db
-      .query("aiUsage")
-      .withIndex("by_createdAt", (q) => q.lt("createdAt", cutoff))
-      .take(USAGE_PRUNE_BATCH);
-    for (const row of oldRows) {
-      await ctx.db.delete(row._id);
-    }
-    if (oldRows.length === USAGE_PRUNE_BATCH) {
-      await ctx.scheduler.runAfter(0, internal.aiUsage.pruneOldUsage, {});
-    }
-    return oldRows.length;
   },
 });
 

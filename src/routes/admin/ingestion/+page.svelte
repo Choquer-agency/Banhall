@@ -68,6 +68,11 @@
   });
   const gapsQ = useQuery(api.ingestion.listGaps, () => auth.isAuthenticated && tab === "gaps" ? {} : "skip");
   const runsQ = useQuery(api.ingestion.listSyncRuns, () => auth.isAuthenticated ? {} : "skip");
+  const reviewTextQ = useQuery(api.ingestion.getItemText, () =>
+    auth.isAuthenticated && reviewDialogOpen && reviewTarget
+      ? { itemId: reviewTarget._id }
+      : "skip"
+  );
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) goToLogin();
@@ -75,6 +80,7 @@
 
   const stats = $derived(statsQ.data);
   const items = $derived(itemsQ.data);
+  const reviewPreviewText = $derived(reviewTextQ.data ?? reviewTarget?.text ?? null);
   const gaps = $derived(gapsQ.data);
   const runs = $derived(runsQ.data);
   const latestRun = $derived(runs?.[0]);
@@ -630,8 +636,12 @@
                     <WarningCircleIcon class="mt-0.5 shrink-0" size="0.9375rem" aria-hidden="true" />{reviewTarget.error}
                   </p>
                 {/if}
-                {#if reviewTarget.text}
-                  <pre class="whitespace-pre-wrap font-sans text-sm leading-[calc(12/7)] text-ink-secondary">{reviewTarget.text}</pre>
+                {#if reviewPreviewText}
+                  <pre class="whitespace-pre-wrap font-sans text-sm leading-[calc(12/7)] text-ink-secondary">{reviewPreviewText}</pre>
+                {:else if reviewTextQ.isLoading && (reviewTarget.textLength ?? 0) > 0}
+                  <div class="flex min-h-64 flex-col items-center justify-center text-center">
+                    <p class="text-sm font-medium text-ink-muted">Loading extracted text...</p>
+                  </div>
                 {:else}
                   <div class="flex min-h-64 flex-col items-center justify-center text-center">
                     <WarningCircleIcon size="1.5rem" class="text-amber-700" aria-hidden="true" />

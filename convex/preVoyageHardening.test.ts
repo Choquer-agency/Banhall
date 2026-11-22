@@ -9,6 +9,7 @@ import { contentHash, importSource, legacyContentHash } from "./brain";
 import { CONTEXTUALIZE_THINKING } from "./ai/brain/ingest";
 import { ROLE_POLICIES } from "../shared/modelCatalog";
 import { uploadUpsertFields } from "./lib/ingestionClassify";
+import { readIngestionItemText } from "./lib/ingestionItemTexts";
 import {
   SCIENCE_CODE_INPUT_SCHEMA,
   SCIENCE_CODE_MAX_TOKENS,
@@ -236,7 +237,13 @@ describe("Pre-Voyage-4 AI and import hardening", () => {
     });
     const finalRow = await t.run((ctx) => ctx.db.get(itemId!));
     expect(finalRow?.status).toBe("pending_review");
-    expect(finalRow?.text).toBe("fresh v2 text");
+    expect(finalRow?.text).toBeUndefined();
+    expect(finalRow?.textLength).toBe("fresh v2 text".length);
+    expect(await t.run((ctx) => readIngestionItemText(ctx, finalRow!))).toBe("fresh v2 text");
+    await seedAdmin(t);
+    const admin = t.withIdentity({ subject: "admin-1" });
+    expect(await admin.query(api.ingestion.getItemText, { itemId: itemId! })).toBe("fresh v2 text");
+    expect(await t.query(api.ingestion.getItemText, { itemId: itemId! })).toBeNull();
   });
 
   it("configures science_code on Haiku 5.5 with a strict enum schema and disables thinking for brain chunk context", () => {

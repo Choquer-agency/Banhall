@@ -238,13 +238,7 @@ crons.interval(
 );
 
 // Daily bounded retention pruners for high-volume operational tables.
-// Raw aiUsage rows roll up into aiUsageRollups before pruning after 180 days.
-crons.cron(
-  "prune old AI usage rows",
-  "30 10 * * *",
-  internal.aiUsage.pruneOldUsage,
-  {}
-);
+// Raw aiUsage rows are preserved until historical reports read complete rollups.
 crons.cron(
   "prune old rerank outcomes",
   "40 10 * * *",

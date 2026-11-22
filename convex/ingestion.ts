@@ -533,9 +533,19 @@ export const listItems = query({
       .withIndex("by_status", (q) => q.eq("status", args.status))
       .order("desc")
       .take(300);
-    // Newest first (Aug 18 request) — the index walk is already _creationTime
+    // Newest first (Aug 18 request) - the index walk is already _creationTime
     // desc; keep it rather than re-sorting into client+FY groups.
     return items;
+  },
+});
+
+export const getItemText = query({
+  args: { itemId: v.id("ingestionItems") },
+  handler: async (ctx, args) => {
+    if ((await adminOrNull(ctx)) === null) return null;
+    const item = await ctx.db.get(args.itemId);
+    if (!item) return null;
+    return (await readIngestionItemText(ctx, item)) ?? null;
   },
 });
 

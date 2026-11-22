@@ -589,11 +589,17 @@ describe("review fixes (2026-11-18)", () => {
     expect((await client(s, s.borealis.clientId))?.companyFilesMovingTo).toBeUndefined();
   });
 
-  test("P3-3: the project copy cron schedules the stalled-move sweep in its own transaction", async () => {
+  test("P3-3: the stalled-move sweep runs on its own 5-minute cron instead of riding on the project copy cron", async () => {
     const s = await setup();
     await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
     const jobs = await s.t.run(async (ctx) => bounded(await ctx.db.system.query("_scheduled_functions").take(FIXTURE_ROWS)));
-    expect(jobs.map((job) => job.name)).toContain("clients:resumeStalledCompanyFileMoves");
+    expect(jobs.map((job) => job.name)).not.toContain("clients:resumeStalledCompanyFileMoves");
+    const { default: crons } = await import("./crons");
+    const entry = Object.entries(crons.crons).find(([name]) => name === "resume stalled company file moves");
+    expect(entry).toBeDefined();
+    expect(entry?.[1]).toMatchObject({
+      schedule: { type: "interval", minutes: 5 },
+    });
   });
 
   test("P3-4: a Brief preparation waits for moving files under its own reason, and stops after 30 minutes of it", async () => {

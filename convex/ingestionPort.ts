@@ -12,6 +12,7 @@ import { workflowStageRank } from "../shared/workflowStages";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import {
   projectDashboardProjectionPatch,
+  syncDashboardCompanyDerivedYearEnd,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
@@ -216,6 +217,9 @@ export const finalizePort = internalMutation({
       // Born at intake; the company row's stage bucket moves in the same
       // transaction (2026-08-06 second amendment).
       await upsertDashboardCompany(ctx, companyKey, clientName, 1, "intake");
+      if (fiscalYearEnd !== undefined) {
+        await syncDashboardCompanyDerivedYearEnd(ctx, companyKey);
+      }
       // Both existing creation paths insert an empty transcript row and
       // downstream consumers assume one exists.
       await ctx.db.insert("transcripts", {

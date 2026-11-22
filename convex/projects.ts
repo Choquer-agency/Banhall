@@ -238,7 +238,6 @@ async function validateProjectTagIds(
 
 
 const LIST_PROJECTS_MAX = 500;
-const LIST_INDUSTRIES_SCAN_MAX = 1_000;
 
 export const listProjects = query({
   args: {
@@ -341,18 +340,24 @@ export const listIndustries = query({
   args: {},
   handler: async (ctx) => {
     await requireInternalActor(ctx);
-    const projects = await ctx.db
-      .query("projects")
-      .withIndex("by_updatedAt")
-      .order("desc")
-      .take(LIST_INDUSTRIES_SCAN_MAX);
-    return [
-      ...new Set(
-        projects
-          .map((p) => p.industry)
-          .filter((i): i is string => Boolean(i && i.trim()))
-      ),
-    ].sort();
+    const seen = new Set<string>();
+    let cursor: string | undefined = undefined;
+    // Skip-scan distinct industry values over the by_industry index: reads one
+    // row per distinct value instead of scanning every project or dropping
+    // custom industries that only appear on older projects.
+    while (seen.size < 500) {
+      const next = await ctx.db
+        .query("projects")
+        .withIndex("by_industry", (q) =>
+          cursor === undefined ? q.gt("industry", "") : q.gt("industry", cursor)
+        )
+        .first();
+      if (!next || !next.industry) break;
+      const trimmed = next.industry.trim();
+      if (trimmed) seen.add(trimmed);
+      cursor = next.industry;
+    }
+    return [...seen].sort();
   },
 });
 

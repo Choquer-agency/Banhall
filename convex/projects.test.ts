@@ -2239,3 +2239,30 @@ describe("findSameProject (E6)", () => {
     await expect(f.t.query(api.projects.findSameProject, query())).rejects.toThrow();
   });
 });
+
+describe("listIndustries skip-scan over by_industry", () => {
+  test("returns all distinct non-blank industries sorted without dropping older projects", async () => {
+    const f = await setup();
+    const writer = asActor(f.t, "writer");
+    await f.t.run(async (ctx) => {
+      const base = {
+        clientName: "Acme",
+        status: "draft" as const,
+        createdBy: f.writerId,
+        ownerId: f.writerId,
+        shareToken: "tok",
+        createdAt: 1,
+      };
+      await ctx.db.insert("projects", { ...base, title: "Old custom", industry: "Photonics", updatedAt: 10 });
+      await ctx.db.insert("projects", { ...base, title: "No industry", updatedAt: 20 });
+      await ctx.db.insert("projects", { ...base, title: "Empty industry", industry: "", updatedAt: 30 });
+      await ctx.db.insert("projects", { ...base, title: "Blank industry", industry: "   ", updatedAt: 40 });
+      await ctx.db.insert("projects", { ...base, title: "Trimmed dup 1", industry: "Software", updatedAt: 50 });
+      await ctx.db.insert("projects", { ...base, title: "Trimmed dup 2", industry: " Software ", updatedAt: 60 });
+      await ctx.db.insert("projects", { ...base, title: "Another", industry: "AgTech", updatedAt: 70 });
+    });
+
+    const industries = await writer.query(api.projects.listIndustries, {});
+    expect(industries).toEqual(["AgTech", "Photonics", "Software"]);
+  });
+});
