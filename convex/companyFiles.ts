@@ -301,6 +301,17 @@ export const addCompanyFile = mutation({
           storageId: args.storageId,
           ...(args.mimeType ? { mimeType: args.mimeType } : {}),
         });
+        if (
+          needsServerReading({
+            fileName: duplicate.fileName,
+            storageId: args.storageId,
+            hasReadText: duplicate.hasText,
+          })
+        ) {
+          await ctx.scheduler.runAfter(0, internal.ai.fileReading.readStoredCompanyFile, {
+            companyFileId: duplicate._id,
+          });
+        }
       } else if (args.storageId && duplicate.storageId !== args.storageId) {
         const claim = await uploadClaimFor(ctx, args.storageId);
         if (!claim || claim.userId === user._id) await deleteStorageIfUnreferenced(ctx, args.storageId);
@@ -897,6 +908,10 @@ export const removeCompanyFile = mutation({
  */
 async function applyRemove(ctx: MutationCtx, file: Doc<"companyFiles">, userId: Id<"users">): Promise<void> {
   await logEvent(ctx, file, "remove", userId);
+  const client = await ctx.db.get(file.clientId);
+  if (client && client.websiteFileId === file._id) {
+    await ctx.db.patch(client._id, { websiteFileId: undefined });
+  }
   await ctx.db.delete(file._id);
   if (file.storageId) await deleteStorageIfUnreferenced(ctx, file.storageId);
   await ctx.scheduler.runAfter(0, internal.companyFiles.deleteRemovedFileLeftovers, { companyFileId: file._id });

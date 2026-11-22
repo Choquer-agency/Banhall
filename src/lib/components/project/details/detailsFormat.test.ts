@@ -70,19 +70,21 @@ describe("Stage menu", () => {
     expect(groups[0].options.find((option) => option.stage === "internal_review")?.hint).toBe("next");
   });
 
-  it("keeps Submitted and Delivered unavailable and asks for reasons on pause edges", () => {
+  it("enables Submitted and Delivered and asks for reasons on pause edges", () => {
     const options = stageMenuGroups("drafting").flatMap((group) => group.options);
     const byStage = Object.fromEntries(options.map((option) => [option.stage, option]));
-    expect(byStage.ready_for_delivery.disabledReason).toBe(NOT_AVAILABLE_YET);
-    expect(byStage.delivered.disabledReason).toBe(NOT_AVAILABLE_YET);
+    expect(byStage.ready_for_delivery.disabledReason).toBeNull();
+    expect(byStage.delivered.disabledReason).toBeNull();
     expect(byStage.on_hold.move).toBe("reason");
     expect(byStage.on_hold.hint).toBe("asks for a reason");
     expect(byStage.abandoned.move).toBe("reason");
     expect(byStage.edits.move).toBe("plain");
   });
 
-  it("keeps the review decision step on the internal-review completion edge", () => {
+  it("keeps the review decision step on all internal-review completion edges", () => {
     expect(stageMove("internal_review", "edits")).toBe("decision");
+    expect(stageMove("internal_review", "client_review")).toBe("decision");
+    expect(stageMove("internal_review", "ready_for_delivery")).toBe("decision");
     expect(stageMove("abandoned", "drafting")).toBe("reason");
   });
 
@@ -93,10 +95,11 @@ describe("Stage menu", () => {
     expect(managed.find((option) => option.stage === "drafting")?.disabledReason).toBeNull();
   });
 
-  it("offers hand-off stages without unavailable or decision edges, keeping the current stage", () => {
+  it("offers hand-off stages without decision or outcome-pinned edges, keeping the current stage", () => {
     const stages = handOffStageOptions("internal_review").map((option) => option.stage);
     expect(stages).toContain("internal_review");
     expect(stages).not.toContain("edits");
+    expect(stages).not.toContain("client_review");
     expect(stages).not.toContain("ready_for_delivery");
     expect(stages).not.toContain("delivered");
     expect(stages).toContain("on_hold");

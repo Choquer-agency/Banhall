@@ -35,10 +35,12 @@ export const WORKFLOW_STAGE_DESCRIPTIONS: Record<WorkflowStage, string> = {
 
 // `null` marks a requirement the caller can satisfy in the same request, so it
 // never disables the option: `review_decision` is supplied with the stage
-// change itself. The others fail closed until their storage lands.
+// change itself, and `promoted_branch` / `delivery_outcome` pin the latest
+// report revision and write an immutable `productionOutcomes` record (2026-11-21
+// amendment).
 export const TRANSITION_REQUIREMENT_BLOCKERS: Record<TransitionRequirement, string | null> = {
-  promoted_branch: "Needs a promoted report branch before this stage is available.",
-  delivery_outcome: "Needs a recorded delivery or filing outcome before this stage is available.",
+  promoted_branch: null,
+  delivery_outcome: null,
   review_decision: null,
 };
 

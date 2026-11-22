@@ -8,7 +8,14 @@ import { __mutationCalls, __resetConvexStub, __setMutationError, __setQueryData 
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
-const allOn = { ideasReady: true, draftReady: true, qaFinished: true, handoff: true, inviteAccepted: true };
+const allOn = {
+  ideasReady: true,
+  draftReady: true,
+  qaFinished: true,
+  handoff: true,
+  inviteAccepted: true,
+  clientComment: true,
+};
 const rowLabels = () =>
   Array.from(document.querySelectorAll<HTMLElement>("[data-settings-row]")).map((row) =>
     row.textContent?.replace(/\s+/g, " ").trim()
@@ -30,6 +37,7 @@ describe("Settings Notifications (I3)", () => {
       "Draft is ready When the PD is written.",
       "QA finished With the score.",
       "Handed off to you When a project lands with you.",
+      "Client comment When a client comments on a shared review link.",
     ]);
     expect(document.querySelector("[data-settings-notifications]")?.textContent).toContain("In the app");
     expect(document.querySelector("[data-settings-notifications]")?.textContent).not.toContain("Email");

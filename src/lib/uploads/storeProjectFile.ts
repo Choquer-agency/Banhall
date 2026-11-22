@@ -2,7 +2,7 @@ import type { FunctionArgs } from "convex/server";
 import type { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ContextCategoryId } from "$lib/contextCategories";
-import { parseFileToText, type ParsedFileType } from "$lib/parseDocument";
+import type { parseFileToText, ParsedFileType } from "$lib/parseDocument";
 import { isParseAbort } from "$lib/spreadsheetClient";
 import { guessFileType } from "$lib/components/project-new/shared";
 import { withUploadTimeout } from "./outboxFlush";
@@ -54,7 +54,7 @@ export async function storeProjectFile(
   input: StoreProjectFileInput
 ): Promise<StoredProjectFile> {
   const { file, operation } = input;
-  const parse = deps.parse ?? parseFileToText;
+  const parse = deps.parse ?? (await import("$lib/parseDocument")).parseFileToText;
   operation.throwIfAborted();
 
   let content = "";

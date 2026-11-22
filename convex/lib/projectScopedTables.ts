@@ -282,6 +282,7 @@ export const PROJECT_SCOPED_TABLES = [
   // (preserving withdrawal markers so published draft_style digests turn off);
   // unapproved feedback rows are deleted outright.
   { table: "brainFeedbackQueue", field: "projectId", disposition: "withdraw", index: "by_projectId" },
+  { table: "productionOutcomes", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Audit and decision rows the product never deletes (ask first to change).
   { table: "writerReviews", field: "projectId", disposition: "keep" },
   { table: "reviewDecisions", field: "projectId", disposition: "keep" },

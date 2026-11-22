@@ -8,7 +8,7 @@
  * one CRA line model, so the block and the meters can never disagree.
  */
 import { GAP_MARKER_RE, INFERRED_MARKER_RE, generationCeiling } from "../lib/lineLimits";
-import { parseCanonicalReport, reportSectionMetrics } from "../../src/lib/reportSections";
+import { parseCanonicalReport, reportSectionMetrics } from "../../shared/report/reportSections";
 
 const LINES = [
   ["s242", "242"],

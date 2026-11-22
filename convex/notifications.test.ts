@@ -241,7 +241,14 @@ describe("notifications.markSeen", () => {
 });
 
 describe("notification settings", () => {
-  const allOn = { ideasReady: true, draftReady: true, qaFinished: true, handoff: true, inviteAccepted: true };
+  const allOn = {
+    ideasReady: true,
+    draftReady: true,
+    qaFinished: true,
+    handoff: true,
+    inviteAccepted: true,
+    clientComment: true,
+  };
 
   it("defaults every switch on, signed in or not", async () => {
     const f = await setup();

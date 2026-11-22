@@ -183,7 +183,7 @@ describe("Details panel", () => {
     expect(picks).toEqual(["Mar 31", "Jun 30", "Sep 30", "Dec 31"]);
     await page.getByRole("button", { name: "Dec 31", exact: true }).click();
     await expect.poll(() => onSaveFiscalYear.mock.calls.length).toBe(1);
-    expect(onSaveFiscalYear).toHaveBeenCalledWith(new Date(2026, 11, 31).getTime());
+    expect(onSaveFiscalYear).toHaveBeenCalledWith(Date.UTC(2026, 11, 31));
   });
 
   it("opens the science code picker grouped by field with the current code checked", async () => {
@@ -348,7 +348,7 @@ describe("Details panel", () => {
     expect(onSaveProjectNumber).toHaveBeenCalledTimes(1);
   });
 
-  it("lists every stage grouped, with Submitted and Delivered disabled as not available yet", async () => {
+  it("lists every stage grouped, with Submitted and Delivered enabled", async () => {
     await mount();
     await page.getByRole("button", { name: "Change stage", exact: true }).click();
     await expect.poll(() => document.querySelector("[data-stage-menu]")).not.toBeNull();
@@ -359,8 +359,8 @@ describe("Details panel", () => {
     expect(option("drafting").getAttribute("aria-checked")).toBe("true");
     expect(option("internal_review").textContent).toContain("next");
     for (const stage of ["ready_for_delivery", "delivered"]) {
-      expect(option(stage).disabled).toBe(true);
-      expect(option(stage).textContent).toContain("not available yet");
+      expect(option(stage).disabled).toBe(false);
+      expect(option(stage).textContent).not.toContain("not available yet");
     }
     expect(option("on_hold").textContent).toContain("asks for a reason");
   });

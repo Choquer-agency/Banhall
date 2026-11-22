@@ -5,7 +5,7 @@
   `compact` is the short bar shown once files are listed under it.
 -->
 <script lang="ts">
-  import { SUPPORTED_ACCEPT } from "$lib/parseDocument";
+  import { SUPPORTED_ACCEPT } from "$lib/documentFileTypes";
   import { dragHasFiles, draggedFileTypes } from "./fileMeta";
 
   let {

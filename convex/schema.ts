@@ -3911,11 +3911,32 @@ export default defineSchema({
     revisionNumber: v.number(),
     contentHash: v.string(),
     decision: v.union(v.literal("approve"), v.literal("return")),
-    toStage: v.union(v.literal("edits"), v.literal("ready_for_delivery")),
+    toStage: v.union(
+      v.literal("edits"),
+      v.literal("client_review"),
+      v.literal("ready_for_delivery")
+    ),
     note: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"]),
+
+  // Immutable delivery and submission outcome records pinned directly to an
+  // exact report revision (reportId, revisionNumber, contentHash) when a
+  // project enters `ready_for_delivery` (Submitted) or `delivered` (Delivered).
+  productionOutcomes: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    outcomeType: v.union(v.literal("ready_for_delivery"), v.literal("delivered")),
+    recordedBy: v.id("users"),
+    recordedAt: v.number(),
+    note: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_outcomeType", ["projectId", "outcomeType"])
     .index("by_reportId", ["reportId"]),
 
   // Per-writer feedback on individual generated QA observations. Target keys
@@ -6189,7 +6210,8 @@ export default defineSchema({
       v.literal("draft_ready"),
       v.literal("qa_finished"),
       v.literal("handoff"),
-      v.literal("invite_accepted")
+      v.literal("invite_accepted"),
+      v.literal("client_comment")
     ),
     projectId: v.optional(v.id("projects")),
     generationId: v.optional(v.id("generations")),
@@ -6212,5 +6234,6 @@ export default defineSchema({
     qaFinished: v.optional(v.boolean()),
     handoff: v.optional(v.boolean()),
     inviteAccepted: v.optional(v.boolean()),
+    clientComment: v.optional(v.boolean()),
   }).index("by_userId", ["userId"]),
 });

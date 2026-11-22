@@ -603,6 +603,15 @@ async function seedProjectRows(
       ...copyJob, fromProjectId: projectId, toProjectId: byRef["projects.sourceProjectId"] as Id<"projects">,
     });
     await ctx.db.insert("projectCopyJobs", { ...copyJob, toProjectId: projectId });
+    await ctx.db.insert("productionOutcomes", {
+      projectId,
+      reportId,
+      revisionNumber: 0,
+      contentHash: "h",
+      outcomeType: "ready_for_delivery",
+      recordedBy: userId,
+      recordedAt: now,
+    });
     // Keep rows.
     byRef["writerReviews.projectId"] = await ctx.db.insert("writerReviews", { projectId, reportId, userId, score: 80, createdAt: now, updatedAt: now });
     byRef["comparisons.projectId"] = await ctx.db.insert("comparisons", {

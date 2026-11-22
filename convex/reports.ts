@@ -23,7 +23,7 @@ import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { parseCanonicalReport, reportSectionMetrics } from "../src/lib/reportSections";
+import { parseCanonicalReport, reportSectionMetrics } from "../shared/report/reportSections";
 import { getPendingReportProvenance, getReportBody, reportWithBody, writeReportBody, type ReportWithBody } from "./lib/reportBodies";
 import { deleteProvenanceIfUnheld, materializePendingReportProvenance, stageProvenanceForEdit } from "./lib/editProvenance";
 import { internal } from "./_generated/api";

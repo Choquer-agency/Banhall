@@ -1,7 +1,7 @@
 import type { FunctionArgs } from "convex/server";
 import type { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { parseFileToText, type ParsedFileType } from "$lib/parseDocument";
+import type { parseFileToText, ParsedFileType } from "$lib/parseDocument";
 import { isParseAbort } from "$lib/spreadsheetClient";
 import { guessFileType } from "$lib/components/project-new/shared";
 import { withUploadTimeout } from "./outboxFlush";
@@ -118,7 +118,7 @@ export async function prepareCompanyFile(
 ): Promise<PreparedCompanyFile> {
   const { file, signal, onProgress } = input;
   if (isTooLarge(file)) throw new CompanyFileTooLargeError();
-  const parse = deps.parse ?? parseFileToText;
+  const parse = deps.parse ?? (await import("$lib/parseDocument")).parseFileToText;
   signal?.throwIfAborted();
 
   onProgress?.({ phase: "reading" });

@@ -19,6 +19,8 @@ import {
 } from "./lib/reportEdits";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { limitProjectAction } from "./lib/aiRateLimits";
+import { notify } from "./lib/notify";
+import { notificationCopy } from "../shared/notifications";
 
 const COMMENTER_COLORS = [
   "#818CF8",
@@ -101,6 +103,7 @@ export const addComment = mutation({
 
     let commenterType: "client" | "writer";
     let commenterId: string;
+    let clientReviewerName: string | null = null;
     if (access.kind === "internal") {
       commenterType = "writer";
       commenterId = access.user._id;
@@ -113,6 +116,7 @@ export const addComment = mutation({
       await limitProjectAction(ctx, "clientCommentPerProject", args.projectId);
       commenterType = "client";
       commenterId = commenter._id;
+      clientReviewerName = commenter.name;
     }
 
     const commentId = await ctx.db.insert("comments", {
@@ -129,7 +133,26 @@ export const addComment = mutation({
       createdAt: Date.now(),
     });
     // Phase E (E2b): an internal reviewer's comment as a learning signal.
-    if (commenterType === "writer") await scheduleSignalCapture(ctx, { commentId });
+    if (commenterType === "writer") {
+      await scheduleSignalCapture(ctx, { commentId });
+    } else {
+      const recipientId = access.project.ownerId ?? access.project.createdBy;
+      if (recipientId) {
+        const copy = notificationCopy.clientComment({
+          project: access.project.title,
+          reviewer: clientReviewerName ?? "A client",
+        });
+        await notify(ctx, {
+          userId: recipientId,
+          kind: "client_comment",
+          projectId: args.projectId,
+          title: copy.title,
+          body: copy.body,
+          href: `/project/${args.projectId}`,
+          dedupeKey: `client_comment:${commentId}`,
+        });
+      }
+    }
     return commentId;
   },
 });
@@ -305,10 +328,45 @@ export const listCommenters = query({
       .query("commenters")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .take(250);
-    return commenters.map((commenter) => ({
-      _id: commenter._id,
-      name: commenter.name,
-      color: commenter.color,
-    }));
+    const results: Array<{ _id: string; name: string; color: string }> = commenters.map(
+      (commenter) => ({
+        _id: commenter._id,
+        name: commenter.name,
+        color: commenter.color,
+      })
+    );
+    if (access.kind === "internal") {
+      const comments = await ctx.db
+        .query("comments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+        .take(1_000);
+      const seen = new Set(results.map((entry) => entry._id));
+      const writerIds: string[] = [];
+      for (const comment of comments) {
+        if (comment.commenterType !== "writer" || seen.has(comment.commenterId)) continue;
+        seen.add(comment.commenterId);
+        writerIds.push(comment.commenterId);
+      }
+      const writerUsers = await Promise.all(
+        writerIds.map((rawId) => {
+          const userId = ctx.db.normalizeId("users", rawId);
+          return userId ? ctx.db.get(userId) : Promise.resolve(null);
+        })
+      );
+      writerUsers.forEach((user, idx) => {
+        if (!user) return;
+        const fullName = [user.firstName, user.lastName]
+          .map((part) => part?.trim())
+          .filter(Boolean)
+          .join(" ");
+        const name = fullName || user.name?.trim() || user.email?.trim() || "Consultant";
+        results.push({
+          _id: user._id,
+          name,
+          color: COMMENTER_COLORS[(commenters.length + idx) % COMMENTER_COLORS.length],
+        });
+      });
+    }
+    return results;
   },
 });

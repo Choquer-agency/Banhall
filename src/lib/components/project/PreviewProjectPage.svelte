@@ -63,7 +63,7 @@
   import FilesPanel from "$lib/components/editor/FilesPanel.svelte";
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
-  import { normalizeExtractedText } from "$lib/parseDocument";
+  import { normalizeExtractedText } from "$lib/documentFileTypes";
   import FilingReadinessPanel from "$lib/components/evidence/FilingReadinessPanel.svelte";
   import LogsPanel from "$lib/components/editor/LogsPanel.svelte";
   import CommentOverlay from "$lib/components/comments/CommentOverlay.svelte";

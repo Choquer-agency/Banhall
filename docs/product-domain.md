@@ -6255,6 +6255,16 @@ Approved by the product owner on 2026-11-21 from the four-model audit (`master-a
 - **Test impact:** `convex/rolelessAccess.test.ts`, `convex/projects.test.ts`, `convex/projectErasure.test.ts`, `src/lib/workspace/projectDelete.test.ts`, `src/lib/components/projects/ProjectsPage.component.test.ts`, and `src/lib/components/project/SeedProjectHosts.component.test.ts`.
 - **Approval:** product owner, 2026-11-21.
 
+### 2026-11-21 (second): Unblock Internal Review approval and terminal delivery stages
+
+Approved by the product owner on 2026-11-21 (policy decision #1 from `master-audit-and-fix-plan-2026-11-21.md`). Multi-branch `reportBranches` storage remains deferred until needed; instead, terminal workflow stages pin directly to the exact report revision.
+
+- **Internal review approval:** an internal reviewer (handoff assignee, Owner, Manager, or Admin) may approve a report from `internal_review` into either `client_review` or `ready_for_delivery` (Submitted), recording an `approve` row in `reviewDecisions` pinned to `(reportId, revisionNumber, contentHash)` in the same transaction as the stage change. `internal_review` -> `edits` remains `return`.
+- **Submitted (`ready_for_delivery`) and Delivered (`delivered`):** both stages are unblocked in `setWorkflowStage`, `workflowStageOptions`, and the Details stage menu. Entering either stage requires an existing report revision on the project and inserts an immutable `productionOutcomes` row pinned to `(reportId, revisionNumber, contentHash, outcomeType, recordedBy, recordedAt, note)` in the same transaction as `writeWorkflowStageChange`. `workItems.handOff` continues to direct callers to Change stage for `ready_for_delivery` and `delivered` so outcome rows are always recorded.
+- **Migration and compatibility:** widen-only: `reviewDecisions.toStage` adds `"client_review"`; new table `productionOutcomes` with indexes `by_projectId`, `by_projectId_and_outcomeType`, and `by_reportId` (registered in `projectScopedTables` for project erasure).
+- **Test impact:** `convex/projectWorkflow.test.ts`, `convex/workItems.test.ts`, `convex/projectErasure.test.ts`, `src/lib/workflow/workflowLabels.test.ts`, `src/lib/components/project/details/detailsFormat.test.ts`, and `src/lib/components/project/details/DetailsPanel.component.test.ts`.
+- **Approval:** product owner, 2026-11-21.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

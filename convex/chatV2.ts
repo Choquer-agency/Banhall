@@ -1507,17 +1507,15 @@ export const applyProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
-    // Phase B (W3): what changed, so a human can undo it (chat cards only;
-    // a research card's row reaches the browser whole through research).
-    const appliedChange = isResearchProposal(proposal)
-      ? undefined
-      : appliedChangeFor({
-          before: parsed,
-          after: updated,
-          revisionNumber: revisionNumber + 1,
-          appliedAt: now,
-          appliedBy: applier._id,
-        });
+    // Phase B (W3): what changed, so a human can undo it (chat and research
+    // cards alike; research.getSessionDetails strips appliedChange before send).
+    const appliedChange = appliedChangeFor({
+      before: parsed,
+      after: updated,
+      revisionNumber: revisionNumber + 1,
+      appliedAt: now,
+      appliedBy: applier._id,
+    });
     await markAppliedWithRecord(
       ctx,
       proposal,
@@ -1674,17 +1672,15 @@ export const markProposalApplied = mutation({
     });
     await persistDeterministicFindings(ctx, report._id);
     // Phase B (W3): what the stepped document changed, for Undo.
-    const appliedChange = isResearchProposal(proposal)
-      ? undefined
-      : appliedChangeFor({
-          before: parseReportDocument(report.content),
-          after: parseReportDocument(args.content),
-          revisionNumber: revisionNumber + 1,
-          appliedAt: now,
-          appliedBy: user._id,
-          // Review R2 P3-1: only the runs this card's pairs touched.
-          touchedBy: proposalPairs(proposal),
-        });
+    const appliedChange = appliedChangeFor({
+      before: parseReportDocument(report.content),
+      after: parseReportDocument(args.content),
+      revisionNumber: revisionNumber + 1,
+      appliedAt: now,
+      appliedBy: user._id,
+      // Review R2 P3-1: only the runs this card's pairs touched.
+      touchedBy: proposalPairs(proposal),
+    });
     await markAppliedWithRecord(
       ctx,
       proposal,

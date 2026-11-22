@@ -425,15 +425,18 @@ describe("undoProposal", () => {
     expect(await errorCode(() => f.owner.mutation(api.chatV2.undoProposal, { proposalId: id }))).toBe("INVALID_STATE");
   });
 
-  it("records nothing for a research card, whose row reaches the browser whole", async () => {
+  it("records appliedChange and supports Undo for a research card", async () => {
     const f = await setup();
     const id = await f.propose("edit", [{ find: TARGET, replaceWith: REWRITE }]);
     await f.t.run(async (ctx) => {
       await ctx.db.patch(id, { agentThreadId: "research:session" });
     });
     await f.owner.mutation(api.chatV2.applyProposal, { proposalId: id });
-    expect((await f.proposal(id)).appliedChangeId).toBeUndefined();
-    expect(await f.records(id)).toEqual([]);
+    expect((await f.proposal(id)).appliedChangeId).toBeDefined();
+    expect(await f.records(id)).toHaveLength(1);
+    await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });
+    expect((await f.report()).content).toBe(f.content);
+    expect((await f.proposal(id)).state).toBe("pending");
   });
 
   it("still undoes a card that holds the deprecated on-card record", async () => {

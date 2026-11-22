@@ -1,4 +1,4 @@
-import { isImageFile } from "$lib/parseDocument";
+import { isImageFile } from "$lib/documentFileTypes";
 
 export function guessFileType(
   name: string

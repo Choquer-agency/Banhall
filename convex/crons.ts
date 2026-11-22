@@ -127,11 +127,8 @@ crons.interval(
   { minutes: 5 },
   internal.oversight.sweepStalled
 );
-crons.interval(
-  "resume stalled My work backfills",
-  { minutes: 5 },
-  internal.myWorkBackfill.sweepStalled
-);
+// Retired 2026-11-21: My work backfill is complete; manual admin resume remains
+// available via `myWorkBackfill.resume` without 5-minute idle cron polling.
 
 // Model catalog (owner decision 21, amended 2026-10-22 and 2026-10-23):
 // refresh from OpenRouter and log expiring or removed models for admins

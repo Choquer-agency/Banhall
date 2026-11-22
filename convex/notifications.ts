@@ -50,7 +50,8 @@ const notificationKindValidator = v.union(
   v.literal("draft_ready"),
   v.literal("qa_finished"),
   v.literal("handoff"),
-  v.literal("invite_accepted")
+  v.literal("invite_accepted"),
+  v.literal("client_comment")
 );
 
 const settingKeyValidator = v.union(
@@ -58,7 +59,8 @@ const settingKeyValidator = v.union(
   v.literal("draftReady"),
   v.literal("qaFinished"),
   v.literal("handoff"),
-  v.literal("inviteAccepted")
+  v.literal("inviteAccepted"),
+  v.literal("clientComment")
 );
 
 const settingsValidator = v.object({
@@ -67,6 +69,7 @@ const settingsValidator = v.object({
   qaFinished: v.boolean(),
   handoff: v.boolean(),
   inviteAccepted: v.boolean(),
+  clientComment: v.boolean(),
 });
 
 const notificationViewValidator = v.object({
