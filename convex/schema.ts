@@ -3978,6 +3978,10 @@ export default defineSchema({
     // erasure.
     ragEntryIdV4: v.optional(v.string()),
     chunkNotesVersionV4: v.optional(v.number()),
+    // 2026-11-21 widen: Voyage 4 embedding prompt version (2 = asymmetric
+    // input_type "document"/"query"). Older unprompted v4 entries lack this
+    // version so buildSearchIndex rebuilds them and cutover refuses them.
+    embeddingVersionV4: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
@@ -4042,6 +4046,7 @@ export default defineSchema({
     // chunkNotesVersionV4, for the voyage4 build chain and the admin list.
     ragEntryIdV4: v.optional(v.string()),
     chunkNotesVersionV4: v.optional(v.number()),
+    embeddingVersionV4: v.optional(v.number()),
   })
     .index("by_sourceId", ["sourceId"])
     .index("by_createdAt", ["createdAt"])

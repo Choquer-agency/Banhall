@@ -5685,7 +5685,11 @@ export const stageImportFiles = mutation({
         continue;
       }
       const fields = { ...uploadUpsertFields(relPath, stored.size, file.lastModifiedAt, hash), driveItemId: key };
-      const id = await upsertDiscovered(ctx, fields, groups, { batchId: args.batchId, now });
+      const id = await upsertDiscovered(ctx, fields, groups, {
+        batchId: args.batchId,
+        now,
+        resumeMissingBytes: true,
+      });
       if (id === null) {
         // Same path, same bytes: already here. The upload is not needed.
         await ctx.storage.delete(file.storageId);

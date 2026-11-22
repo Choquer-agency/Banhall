@@ -16,6 +16,7 @@ import {
   brainV4,
   BRAIN_CHUNK_NOTES_VERSION,
   BRAIN_ENTRY_IMPORTANCE,
+  BRAIN_V4_EMBEDDING_VERSION,
   INDEX_WRITE_LEASE_MS,
   insertBrainSource,
 } from "./ai/brain/rag";
@@ -88,6 +89,7 @@ async function source(t: T, extra: Partial<Doc<"brainSources">> = {}): Promise<I
       sourceHash: `hash-v4-${n}`,
       createdBy: "test",
       createdAt: 1_700_000_000_000 + n,
+      ...(extra.ragEntryIdV4 && !("embeddingVersionV4" in extra) ? { embeddingVersionV4: BRAIN_V4_EMBEDDING_VERSION } : {}),
       ...extra,
     })
   );
@@ -104,15 +106,27 @@ async function card(t: T, id: Id<"brainSources">) {
 }
 
 /** Add one chunk for a source to one index, as embedSource does (completion included). */
-async function addTo(t: T, rag: typeof brain, namespace: string, id: Id<"brainSources">, cos: number, axis: number) {
+async function addTo(
+  t: T,
+  rag: typeof brain,
+  namespace: string,
+  id: Id<"brainSources">,
+  cos: number,
+  axis: number,
+  extraMeta: Record<string, unknown> = {}
+) {
   const src = (await row(t, id))!;
+  const embeddingMeta =
+    namespace === BRAIN_SEARCH_INDEXES.voyage4.namespace && !("embeddingVersion" in extraMeta)
+      ? { embeddingVersion: BRAIN_V4_EMBEDDING_VERSION }
+      : {};
   return await t.action(async (ctx) =>
     rag.add(ctx, {
       namespace,
       key: src.ragKey,
       title: src.title,
       importance: BRAIN_ENTRY_IMPORTANCE,
-      metadata: { sourceId: id, industry: src.industry, writerTier: src.writerTier, docType: src.docType },
+      metadata: { sourceId: id, industry: src.industry, writerTier: src.writerTier, docType: src.docType, ...embeddingMeta, ...extraMeta },
       filterValues: [
         { name: "industryApproved", value: { industry: src.industry, approved: true } },
         { name: "docType", value: src.docType },
@@ -283,7 +297,7 @@ describe("two indexes, one pointer", () => {
     });
     await t.run(async (ctx) => {
       const { patchBrainSource } = await import("./ai/brain/rag");
-      await patchBrainSource(ctx, (await ctx.db.get(b))!, { ragEntryIdV4: "e4-b" });
+      await patchBrainSource(ctx, (await ctx.db.get(b))!, { ragEntryIdV4: "e4-b", embeddingVersionV4: BRAIN_V4_EMBEDDING_VERSION });
     });
     expect(await move("voyage4")).toMatchObject({ serving: "voyage4", changed: true, checked: 2 });
 
@@ -334,6 +348,7 @@ describe("two indexes, one pointer", () => {
           await ctx.db.insert("brainSourceCards", {
             sourceId, kind: "pd_pair", status: "approved", title: "x", industry: "manufacturing", writerTier: 1,
             docType: "pd", createdAt: i, ragEntryId: `e3-${i}`, ragImportance: 1, ragEntryIdV4: `e4-${i}`,
+            embeddingVersionV4: BRAIN_V4_EMBEDDING_VERSION,
           });
         }
       });
@@ -581,7 +596,7 @@ describe("buildSearchIndex", () => {
     status.mockResolvedValue([{ state: "finished" }, { state: "finished" }] as never);
     await t.run(async (ctx) => {
       const { patchBrainSource } = await import("./ai/brain/rag");
-      await patchBrainSource(ctx, (await ctx.db.get(missing))!, { ragEntryIdV4: "e4-b" });
+      await patchBrainSource(ctx, (await ctx.db.get(missing))!, { ragEntryIdV4: "e4-b", embeddingVersionV4: BRAIN_V4_EMBEDDING_VERSION });
     });
     expect(await t.mutation(internal.brain.buildSearchIndex, args as never)).toEqual({
       approved: 3, present: 1, queued: 2, missing: 1, waiting: false, done: true,
@@ -1016,7 +1031,7 @@ describe("PR #51 Greptile fixes", () => {
     );
     await t.run(async (ctx) => {
       const { patchBrainSource } = await import("./ai/brain/rag");
-      await patchBrainSource(ctx, (await ctx.db.get(id))!, { ragEntryId: entryId, ragEntryIdV4: "e4-legacy" });
+      await patchBrainSource(ctx, (await ctx.db.get(id))!, { ragEntryId: entryId, ragEntryIdV4: "e4-legacy", embeddingVersionV4: BRAIN_V4_EMBEDDING_VERSION });
     });
     return { id, entryId };
   }
@@ -1347,6 +1362,7 @@ describe("Greptile on #51, second round", () => {
             metadata: {
               sourceId: id, industry: src.industry, writerTier: src.writerTier, docType: src.docType,
               ...(src.scienceCode ? { scienceCode: src.scienceCode } : {}),
+              ...(namespace === "brain-v4" ? { embeddingVersion: BRAIN_V4_EMBEDDING_VERSION } : {}),
             },
             filterValues: [
               { name: "industryApproved", value: { industry: src.industry, approved: true } },
@@ -1383,3 +1399,76 @@ describe("Greptile on #51, second round", () => {
     expect(after.search.voyage3.otherScienceCode.count).toBe(0);
   });
 });
+
+describe("PR #52 Greptile fixes", () => {
+  test("P1: pre-asymmetric voyage4 entries block cutover, are queued by buildSearchIndex, and are replaced by embedSource", async () => {
+    const t = setup();
+    const id = await source(t, { content: "Kiln temperature ramp stability across cold starts." });
+    const src = (await row(t, id))!;
+    // Simulate a voyage3 entry and an older unprompted voyage4 entry (no embeddingVersion in metadata, old contentHash).
+    await addTo(t, brain, "brain", id, 0.6, 2);
+    const oldV4 = await t.action(async (ctx) =>
+      brainV4.add(ctx, {
+        namespace: "brain-v4",
+        key: src.ragKey,
+        title: src.title,
+        contentHash: src.sourceHash,
+        importance: BRAIN_ENTRY_IMPORTANCE,
+        metadata: { sourceId: id, industry: src.industry, writerTier: src.writerTier, docType: src.docType },
+        filterValues: [
+          { name: "industryApproved", value: { industry: src.industry, approved: true } },
+          { name: "docType", value: src.docType },
+        ],
+        chunks: [{ text: src.content, embedding: vectorAt(0.6, 3) }],
+        onComplete: internal.ai.brain.rag.ingestOnComplete,
+      })
+    );
+    await backfillCards(t);
+    expect((await row(t, id))?.ragEntryIdV4).toBe(oldV4.entryId);
+    expect((await row(t, id))?.embeddingVersionV4).toBeUndefined();
+
+    // Cutover refuses the unprompted voyage4 entry.
+    const refused = await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" });
+    expect(refused.changed).toBe(false);
+    expect(refused.message).toContain("vectors from an older embedding prompt");
+
+    // Calibration refuses until a current asymmetric voyage4 entry exists.
+    await expect(t.action(internal.brain.calibrateSearchIndexes, {})).rejects.toThrow(/buildSearchIndex first/);
+
+    // buildSearchIndex detects the stale voyage4 entry and queues re-embedding.
+    const { Workpool } = await import("@convex-dev/workpool");
+    const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
+    expect(await t.mutation(internal.brain.buildSearchIndex, { index: "voyage4" })).toMatchObject({
+      approved: 1,
+      present: 0,
+      queued: 1,
+    });
+    expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: id, indexes: ["voyage4"] }]);
+
+    // Clear buildRunning so cutover can proceed after embedSource runs.
+    await t.run(async (ctx) => {
+      const state = await ctx.db.query("brainSearchIndexState").unique();
+      if (state) await ctx.db.patch(state._id, { buildRunning: undefined });
+    });
+
+    // Running embedSource replaces the old entry in RAG (different contentHash + embeddingVersion metadata).
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id, indexes: ["voyage4"] });
+    const updated = (await row(t, id))!;
+    expect(updated.ragEntryIdV4).toBeTruthy();
+    expect(updated.ragEntryIdV4).not.toBe(oldV4.entryId);
+    expect(updated.embeddingVersionV4).toBe(BRAIN_V4_EMBEDDING_VERSION);
+    expect((await card(t, id))?.embeddingVersionV4).toBe(BRAIN_V4_EMBEDDING_VERSION);
+    await t.action(async (ctx) => {
+      expect((await brainV4.getEntry(ctx, { entryId: oldV4.entryId }))?.status).toBe("replaced");
+      expect((await brainV4.getEntry(ctx, { entryId: updated.ragEntryIdV4 as never }))?.status).toBe("ready");
+    });
+
+    // Now cutover to voyage4 succeeds.
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({
+      serving: "voyage4",
+      changed: true,
+      checked: 1,
+    });
+  });
+});
+

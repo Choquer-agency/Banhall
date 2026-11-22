@@ -19,6 +19,7 @@ import {
   BRAIN_CHUNK_NOTES_VERSION,
   BRAIN_INDEX_FIELDS,
   BRAIN_SEARCH_RAGS,
+  BRAIN_V4_EMBEDDING_VERSION,
   type BrainEntryMetadata,
   countKeys,
   deleteBrainSource,
@@ -786,6 +787,9 @@ function staleReason(card: Doc<"brainSourceCards">, index: BrainIndexId, notesOn
   if (index === "voyage3" && needsFullImportanceEmbed(card)) {
     return card.ragImportance === undefined ? "importance not recorded" : "an old weight's importance";
   }
+  if (index === "voyage4" && card.embeddingVersionV4 !== BRAIN_V4_EMBEDDING_VERSION) {
+    return "vectors from an older embedding prompt";
+  }
   if (notesOn && card[BRAIN_INDEX_FIELDS[index].notesVersion] !== BRAIN_CHUNK_NOTES_VERSION) return "notes from an older prompt";
   return "current";
 }
@@ -1066,7 +1070,9 @@ export const calibrationProbes = internalQuery({
       .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
       .order("desc")
       .take(CALIBRATION_CARD_POOL);
-    const both = cards.filter((card) => card.ragEntryId && card.ragEntryIdV4);
+    const both = cards.filter(
+      (card) => card.ragEntryId && card.ragEntryIdV4 && card.embeddingVersionV4 === BRAIN_V4_EMBEDDING_VERSION
+    );
     const probes = pickSpread(both, args.limit, (card) => `${card.industry}|${card.scienceCode ?? ""}`).map((card) => ({
       sourceId: card.sourceId,
       ...(card.scienceCode ? { scienceCode: card.scienceCode } : {}),
@@ -1740,6 +1746,7 @@ export const getBrainSourceForIngest = internalQuery({
       chunkNotesVersion: s.chunkNotesVersion,
       ragEntryIdV4: s.ragEntryIdV4,
       chunkNotesVersionV4: s.chunkNotesVersionV4,
+      embeddingVersionV4: s.embeddingVersionV4,
       indexState: { serving: state.serving, written: state.written },
     };
   },
@@ -2106,7 +2113,10 @@ async function hasUnlearnConfirmation(
 function fieldsHolding(s: Doc<"brainSources">, ragEntryId: string): Partial<Doc<"brainSources">> {
   const patch: Partial<Doc<"brainSources">> = {};
   for (const { index, entryId } of heldEntries(s)) {
-    if (entryId === ragEntryId) patch[BRAIN_INDEX_FIELDS[index].entryId] = undefined;
+    if (entryId === ragEntryId) {
+      patch[BRAIN_INDEX_FIELDS[index].entryId] = undefined;
+      if (index === "voyage4") patch.embeddingVersionV4 = undefined;
+    }
   }
   return patch;
 }
@@ -2134,7 +2144,9 @@ export const recordUnlearnConfirmed = internalMutation({
     if (!s) return;
     if (s.status === "approved") {
       if ((args.droppedIndex || args.requeued) && args.index && entryIdIn(s, args.index) === args.ragEntryId) {
-        await patchBrainSource(ctx, s, { [BRAIN_INDEX_FIELDS[args.index].entryId]: undefined });
+        const patch: Partial<Doc<"brainSources">> = { [BRAIN_INDEX_FIELDS[args.index].entryId]: undefined };
+        if (args.index === "voyage4") patch.embeddingVersionV4 = undefined;
+        await patchBrainSource(ctx, s, patch);
       }
       return;
     }

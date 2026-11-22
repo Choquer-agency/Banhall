@@ -17,6 +17,7 @@ import {
   BRAIN_ENTRY_IMPORTANCE,
   BRAIN_INDEX_FIELDS,
   BRAIN_RAGS,
+  BRAIN_V4_EMBEDDING_VERSION,
   keepableNotes,
   entryIdIn,
   entryIsCurrent,
@@ -299,6 +300,14 @@ export const embedSource = internalAction({
     for (const index of targets) {
       const namespace = BRAIN_SEARCH_INDEXES[index].namespace;
       const rag = BRAIN_RAGS[index];
+      const embeddingVersion = index === "voyage4" ? BRAIN_V4_EMBEDDING_VERSION : undefined;
+      const indexCommon = embeddingVersion
+        ? {
+            ...common,
+            contentHash: `${common.contentHash}:embed${embeddingVersion}`,
+            metadata: { ...common.metadata, embeddingVersion },
+          }
+        : common;
       // Review 51 (P3-4): a lease while the add runs; refused once the
       // index's drop has started, so a late add never makes its namespace again.
       const leaseId = await ctx.runMutation(internal.ai.brain.rag.beginIndexWrite, { sourceId: args.sourceId, index });
@@ -306,8 +315,8 @@ export const embedSource = internalAction({
       let addResult;
       try {
         addResult = chunks
-          ? await rag.add(ctx, { ...common, namespace, chunks })
-          : await rag.add(ctx, { ...common, namespace, text: src.content });
+          ? await rag.add(ctx, { ...indexCommon, namespace, chunks })
+          : await rag.add(ctx, { ...indexCommon, namespace, text: src.content });
       } finally {
         await ctx.runMutation(internal.ai.brain.rag.endIndexWrite, { leaseId });
       }
@@ -328,6 +337,7 @@ export const embedSource = internalAction({
           entryId: addResult.entryId,
           importance,
           ...(notesVersion ? { notesVersion } : {}),
+          ...(embeddingVersion ? { embeddingVersion } : {}),
         });
       }
     }

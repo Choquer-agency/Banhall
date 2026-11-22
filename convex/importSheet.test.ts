@@ -5513,6 +5513,35 @@ describe("a file added on the page with a path a row already has", () => {
     expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 2, alreadyHere: 1 });
     await expectCountsMatchRecount(t, "after two files with one path in one drop");
   });
+
+  it("resumes an interrupted local upload whose bytes were missing instead of deleting the re-upload as already_here", async () => {
+    const { t, admin } = await setup();
+    const path = `${CEDARLINE_FY}/resumed-pd.docx`;
+    const body = "Cedarline technical project description, resumed after interrupted upload";
+    const first = await uploaded(t, body);
+    const key = `local:${path}`;
+
+    // Simulate a row from an earlier HTTP ingest that registered the path and hash but never stored bytes.
+    const existingId = await t.run((ctx) =>
+      ctx.db.insert("ingestionItems", {
+        ...discoveredArgs(path),
+        driveItemId: key,
+        contentHash: first.contentHash,
+        status: "discovered",
+        updatedAt: 1,
+      })
+    );
+    await t.run((ctx) => ctx.storage.delete(first.storageId));
+
+    const drop = await addOnPage(t, admin, [{ path, text: body }]);
+    expect(drop.outcomes).toEqual([{ path, outcome: "added" }]);
+    const row = await getItem(t, existingId);
+    expect(row.storageId).toBe(drop.sent[0].storageId);
+    expect(row.status).toBe("fetched");
+    expect(await storedFile(t, drop.sent[0].storageId)).not.toBeNull();
+    expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 1, alreadyHere: 0 });
+    await expectCountsMatchRecount(t, "after resuming an interrupted upload via stageImportFiles");
+  });
 });
 
 describe("a stored file that may not be this batch's own", () => {

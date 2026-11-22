@@ -60,6 +60,13 @@ export const BRAIN_ENTRY_IMPORTANCE = 1;
  * renews older notes when chunk notes are on.
  */
 export const BRAIN_CHUNK_NOTES_VERSION = 2;
+
+/**
+ * Voyage 4 embedding prompt version (2026-11-21).
+ * Unrecorded (pre-asymmetric) v4 entries lack this version so buildSearchIndex
+ * rebuilds them with input_type "document" and cutover refuses mixed spaces.
+ */
+export const BRAIN_V4_EMBEDDING_VERSION = 2;
 // NOTE: rag requires a value for EVERY declared filterName on every add, so we
 // only declare filters we set on 100% of entries. `craOutcome` is intentionally
 // NOT a filter (CRA rejections live in their own namespace); it's kept in
@@ -80,6 +87,8 @@ export type BrainEntryMetadata = {
   scienceCode?: string;
   /** BRAIN_CHUNK_NOTES_VERSION when the chunks carry notes (2026-11-17). */
   chunkNotesVersion?: number;
+  /** BRAIN_V4_EMBEDDING_VERSION on voyage4 entries embedded with asymmetric input_type. */
+  embeddingVersion?: number;
 };
 
 /** The voyage3 index (voyage-3-large, namespace "brain"), the one from before 2026-11-18. */
@@ -132,7 +141,10 @@ export const BRAIN_INDEX_FIELDS = {
   voyage4: { entryId: "ragEntryIdV4", notesVersion: "chunkNotesVersionV4" },
 } as const satisfies Record<BrainIndexId, { entryId: keyof Doc<"brainSources">; notesVersion: keyof Doc<"brainSources"> }>;
 
-type IndexFieldsRow = Pick<Doc<"brainSources">, "ragEntryId" | "ragEntryIdV4" | "chunkNotesVersion" | "chunkNotesVersionV4">;
+type IndexFieldsRow = Pick<
+  Doc<"brainSources">,
+  "ragEntryId" | "ragEntryIdV4" | "chunkNotesVersion" | "chunkNotesVersionV4" | "embeddingVersionV4"
+>;
 
 /** The entry id a source holds in one index. */
 export function entryIdIn(source: IndexFieldsRow, index: BrainIndexId): string | undefined {
@@ -167,8 +179,9 @@ export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragI
  * Whether the source's entry in an index is current, so an embed may pass
  * that index over without paying Voyage again (`add` embeds before the
  * component can tell the entry is unchanged). Current: it has an entry, at
- * importance 1 (voyage3 only can be older), with notes from this prompt
- * version when chunk notes are on.
+ * importance 1 (voyage3 only can be older), at BRAIN_V4_EMBEDDING_VERSION
+ * (voyage4 asymmetric input_type), and with notes from this prompt version
+ * when chunk notes are on.
  */
 export function entryIsCurrent(
   source: IndexFieldsRow & Pick<Doc<"brainSources">, "ragImportance" | "writerTier">,
@@ -177,6 +190,7 @@ export function entryIsCurrent(
 ): boolean {
   if (!entryIdIn(source, index)) return false;
   if (index === "voyage3" && needsFullImportanceEmbed(source)) return false;
+  if (index === "voyage4" && source.embeddingVersionV4 !== BRAIN_V4_EMBEDDING_VERSION) return false;
   return !notesOn || source[BRAIN_INDEX_FIELDS[index].notesVersion] === BRAIN_CHUNK_NOTES_VERSION;
 }
 
@@ -207,11 +221,12 @@ function entryPatch(
   index: BrainIndexId,
   entryId: string,
   importance: number,
-  notesVersion: number | undefined
+  notesVersion: number | undefined,
+  embeddingVersion: number | undefined
 ): Partial<Doc<"brainSources">> {
   return index === "voyage3"
     ? { ragEntryId: entryId, ragImportance: importance, chunkNotesVersion: notesVersion }
-    : { ragEntryIdV4: entryId, chunkNotesVersionV4: notesVersion };
+    : { ragEntryIdV4: entryId, chunkNotesVersionV4: notesVersion, embeddingVersionV4: embeddingVersion };
 }
 
 /**
@@ -225,7 +240,12 @@ async function bookReadyEntry(
   ctx: MutationCtx,
   source: Doc<"brainSources">,
   index: BrainIndexId,
-  entry: { entryId: string; importance: number; notesVersion: number | undefined }
+  entry: {
+    entryId: string;
+    importance: number;
+    notesVersion: number | undefined;
+    embeddingVersion: number | undefined;
+  }
 ): Promise<boolean> {
   // Close the revoke-during-embed race. The completion callback and the
   // governance mutation serialize through Convex transactions: if revoke
@@ -262,7 +282,11 @@ async function bookReadyEntry(
     });
     return false;
   }
-  await patchBrainSource(ctx, source, entryPatch(index, entry.entryId, entry.importance, entry.notesVersion));
+  await patchBrainSource(
+    ctx,
+    source,
+    entryPatch(index, entry.entryId, entry.importance, entry.notesVersion, entry.embeddingVersion)
+  );
   return true;
 }
 
@@ -315,11 +339,14 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       return;
     }
 
-    const notesVersion = (entry.metadata as BrainEntryMetadata | undefined)?.chunkNotesVersion;
+    const meta = entry.metadata as BrainEntryMetadata | undefined;
+    const notesVersion = meta?.chunkNotesVersion;
+    const embeddingVersion = meta?.embeddingVersion;
     const recorded = await bookReadyEntry(ctx, source, index, {
       entryId: entry.entryId,
       importance: entry.importance,
       notesVersion: typeof notesVersion === "number" ? notesVersion : undefined,
+      embeddingVersion: typeof embeddingVersion === "number" ? embeddingVersion : undefined,
     });
     if (!recorded) return;
     await ctx.db.insert("brainAuditLog", {
@@ -348,6 +375,7 @@ export const recordReadyEntry = internalMutation({
     entryId: v.string(),
     importance: v.number(),
     notesVersion: v.optional(v.number()),
+    embeddingVersion: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -356,11 +384,18 @@ export const recordReadyEntry = internalMutation({
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, { ragEntryId: args.entryId, index: args.index });
       return null;
     }
-    if (entryIdIn(source, args.index) === args.entryId && source.status === "approved") return null;
+    if (
+      entryIdIn(source, args.index) === args.entryId &&
+      (args.index !== "voyage4" || source.embeddingVersionV4 === args.embeddingVersion) &&
+      source.status === "approved"
+    ) {
+      return null;
+    }
     await bookReadyEntry(ctx, source, args.index, {
       entryId: args.entryId,
       importance: args.importance,
       notesVersion: args.notesVersion,
+      embeddingVersion: args.embeddingVersion,
     });
     return null;
   },
@@ -399,6 +434,7 @@ function cardFields(source: Doc<"brainSources">): CardFields {
     chunkNotesVersion: source.chunkNotesVersion,
     ragEntryIdV4: source.ragEntryIdV4,
     chunkNotesVersionV4: source.chunkNotesVersionV4,
+    embeddingVersionV4: source.embeddingVersionV4,
   };
 }
 
@@ -466,7 +502,7 @@ export async function syncBrainSourceCard(
 /**
  * The card fields the pointer's live check reads (`entryIsCurrent` over
  * approved cards): whether the card is approved, and each index's entry
- * id, note version and (voyage3) importance.
+ * id, note version, (voyage3) importance, and (voyage4) embedding version.
  */
 const POINTER_CHECK_FIELDS = [
   "status",
@@ -475,6 +511,7 @@ const POINTER_CHECK_FIELDS = [
   "chunkNotesVersion",
   "ragEntryIdV4",
   "chunkNotesVersionV4",
+  "embeddingVersionV4",
 ] as const satisfies readonly (keyof CardFields)[];
 
 /** Whether a card write can change what a saved pointer check already read. */
