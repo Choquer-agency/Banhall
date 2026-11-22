@@ -1000,16 +1000,30 @@ export const getProjectByShareToken = query({
       .query("projects")
       .withIndex("by_shareToken", (q) => q.eq("shareToken", args.shareToken))
       .unique();
-    if (!project?.sharedReportId || project.deletionStartedAt !== undefined) return null;
-    const report = await ctx.db.get(project.sharedReportId);
-    if (!report || report.projectId !== project._id) return null;
+    if (!project?.sharedReportId || !project.sharedReportSnapshotId || project.deletionStartedAt !== undefined) {
+      return null;
+    }
+    const [report, snapshot] = await Promise.all([
+      ctx.db.get(project.sharedReportId),
+      ctx.db.get(project.sharedReportSnapshotId),
+    ]);
+    if (
+      !report ||
+      report.projectId !== project._id ||
+      !snapshot ||
+      snapshot.reportId !== report._id ||
+      snapshot.projectId !== project._id
+    ) {
+      return null;
+    }
     return {
       _id: project._id,
       title: project.title,
       clientName: project.clientName,
       sharedReportId: report._id,
       reportVersion: report.version,
-      revisionNumber: (await reportWithBody(ctx, report)).revisionNumber ?? 0,
+      revisionNumber:
+        project.sharedReportRevisionNumber ?? snapshot.sourceRevisionNumber ?? 0,
     };
   },
 });

@@ -41,21 +41,20 @@ export const getLatestReport = query({
       const report = await ctx.db.get(reportId);
       if (!report || report.projectId !== args.projectId) return null;
       const snapshotId = access.project.sharedReportSnapshotId;
-      if (snapshotId) {
-        const snapshot = await ctx.db.get(snapshotId);
-        if (snapshot && snapshot.reportId === report._id && snapshot.projectId === args.projectId) {
-          return {
-            ...report,
-            content: snapshot.content,
-            contentHash: snapshot.contentHash ?? report.contentHash,
-            revisionNumber:
-              access.project.sharedReportRevisionNumber ??
-              snapshot.sourceRevisionNumber ??
-              report.revisionNumber,
-          };
-        }
+      if (!snapshotId) return null;
+      const snapshot = await ctx.db.get(snapshotId);
+      if (!snapshot || snapshot.reportId !== report._id || snapshot.projectId !== args.projectId) {
+        return null;
       }
-      return await reportWithBody(ctx, report);
+      return {
+        ...report,
+        content: snapshot.content,
+        contentHash: snapshot.contentHash ?? report.contentHash,
+        revisionNumber:
+          access.project.sharedReportRevisionNumber ??
+          snapshot.sourceRevisionNumber ??
+          0,
+      };
     }
     const report = await ctx.db
       .query("reports")

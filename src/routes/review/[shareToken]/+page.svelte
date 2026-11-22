@@ -189,6 +189,7 @@
             onActiveCommentChange={(id) => (activeCommentId = id)}
             {hoveredCommentId}
             {shareToken}
+            responsive={true}
           />
         </div>
       </div>

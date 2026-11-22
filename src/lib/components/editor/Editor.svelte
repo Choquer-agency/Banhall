@@ -692,6 +692,7 @@
 
   let {
     content,
+    reportId,
     onUpdate,
     onComment,
     onAskAI,
@@ -708,7 +709,8 @@
     evidenceClaims,
   }: {
     content: string;
-    onUpdate?: (json: string) => void | Promise<void>;
+    reportId?: string;
+    onUpdate?: (json: string, reportId?: string) => void | Promise<void>;
     onComment?: (selection: {
       from: number;
       to: number;
@@ -749,6 +751,8 @@
   } = $props();
   // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
   const reading = presentation === "reading";
+  // svelte-ignore state_referenced_locally -- bound at mount so unmount flushes target the original report
+  const mountedReportId = reportId;
 
   // A short, polite note when an edit is refused because it would change a
   // hidden Section heading (review g1): otherwise the key press does nothing.
@@ -851,7 +855,7 @@
     const save = pendingSaveChain.then(async () => {
       if (epoch !== contentEpoch) return;
       try {
-        await update(json);
+        await update(json, mountedReportId);
         if (epoch === contentEpoch) settleOutstanding(json, true);
       } catch (error) {
         if (epoch === contentEpoch) settleOutstanding(json, false);

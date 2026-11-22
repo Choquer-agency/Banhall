@@ -20,6 +20,7 @@
     onActiveCommentChange,
     hoveredCommentId = null,
     shareToken,
+    responsive = false,
   }: {
     projectId: Id<"projects">;
     reportId: Id<"reports">;
@@ -34,6 +35,7 @@
     onActiveCommentChange: (id: string | null) => void;
     hoveredCommentId?: string | null;
     shareToken?: string;
+    responsive?: boolean;
   } = $props();
 
   const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, reportId, shareToken }));
@@ -232,15 +234,23 @@
 </script>
 
 <div
-  class="relative"
-  style={`min-height: ${layout.lastBottom > 0 ? layout.lastBottom + FALLBACK_HEIGHT : 0}px`}
+  class={responsive
+    ? "relative flex flex-col gap-3 xl:block xl:min-h-[var(--margin-min-height)]"
+    : "relative"}
+  style={responsive
+    ? `--margin-min-height: ${layout.lastBottom > 0 ? layout.lastBottom + FALLBACK_HEIGHT : 0}px`
+    : `min-height: ${layout.lastBottom > 0 ? layout.lastBottom + FALLBACK_HEIGHT : 0}px`}
 >
   <!-- Pending new comment -->
   {#if pendingHighlight && pendingY !== null}
     <div
       use:registerCard={"__pending__"}
-      class="absolute right-0 w-64 transition-all duration-300"
-      style={`top: ${layout.resolved.get("__pending__") ?? pendingY}px`}
+      class={responsive
+        ? "w-full transition-all duration-300 xl:absolute xl:right-0 xl:w-64 xl:top-[var(--card-top)]"
+        : "absolute right-0 w-64 transition-all duration-300"}
+      style={responsive
+        ? `--card-top: ${layout.resolved.get("__pending__") ?? pendingY}px`
+        : `top: ${layout.resolved.get("__pending__") ?? pendingY}px`}
     >
       <div class="rounded-lg border border-navy/20 bg-white p-3 shadow-sm">
         <p class="mb-2 text-xs leading-relaxed text-gray-500 line-clamp-2">
@@ -268,10 +278,12 @@
       {@const isHovered = hoveredCommentId === comment._id}
       <div
         use:registerCard={comment._id}
-        class={`absolute right-0 w-64 transition-all duration-300 ${
-          isActive || isHovered ? "z-10" : "z-0"
-        }`}
-        style={`top: ${y}px`}
+        class={`${
+          responsive
+            ? "w-full transition-all duration-300 xl:absolute xl:right-0 xl:w-64 xl:top-[var(--card-top)]"
+            : "absolute right-0 w-64 transition-all duration-300"
+        } ${isActive || isHovered ? "z-10" : "z-0"}`}
+        style={responsive ? `--card-top: ${y}px` : `top: ${y}px`}
       >
         <div
           class={`rounded-lg border p-3 transition-all ${

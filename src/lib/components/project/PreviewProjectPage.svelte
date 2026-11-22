@@ -2730,8 +2730,13 @@
               {#key report._id}
                 <Editor
                   bind:this={editorRef}
+                  reportId={report._id}
                   content={report.content}
-                  onUpdate={(json) => handleEditorUpdate(report._id, json)}
+                  onUpdate={(json, targetReportId) => {
+                    if (targetReportId) {
+                      return handleEditorUpdate(targetReportId as Id<"reports">, json);
+                    }
+                  }}
                   onComment={handleComment}
                   onAskAI={handleAskAI}
                   onAskShorten={askShorten}
@@ -3315,7 +3320,7 @@
                 type="button"
                 onclick={handlePublishReview}
                 disabled={sharing || unpublishing}
-                class="shrink-0 rounded-md bg-amber-700 px-2.5 py-1 font-semibold text-white transition-colors hover:bg-amber-800 disabled:opacity-50"
+                class="shrink-0 rounded-md bg-amber-700 px-2.5 py-1 font-medium text-white transition-colors hover:bg-amber-800 disabled:opacity-50"
               >
                 {sharing ? "Updating..." : "Update shared copy"}
               </button>
@@ -3370,7 +3375,7 @@
               <button
                 type="button"
                 onclick={copyPublishedReviewLink}
-                class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-dark"
               >
                 {copied ? "Copied!" : "Copy link"}
               </button>

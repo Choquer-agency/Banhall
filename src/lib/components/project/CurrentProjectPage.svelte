@@ -447,8 +447,8 @@
             pendingSaves -= 1;
             saving = pendingSaves > 0;
           }
-        } else if (draft !== null) {
-          await handleEditorUpdate(draft);
+        } else if (draft !== null && report) {
+          await handleEditorUpdate(report._id, draft);
         }
       } catch (error) {
         notifyReplace(userErrorMessage(error, "The replacements could not be saved."));
@@ -650,8 +650,23 @@
       goToLogin();
     }
   });
+  const revisionByReport = new Map<Id<"reports">, number>();
+  let trackedReportId: Id<"reports"> | null = null;
   $effect(() => {
-    if (report && pendingSaves === 0) localRevision = report.revisionNumber ?? 0;
+    const currentId = report?._id ?? null;
+    if (currentId !== trackedReportId) {
+      trackedReportId = currentId;
+      saveError = "";
+      if (report) {
+        const rev = report.revisionNumber ?? 0;
+        localRevision = rev;
+        revisionByReport.set(report._id, rev);
+      }
+    } else if (report && pendingSaves === 0) {
+      const rev = report.revisionNumber ?? 0;
+      localRevision = rev;
+      revisionByReport.set(report._id, rev);
+    }
   });
   $effect(() => {
     if (project) selectedTagIds = [...(project.tagIds ?? [])];
@@ -673,38 +688,45 @@
   }
 
 
-  async function handleEditorUpdate(json: string) {
+  async function handleEditorUpdate(targetReportId: Id<"reports">, json: string) {
     // CAP-2: a replace session holds autosave. Park the latest document here;
     // finishReplaceSession writes it when the session ends.
-    if (replaceSession) {
+    if (replaceSession && targetReportId === report?._id) {
       sessionDraftJson = json;
       return;
     }
-    if (!report) return;
-    const reportId = report._id;
     pendingSaves += 1;
     saving = true;
-    saveError = "";
+    if (targetReportId === report?._id) saveError = "";
     const save = async () => {
       // Take a restore-point checkpoint of the prior state at most once every
       // 5 minutes of active editing (deduped + log-thinned server-side).
       const now = Date.now();
       if (now - lastSnapshotAt > 300_000) {
         lastSnapshotAt = now;
-        createSnapshot({ reportId, reason: "manual" }).catch(() => {});
+        createSnapshot({ reportId: targetReportId, reason: "manual" }).catch(() => {});
       }
-      localRevision = await updateReport({
-        reportId,
+      const expectedRevision =
+        revisionByReport.get(targetReportId) ??
+        (targetReportId === report?._id ? localRevision : 0);
+      const nextRevision = await updateReport({
+        reportId: targetReportId,
         content: json,
-        expectedRevisionNumber: localRevision,
+        expectedRevisionNumber: expectedRevision,
       });
+      revisionByReport.set(targetReportId, nextRevision);
+      if (targetReportId === report?._id) {
+        localRevision = nextRevision;
+      }
     };
     const thisSave = saveChain.then(save, save);
     saveChain = thisSave.catch(() => {});
     try {
       await thisSave;
     } catch (error) {
-      saveError = userErrorMessage(error, "The report could not be saved.");
+      if (targetReportId === report?._id) {
+        saveError = userErrorMessage(error, "The report could not be saved.");
+      }
       throw error;
     } finally {
       pendingSaves -= 1;
@@ -1871,8 +1893,13 @@
               {#key report._id}
                 <Editor
                   bind:this={editorRef}
+                  reportId={report._id}
                   content={report.content}
-                  onUpdate={handleEditorUpdate}
+                  onUpdate={(json, targetReportId) => {
+                    if (targetReportId) {
+                      return handleEditorUpdate(targetReportId as Id<"reports">, json);
+                    }
+                  }}
                   onComment={handleComment}
                   onAskAI={handleAskAI}
                   onResearch={handleResearch}

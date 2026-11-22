@@ -25,21 +25,33 @@ export const logClientView = mutation({
       domainError("INVALID_INPUT", "Enter a reviewer name under 100 characters");
     }
     const reportId = access.project.sharedReportId;
-    if (!reportId) {
+    const snapshotId = access.project.sharedReportSnapshotId;
+    if (!reportId || !snapshotId) {
       domainError("REPORT_NOT_PUBLISHED", "This report is not published for review");
     }
-    const report = await ctx.db.get(reportId);
-    if (!report || report.projectId !== args.projectId) {
+    const [report, snapshot] = await Promise.all([
+      ctx.db.get(reportId),
+      ctx.db.get(snapshotId),
+    ]);
+    if (
+      !report ||
+      report.projectId !== args.projectId ||
+      !snapshot ||
+      snapshot.reportId !== report._id ||
+      snapshot.projectId !== args.projectId
+    ) {
       domainError("REPORT_NOT_PUBLISHED", "This report is not published for review");
     }
-    const currentReport = await reportWithBody(ctx, report);
     const viewedAt = Date.now();
     await ctx.db.insert("reportViews", {
       projectId: args.projectId,
       reportId: report._id,
       reportVersion: report.version,
-      revisionNumber: currentReport.revisionNumber ?? 0,
-      contentHash: currentReport.contentHash,
+      revisionNumber:
+        access.project.sharedReportRevisionNumber ??
+        snapshot.sourceRevisionNumber ??
+        0,
+      contentHash: snapshot.contentHash ?? report.contentHash,
       viewerName,
       viewerType: "client",
       viewedAt,

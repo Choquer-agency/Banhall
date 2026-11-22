@@ -97,4 +97,31 @@ describe("Editor reliability and Schedule 60 toolbar alignment", () => {
     );
     expect(items).toEqual(["Paragraph"]);
   });
+
+  it("passes the mounted reportId when flushing a pending debounced edit on unmount", async () => {
+    const initial = makeReport("Original report body.");
+    const savedTargets: Array<{ reportId: string | undefined; json: string }> = [];
+    const onUpdate = vi.fn(async (json: string, reportId?: string) => {
+      savedTargets.push({ reportId, json });
+    });
+
+    const { container, unmount } = await render(Editor, {
+      reportId: "report-v1",
+      content: initial,
+      onUpdate,
+      editable: true,
+      presentation: "reading",
+    });
+    await expect.poll(() => getTiptap(container)).toBeDefined();
+    const tiptap = getTiptap(container)!;
+
+    const pos = tiptap.state.doc.content.size - 2;
+    tiptap.commands.insertContentAt(pos, " Unmount flush.");
+    // Unmount before the 1s debounce fires.
+    unmount();
+
+    await expect.poll(() => savedTargets.length).toBe(1);
+    expect(savedTargets[0]?.reportId).toBe("report-v1");
+    expect(savedTargets[0]?.json).toContain("Unmount flush.");
+  });
 });

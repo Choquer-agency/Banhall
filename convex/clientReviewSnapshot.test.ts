@@ -108,6 +108,20 @@ describe("client review frozen snapshot and revocation", () => {
     expect(clientView?.content).toBe(initialContent);
     expect(clientView?.revisionNumber).toBe(0);
 
+    // Client share metadata and view logs also record the frozen published revision, not live edits.
+    const sharedProject = await t.query(api.projects.getProjectByShareToken, {
+      shareToken: "initial-share-token-abc123",
+    });
+    expect(sharedProject?.revisionNumber).toBe(0);
+
+    await t.mutation(api.reportViews.logClientView, {
+      projectId,
+      shareToken: "initial-share-token-abc123",
+      viewerName: "Client Reviewer",
+    });
+    const views = await owner.query(api.reportViews.listViews, { projectId });
+    expect(views[0]?.revisionNumber).toBe(0);
+
     // Owner still reads the live edited report.
     const ownerView = await owner.query(api.reports.getLatestReport, { projectId });
     expect(ownerView?._id).not.toBe(reportId); // latest report is version 2 in fixture; verify reportId directly
@@ -124,6 +138,38 @@ describe("client review frozen snapshot and revocation", () => {
     });
     expect(updatedClientView?.content).toBe(liveEditedContent);
     expect(updatedClientView?.revisionNumber).toBe(1);
+  });
+
+  test("legacy shared links without sharedReportSnapshotId fail closed instead of exposing live drafts", async () => {
+    const { t, projectId, reportId } = await setupReviewFixture();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(projectId, {
+        status: "client_review",
+        sharedReportId: reportId,
+        sharedReportSnapshotId: undefined,
+      });
+    });
+
+    await expect(
+      t.query(api.projects.getProjectByShareToken, {
+        shareToken: "initial-share-token-abc123",
+      })
+    ).resolves.toBeNull();
+
+    await expect(
+      t.query(api.reports.getLatestReport, {
+        projectId,
+        shareToken: "initial-share-token-abc123",
+      })
+    ).resolves.toBeNull();
+
+    await expect(
+      t.mutation(api.reportViews.logClientView, {
+        projectId,
+        shareToken: "initial-share-token-abc123",
+        viewerName: "Legacy Reviewer",
+      })
+    ).rejects.toMatchObject({ data: { code: "REPORT_NOT_PUBLISHED" } });
   });
 
   test("unpublishReview revokes client access and optionally rotates shareToken", async () => {
