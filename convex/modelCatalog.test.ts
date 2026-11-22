@@ -1255,10 +1255,11 @@ describe("prompt versions", () => {
     // a strict enum tool; before it they were sha256:f413fe0b... and
     // sha256:114d6015....
     // Re-read after 2026-11-21 (PR 4): analysis role moved to Haiku,
-    // generation step policy adds per-step effort, and chat defaults updated;
-    // before it they were sha256:c70a8350... and sha256:773d1517....
-    expect(await hashPromptProgram()).toBe("sha256:ba4c91c264df1ad84c118aa38053e72824f41e4dc836f2494da407b5aa5c8be9");
-    expect(await legacyPromptVersion()).toBe("sha256:650ea0c22599d997d4abe52718cb3aef6fd7b34a8d6331356afaff3b4f6ecb84");
+    // generation step policy bumped to v2 with per-step effort, and chat
+    // defaults updated; before it they were sha256:c70a8350... and
+    // sha256:773d1517....
+    expect(await hashPromptProgram()).toBe("sha256:90e603041203b6d181b680db006c0a048dcf43c159d4873264b919c3c9f9b57f");
+    expect(await legacyPromptVersion()).toBe("sha256:b2419e2a11e3fb63084f96b9e232410cf1eeca94cc67c18e0cde4c8d9c447699");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });
