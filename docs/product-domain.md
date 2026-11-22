@@ -6242,6 +6242,19 @@ It adds no workflow stage, transition or role, leaves `projects.createdBy` and p
 - **Approval:** Product owner, 2026-11-18 (chat, answer 6): the models. Built by the developer; the details (two indexes and the pointer, the field names, the build chain's page size and wait, the calibration's probes and report, the provisional floors, the drop in two steps, `force` on the pointer) are the developer's and are listed for the owner to confirm.
 - **Review:** Claude Opus 5.5, high (review 51): no P0 or P1. P2-1 and P2-2 (the pointer guard read a stale build record; nothing refilled a voyage3 gap) are fixed by the live guard in both directions, the build marker and the build's `index` argument. P2-3 (the rollback index kept old notes and importances) is fixed by the root decision above: the build renews voyage3 and the guard refuses a rollback to stale entries. P3-1 to P3-7 are fixed as described (the build marker, kept notes, the logged drop failure and the sweep, the add lease, the line on replaced versions, more rerank retries for calibration, an unknown namespace ignored).
 
+### 2026-11-21: Security, auth, privacy, and erasure hardening (audit wave 2)
+
+Approved by the product owner on 2026-11-21 from the four-model audit (`master-audit-and-fix-plan-2026-11-21.md`, Track B). It tightens authorization, privacy, and erasure boundaries without adding workflow stages or letting AI write report prose directly.
+
+- **Project deletion (`deleteProject`):** a project may now be deleted by its Creator (`createdBy`), its current Owner (`ownerId`), or an Admin, enforced server-side in `requireProjectCreatorOrAdmin` (`convex/lib/auth.ts`) and mirrored in the UI via `canDeleteProject` (`src/lib/workspace/projectDelete.ts`). This supersedes the earlier pending creator-or-admin notes from 2026-09-01 (second), 2026-09-15, and 2026-09-25 (sixth), so a Consultant who receives a transferred project can delete it while the original Creator and Admins retain delete access.
+- **Roleless access tightened:** internal workspace reads (`projects.listProjects`, `projects.listClientProjects`, `dashboard.*`, `clients.listClients`, `clients.listIndustries`, `projectReads.getLastViewedMap`, and related internal queries) now require an internal role (`requireInternalActor`), superseding the earlier D1 / 2026-08-06 roleless read allowance noted in the 2026-09-25 (sixth) entry. `shareToken` is no longer returned by project list queries.
+- **Financial navigation visibility:** the Financial link and top-bar menu item on project pages are gated on `financial.read` (`shared/capabilities.ts`), hiding them from Consultants who cannot open the Financial view.
+- **Confidentiality boundaries:** `brain.nominateFromReport` runs the strict PD confidentiality scrubber and leak check before writing a Brain candidate; `financialAgent` fences untrusted spreadsheet/document payloads and extracts structured data through `generateStructured`.
+- **Complete project erasure:** deleting a project purges all project-scoped tables (including client review tokens, comments, work items, and upload claims) and removes stored files and agent chat threads.
+- **Migration and compatibility:** no schema breaks; callers without an internal role now receive `NOT_AUTHORIZED` or empty lists as appropriate.
+- **Test impact:** `convex/rolelessAccess.test.ts`, `convex/projects.test.ts`, `convex/projectErasure.test.ts`, `src/lib/workspace/projectDelete.test.ts`, `src/lib/components/projects/ProjectsPage.component.test.ts`, and `src/lib/components/project/SeedProjectHosts.component.test.ts`.
+- **Approval:** product owner, 2026-11-21.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

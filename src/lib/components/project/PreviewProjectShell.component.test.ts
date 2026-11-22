@@ -208,8 +208,17 @@ describe("PreviewProjectPage final shell", () => {
     expect(Math.round(header.getBoundingClientRect().right - more.getBoundingClientRect().right)).toBe(Math.round(board(12)));
     await page.getByRole("button", { name: "More actions", exact: true }).click();
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
-    // The seeded viewer created this project, so Delete project ends the menu.
-    expect(items).toEqual(["ai-review", "share", "history", "financial", "delete"]);
+    // The seeded Consultant created this project, so Delete project ends the menu,
+    // and Financial stays hidden without financial.read.
+    expect(items).toEqual(["ai-review", "share", "history", "delete"]);
+    __setQueryData("users:getCurrentUser", { _id: "user-1", role: "manager", firstName: "Jordan", lastName: "Ellis", email: "jordan@example.test" });
+    await expect.poll(() => Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"))).toEqual([
+      "ai-review",
+      "share",
+      "history",
+      "financial",
+      "delete",
+    ]);
     // The QA toggle carries the band chip.
     expect(document.querySelector('[data-panel-toggle="qa"] [data-qa-chip]')?.textContent).toBe("78");
   });
