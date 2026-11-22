@@ -471,7 +471,7 @@ function cacheGenerationPrefix(params: unknown): unknown {
           return { ...message, content: cachedText(message.content) };
         }
         if ("content" in message && Array.isArray(message.content) && message.content.length > 0) {
-          const first = message.content[0];
+          const [first, ...rest] = message.content;
           if (
             first &&
             typeof first === "object" &&
@@ -485,7 +485,7 @@ function cacheGenerationPrefix(params: unknown): unknown {
               ...message,
               content: [
                 { ...first, cache_control: { type: "ephemeral" } },
-                ...message.content.slice(1),
+                ...rest,
               ],
             };
           }

@@ -577,7 +577,7 @@ describe("owner, 2026-10-28: a refusal never counts against the model", () => {
     await t.action(async (ctx) => {
       const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "routing-test" });
       await expect(generateStructured(client, structuredArgs("openai/gpt-5.6-sol"))).rejects.toThrow(
-        /did not return structured output/
+        /model refused to answer/
       );
     });
     await drain(t);
@@ -727,8 +727,15 @@ describe("models that reject forced tool calls at the OpenRouter boundary", () =
       expect(JSON.stringify(request.body)).not.toContain('"function":{"name":"record"}}');
       expect(request.body.thinking).toBeUndefined();
     }
-    const repair = captured[1].body.messages as Array<{ role: string; content: string }>;
-    expect(repair.at(-1)?.content).toContain("the required tool was not called");
+    const repair = captured[1].body.messages as Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>;
+    const repairContent = repair.at(-1)?.content;
+    const repairText =
+      typeof repairContent === "string"
+        ? repairContent
+        : Array.isArray(repairContent)
+          ? repairContent.map((part) => part.text ?? "").join("")
+          : "";
+    expect(repairText).toContain("the required tool was not called");
     await drain(t);
     const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
     expect(buckets).toMatchObject([

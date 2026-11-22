@@ -981,6 +981,24 @@ describe("the step table and its resolver (owner decision 43)", () => {
     }
   });
 
+  it("keeps v1 request settings for freezes stamped with stepPolicyVersion 1", () => {
+    const v1Freeze: ModelFreeze = {
+      ...freeze({ planning: OPUS, checking: OPUS }),
+      stepPolicyVersion: 1,
+    };
+    expect(resolveGenerationStep({ freeze: v1Freeze, step: "section", writerModel: OPUS }).request).toEqual({});
+    expect(resolveGenerationStep({ freeze: v1Freeze, step: "repair", writerModel: OPUS }).request).toEqual({});
+    expect(resolveGenerationStep({ freeze: v1Freeze, step: "compression", writerModel: OPUS }).request).toEqual({
+      thinking: { type: "disabled" },
+    });
+    expect(resolveGenerationStep({ freeze: v1Freeze, step: "brief", writerModel: SONNET }).request).toEqual({
+      thinking: { type: "disabled" },
+    });
+    expect(resolveGenerationStep({ freeze: v1Freeze, step: "qa", writerModel: SONNET }).request).toEqual({
+      thinking: { type: "disabled" },
+    });
+  });
+
   it("declares each step's answer budget and timeout as its request sends them", () => {
     const declared = Object.fromEntries(
       GENERATION_STEPS.map((step) => [step, [GENERATION_STEP_POLICY[step].maxTokens, GENERATION_STEP_POLICY[step].timeoutMs]])

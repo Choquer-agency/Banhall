@@ -17,7 +17,7 @@ import { MODEL, entryAlwaysThinks, seedModelById, type AnthropicEffort } from ".
 import type { ModelFreeze } from "./modelCatalogValidators";
 
 /** Stamped on every freeze written from now on (freezeModelsForGeneration). */
-export const GENERATION_STEP_POLICY_VERSION = 1;
+export const GENERATION_STEP_POLICY_VERSION = 2;
 
 export const GENERATION_STEPS = [
   "analyzer",
@@ -148,6 +148,15 @@ export function stepRequestFields(
 ): StepRequestFields {
   if (!freeze || freeze.stepPolicyVersion === undefined) return {};
   const policy = GENERATION_STEP_POLICY[step];
+  // Version 1 freezes keep their original low-when-always-thinking / off-only
+  // request settings so in-flight v1 generations do not change mid-run.
+  if (freeze.stepPolicyVersion < 2) {
+    if (policy.thinking === "off") return { thinking: { type: "disabled" } };
+    if (policy.thinking === "low-when-always-thinking" && alwaysThinks(freeze, model)) {
+      return { thinking: { type: "disabled" } };
+    }
+    return {};
+  }
   if (alwaysThinks(freeze, model)) {
     return {
       output_config: { effort: policy.effort },
