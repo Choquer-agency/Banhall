@@ -8,7 +8,7 @@ import { cleanWriterName, takesInitialsWriter, type IngestionItemFields, type In
 import { looksLikeEmail, writerInitialsKey } from "../../shared/importSheetRules";
 import { sameWriterName, writerNameForInitials } from "../../shared/writerNameFromText";
 import type { WriterChoice } from "./ingestionSheetValidators";
-import { storedWriterWeight } from "../../shared/writerWeight";
+import { storedWriterWeight, writerWeight, type WriterStaffRole } from "../../shared/writerWeight";
 
 type Ctx = QueryCtx | MutationCtx;
 type UserLabelSource = Pick<
@@ -187,13 +187,16 @@ export async function writerForUser(ctx: MutationCtx, user: Doc<"users">): Promi
   const rows = await writersOfUser(ctx, user._id);
   const existing = rows.find((row) => row.linkedAt === undefined);
   if (existing) return existing;
-  const linkedWeight = storedWriterWeight(rows.find((row) => row.linkedAt !== undefined)?.tier);
+  const linked = rows.find((row) => row.linkedAt !== undefined);
+  const linkedWeight = storedWriterWeight(linked?.tier);
+  const linkedStaffRole = linked?.staffRole;
   const id = await ctx.db.insert("pdWriters", {
     userId: user._id,
     createdVia: "import",
     createdAt: Date.now(),
     fileCount: 0,
     ...(linkedWeight !== null ? { tier: linkedWeight } : {}),
+    ...(linkedStaffRole !== undefined ? { staffRole: linkedStaffRole } : {}),
   });
   return (await ctx.db.get(id))!;
 }
@@ -209,6 +212,19 @@ async function writersMadeFromInitials(ctx: Ctx, initials: string): Promise<Writ
     .withIndex("by_initials", (q) => q.eq("initials", initials))
     .take(WRITERS_READ);
   return rows.filter((row) => row.createdVia === "import");
+}
+
+/**
+ * Writers without a login that an Admin pre-entered on Team with these
+ * explicit initials (used only when neither a login member nor an import-made
+ * writer matches, so pre-entered staff match files automatically on upload).
+ */
+async function preenteredWritersWithInitials(ctx: Ctx, initials: string): Promise<WriterDoc[]> {
+  const rows = await ctx.db
+    .query("pdWriters")
+    .withIndex("by_initials", (q) => q.eq("initials", initials))
+    .take(WRITERS_READ);
+  return rows.filter((row) => row.createdVia === "person" && !row.userId && row.isActive !== undefined);
 }
 
 /** What one mutation has worked out for each set of initials (writerForInitials, pickedWriter). */
@@ -279,6 +295,9 @@ async function checkInitials(ctx: MutationCtx, initials: string): Promise<Writer
   const writers = await writersMadeFromInitials(ctx, initials);
   if (writers.length === 1) return writers[0];
   if (writers.length > 1) return null;
+  const preentered = await preenteredWritersWithInitials(ctx, initials);
+  if (preentered.length === 1) return preentered[0];
+  if (preentered.length > 1) return null;
   return await newWriterFromInitials(ctx, initials);
 }
 
@@ -505,12 +524,15 @@ export async function linkWriterToUser(
   const now = Date.now();
   await ctx.db.patch(writer._id, { userId, linkedBy: by, linkedAt: now, updatedBy: by, updatedAt: now });
   forgetWriterMatches(ctx);
-  // One weight per person (2026-11-18 (second)): the member's own weight if
-  // set, else the past writer's, else none, on both rows; a row whose
+  // One weight and one staff role per person: the member's own value if set,
+  // else the past writer's, else none, on both rows; a row whose effective
   // weight changed has its Brain copies re-tiered.
   const own = await writerOfUser(ctx, userId);
+  const pair = [writer, ...(own ? [own] : [])];
   const weight = storedWriterWeight(own?.tier) ?? storedWriterWeight(writer.tier);
-  await applyWriterWeight(ctx, [writer, ...(own ? [own] : [])], weight, by);
+  const retiered = new Set(await applyWriterWeight(ctx, pair, weight, by));
+  const staffRole = own?.staffRole ?? writer.staffRole ?? null;
+  await applyWriterStaffRole(ctx, pair, staffRole, by, retiered);
   await ctx.scheduler.runAfter(0, internal.ingestion.refreshWriterFiles, { writerId: writer._id, tab: "review", cursor: null });
   const initials = writerInitialsKey(writer.initials);
   if (initials !== null) {
@@ -626,21 +648,21 @@ export function writerInUse(writer: Pick<WriterDoc, "fileCount" | "heldCount" | 
   return writer.fileCount > 0 || (writer.heldCount ?? 0) > 0 || (writer.reviewCount ?? 0) > 0;
 }
 
-// ─── Writer weights (2026-11-18 (second), docs/product-domain.md) ───────────
-// One weight per person, on `pdWriters.tier`: a team member's own writer and
-// the past writer an Admin linked to them carry the same value, so their
-// past PDs and their new ones rank alike. A writer with no weight uses
-// DEFAULT_WRITER_WEIGHT (shared/writerWeight.ts).
+// ─── Writer weights & staff roles (docs/product-domain.md) ──────────────────
+// One weight (`pdWriters.tier`) and one PD staff role (`pdWriters.staffRole`)
+// per person: a team member's own writer and the past writer an Admin linked
+// to them carry the same values, so their past PDs and new ones rank alike.
+// Precedence: custom tier > staffRole default > DEFAULT_WRITER_WEIGHT (0.7).
 
-/** Who a weight is for: a team member (all their writer rows) or a past writer with no login. */
+/** Who a weight or staff role is for: a team member (all their writer rows) or a past writer with no login. */
 export type WeightTarget = { kind: "member"; user: Doc<"users"> } | { kind: "writer"; writer: WriterDoc };
 
 /**
- * Writes `weight` (null: none, the default) on each row whose stored weight
- * differs, as an Admin's change (`updatedBy`, so a bare writer the check
- * made is kept from then on), and schedules the re-tier of each changed
- * row's Brain copies (ingestion.retierWriterBrainCopies). Returns the rows
- * that changed.
+ * Writes `weight` (null: none, fall back to role default or 0.7) on each row
+ * whose stored weight differs, as an Admin's change (`updatedBy`, so a bare
+ * writer the check made is kept from then on), and schedules the re-tier of
+ * each changed row's Brain copies (ingestion.retierWriterBrainCopies).
+ * Returns the rows that changed.
  */
 async function applyWriterWeight(
   ctx: MutationCtx,
@@ -655,6 +677,35 @@ async function applyWriterWeight(
     await ctx.db.patch(row._id, { tier: weight ?? undefined, updatedBy: by, updatedAt: now });
     changed.push(row._id);
     await ctx.scheduler.runAfter(0, internal.ingestion.retierWriterBrainCopies, { writerId: row._id, cursor: null, actorId: by });
+  }
+  if (changed.length > 0) forgetWriterMatches(ctx);
+  return changed;
+}
+
+/**
+ * Writes `staffRole` on each row whose stored role differs, and schedules a
+ * Brain re-tier for any row whose effective weight changed (which happens
+ * when no custom `tier` overrides the role default).
+ */
+async function applyWriterStaffRole(
+  ctx: MutationCtx,
+  rows: readonly WriterDoc[],
+  staffRole: WriterStaffRole | null,
+  by: Id<"users">,
+  skipRetierIds?: ReadonlySet<Id<"pdWriters">>
+): Promise<Id<"pdWriters">[]> {
+  const changed: Id<"pdWriters">[] = [];
+  const now = Date.now();
+  for (const row of rows) {
+    const beforeRole = row.staffRole ?? null;
+    if (beforeRole === staffRole) continue;
+    const beforeWeight = writerWeight(row.tier, row.staffRole);
+    const afterWeight = writerWeight(row.tier, staffRole);
+    await ctx.db.patch(row._id, { staffRole: staffRole ?? undefined, updatedBy: by, updatedAt: now });
+    changed.push(row._id);
+    if (beforeWeight !== afterWeight && !skipRetierIds?.has(row._id)) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.retierWriterBrainCopies, { writerId: row._id, cursor: null, actorId: by });
+    }
   }
   if (changed.length > 0) forgetWriterMatches(ctx);
   return changed;
@@ -679,9 +730,40 @@ export async function setPersonWriterWeight(
   return await applyWriterWeight(ctx, [own, ...(linked ? [linked] : [])], weight, by);
 }
 
+/**
+ * Sets a person's Banhall PD staff role (users.setWriterStaffRole): synced
+ * across a team member's own and linked writer rows, or directly on a past
+ * writer. Re-tiers Brain copies when no custom weight overrides the role default.
+ */
+export async function setPersonWriterStaffRole(
+  ctx: MutationCtx,
+  target: WeightTarget,
+  staffRole: WriterStaffRole | null,
+  by: Id<"users">
+): Promise<Id<"pdWriters">[]> {
+  if (target.kind === "writer") return await applyWriterStaffRole(ctx, [target.writer], staffRole, by);
+  const own = await writerForUser(ctx, target.user);
+  const linked = await linkedWriterOf(ctx, target.user._id);
+  return await applyWriterStaffRole(ctx, [own, ...(linked ? [linked] : [])], staffRole, by);
+}
+
 /** A team member's weight as Team shows it: their own row's, else the linked past writer's, else null. */
 export function memberWriterWeight(rows: readonly WriterDoc[]): number | null {
   const own = rows.find((row) => row.linkedAt === undefined);
   const linked = rows.find((row) => row.linkedAt !== undefined);
   return storedWriterWeight(own?.tier) ?? storedWriterWeight(linked?.tier);
+}
+
+/** A team member's PD staff role: their own row's, else the linked past writer's, else null. */
+export function memberWriterStaffRole(rows: readonly WriterDoc[]): WriterStaffRole | null {
+  const own = rows.find((row) => row.linkedAt === undefined);
+  const linked = rows.find((row) => row.linkedAt !== undefined);
+  return own?.staffRole ?? linked?.staffRole ?? null;
+}
+
+/** Total imported PD file count across a team member's own and linked writer rows. */
+export function memberPdCount(rows: readonly WriterDoc[]): number {
+  let total = 0;
+  for (const row of rows) total += row.fileCount;
+  return total;
 }

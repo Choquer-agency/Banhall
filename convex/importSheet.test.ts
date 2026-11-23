@@ -699,7 +699,8 @@ function finalPdRecountByHand(items: Array<Doc<"ingestionItems">>): FinalPdTalli
     const tab = tabByHand(row.status);
     if (tab === "deleted") continue;
     const year = row.fiscalYearEnd === undefined ? "none" : String(new Date(row.fiscalYearEnd).getUTCFullYear());
-    const writer = row.writerId ?? ((row.initialsGroups?.length ?? 0) >= 3 ? "unsorted" : "none");
+    const writer =
+      row.writerId ?? (row.writerInitials === undefined && (row.initialsGroups?.length ?? 0) >= 3 ? "unsorted" : "none");
     add("total|all", tab);
     add(`year|${year}`, tab);
     add(`writer|${writer}`, tab);
@@ -826,7 +827,7 @@ const RANDOM_PATHS = [
   "Northgate Labs/2024 - Sep 30/To be submitted/pd.docx",
   "Brightwell Dairy/2025/Drafts/plan.docx",
   "loose.docx",
-  // Three initials groups (2026-11-17): no writer until the client says what they mean.
+  // Three initials groups (writer.reviewer.client): unpacked positionally since 2026-11-23.
   "Halden Foods/2025 - Jun 30/To be submitted/05 HaldenFoods 2025-06-30 T0.SO.PN.KT Brining.docx",
 ];
 
@@ -1193,12 +1194,11 @@ describe("importCompanies counts", () => {
       expect((await countsNowAndRecount(t)).stored).toEqual(stored);
 
       // The final PD progress counts (2026-11-17) reached both tabs, a
-      // writer, no writer yet and the unsorted bucket along the way; a
-      // rebuild in pages of two files changes nothing.
+      // writer, and no writer yet along the way; a rebuild in pages of two
+      // files changes nothing.
       expect(finalPdKeysSeen.has("review"), "a final PD on To review").toBe(true);
       expect(finalPdKeysSeen.has("approved"), "an approved final PD").toBe(true);
       expect(finalPdKeysSeen.has("writer|none"), "a final PD with no writer yet").toBe(true);
-      expect(finalPdKeysSeen.has("writer|unsorted"), "a final PD waiting for the client").toBe(true);
       expect(finalPdKeysSeen.has("writer|id"), "a final PD with a writer").toBe(true);
       const progressBefore = await storedFinalPdCounts(t);
       const rebuilt = await driveFinalPdRebuild(t, { pageSize: 2 });
@@ -1985,14 +1985,14 @@ describe("setSheetLabels", () => {
     expect((await getItem(t, id)).updatedAt).toBe(row.updatedAt);
   });
 
-  it("sets a PD number on a draft whose file name gave none, and refuses one that is not 1 to 20", async () => {
+  it("sets a PD number on a draft whose file name gave none, and refuses one that is not 1 to 99", async () => {
     const { admin, t } = await setup();
     const id = await stage(t, `${CEDARLINE_FY}/Drafts/route planning notes.docx`);
     await markRead(t, id);
     expect((await getItem(t, id)).pdNumber).toBeUndefined();
-    for (const pdNumber of ["21", "0", "PD 4", "4ab"]) {
+    for (const pdNumber of ["100", "0", "PD 4", "4ab"]) {
       await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch: { pdNumber } }), pdNumber).rejects.toThrow(
-        "A PD number is 1 to 20, with an optional letter, for example 4 or 12a."
+        "A PD number is 1 to 99, with an optional letter, for example 4 or 12a."
       );
     }
     await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch: { pdNumber: "06" } })).resolves.toMatchObject({
@@ -3585,7 +3585,7 @@ describe("files checked again when the facts change", () => {
     const so = (await writerOf(t, open))!;
     const sam = await addMember(t, "Sam", "Okafor", { initials: "SK" });
     const past = await admin.query(api.users.listPastWriters, {});
-    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, canDelete: false, invitePending: false, weight: null, sameInitialsAs: null }]);
+    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, reviewCount: 0, canDelete: false, invitePending: false, staffRole: null, isActive: false, weight: null, sameInitialsAs: null }]);
 
     await expect(admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam })).resolves.toEqual({ label: "Sam Okafor" });
     for (const id of [open, approved]) expect(await shownWriter(admin, id)).toEqual({ name: "Sam Okafor", hasLogin: true });
@@ -5791,28 +5791,42 @@ describe("final PD progress counts", () => {
     ]);
   });
 
-  it("keep final PDs with no writer yet and those waiting for the client apart from the writers", async () => {
+  it("unpacks three initials groups positionally and keeps legacy unsorted or writerless final PDs apart from the writers", async () => {
     const { t, admin } = await setup();
     await twoMembersWith(t, "SO");
     // Two members have SO: no writer until a person chooses.
     const so = await pdBy(t, "SO", 1);
     expect((await getItem(t, so)).writerId).toBeUndefined();
-    // Three initials groups: no writer until the client says what they mean.
-    const groups = await stage(t, `${CEDARLINE_FY}/To be submitted/05 CedarlineSystems 2025-03-31 T0.DW.PN.KT Brining.docx`);
-    await markRead(t, groups);
+    // Three initials groups now unpack positionally (DW = writer, PN = reviewer, KT = client).
+    const unpacked = await stage(t, `${CEDARLINE_FY}/To be submitted/05 CedarlineSystems 2025-03-31 T0.DW.PN.KT Brining.docx`);
+    await markRead(t, unpacked);
+    expect(await getItem(t, unpacked)).toMatchObject({
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+    });
+    // Legacy pre-2026-11-23 row with 3+ initials groups and no writerInitials still lands in unsorted.
+    const legacy = await stage(t, `${CEDARLINE_FY}/To be submitted/06 CedarlineSystems 2025-03-31 Legacy.docx`);
+    await markRead(t, legacy);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(legacy, {
+        initialsGroups: ["DW", "PN", "KT"],
+      });
+    });
+    await driveFinalPdRebuild(t, { pageSize: 10 });
     await pdBy(t, "DW", 2);
     await expectCountsMatchRecount(t, "staged");
     const breakdown = (await admin.query(api.ingestion.finalPdBreakdown, {}))!;
     expect(breakdown.noWriter).toEqual({ key: "none", approved: 0, staged: 1 });
     expect(breakdown.unsorted).toEqual({ key: "unsorted", approved: 0, staged: 1 });
-    expect(breakdown.writers.map((row) => row.label)).toEqual(["DW"]);
-    // A person chooses a writer for the waiting one: it leaves its bucket.
-    await admin.mutation(api.ingestion.setSheetLabels, { ids: [groups], patch: { writer: { kind: "name", name: "Kim Tran" } } });
+    expect(breakdown.writers.map((row) => [row.label, row.staged])).toEqual([["DW", 2]]);
+    // A person chooses a writer for the legacy unsorted one: it leaves its bucket.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [legacy], patch: { writer: { kind: "name", name: "Kim Tran" } } });
     await expectCountsMatchRecount(t, "chosen");
     const after = (await admin.query(api.ingestion.finalPdBreakdown, {}))!;
     expect(after.unsorted).toBeNull();
     expect(after.writers.map((row) => [row.label, row.staged])).toEqual([
-      ["DW", 1],
+      ["DW", 2],
       ["Kim Tran", 1],
     ]);
   });

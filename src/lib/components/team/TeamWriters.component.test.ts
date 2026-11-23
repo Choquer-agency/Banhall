@@ -202,13 +202,13 @@ describe("Team: writers from initials", () => {
     await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
     const items = () => all('[role="menuitem"]').map((node) => text(node));
     await openMenu('[data-past-writer-menu="w-dw"]');
-    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name", "Set weight"]);
+    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name", "Edit initials and status", "PD role", "Set weight"]);
     await userEvent.keyboard("{Escape}");
     await openMenu('[data-past-writer-menu="w-jordan"]');
-    expect(items()).toEqual(["Link to a team member", "Edit name", "Set weight", "Delete"]);
+    expect(items()).toEqual(["Link to a team member", "Edit name", "Edit initials and status", "PD role", "Set weight", "Delete"]);
     await userEvent.keyboard("{Escape}");
     await openMenu('[data-past-writer-menu="w-so"]');
-    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name", "Set weight"]);
+    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name", "Edit initials and status", "PD role", "Set weight"]);
     await userEvent.keyboard("{Escape}");
   });
 

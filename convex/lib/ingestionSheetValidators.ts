@@ -14,8 +14,22 @@ export const ingestionCategoryValidator = v.union(
   v.literal("unknown")
 );
 
-/** The version letter: T to be submitted, S submitted, R in review. */
-export const pdVersionCodeValidator = v.union(v.literal("T"), v.literal("S"), v.literal("R"));
+/** The version letter: W work in progress, R in review, T to be submitted, S submitted. */
+export const pdVersionCodeValidator = v.union(
+  v.literal("W"),
+  v.literal("R"),
+  v.literal("T"),
+  v.literal("S")
+);
+
+/** Banhall PD staff roles used for default writer quality weighting and Team directory. */
+export const writerStaffRoleValidator = v.union(
+  v.literal("technical_manager"),
+  v.literal("technical_writer"),
+  v.literal("junior_technical_writer"),
+  v.literal("financial")
+);
+export type WriterStaffRoleValue = Infer<typeof writerStaffRoleValidator>;
 
 /** The sheet tab a row shows on, from its status. */
 export const sheetTabValidator = v.union(
@@ -126,7 +140,10 @@ export const editableLabelValidator = v.union(
   v.literal("scienceCode"),
   // 2026-11-17 widen (edit after approval): an Admin changed the PD's title
   // on an approved file, so a later move or rename on the drive keeps it.
-  v.literal("pdTitle")
+  v.literal("pdTitle"),
+  // 2026-11-23 widen: an Admin manually reassigned initials between slots
+  // (writer / reviewer / client / financial), so re-sync keeps their slots.
+  v.literal("initialsSlots")
 );
 export type EditableLabel = Infer<typeof editableLabelValidator>;
 

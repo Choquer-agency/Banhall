@@ -29,8 +29,10 @@
   import { BRAIN_STATE_TEXT, NOT_ON_COMPANY_PAGE } from "./importApprove";
   import { CRA_REVIEWED } from "./importApproved";
   import ImportApprovedDetails from "./ImportApprovedDetails.svelte";
+  import ImportInitialsSlots from "./ImportInitialsSlots.svelte";
+  import { categoryTakes } from "../../../../shared/importSheetRules";
   import { CATEGORY_NAMES, checkLines, fileStateText, FILE_VIEW_MAX_CHARS, textNote } from "./importFileView";
-  import { fileCells, fiscalYearTooltip, yearEndDate, type SheetFileRow } from "./importFormat";
+  import { fileCells, fiscalYearTooltip, isBeingRead, yearEndDate, type SheetFileRow } from "./importFormat";
   import { AMBER, SHEET_SMALL, SHOW_MORE } from "./sheetLayout";
 
   let {
@@ -96,6 +98,9 @@
   const canShowMore = $derived(Boolean(loaded && shown < loaded.total && shown < FILE_VIEW_MAX_CHARS));
   const note = $derived(loaded ? textNote({ shown, total: loaded.total, source: loaded.source, cutAtImport: loaded.cutAtImport }) : null);
   const checks = $derived(file && file.sheetTab === "review" ? checkLines(file.checkReasons) : []);
+  const canEditInitials = $derived(
+    Boolean(file && file.sheetTab === "review" && !isBeingRead(file.status) && categoryTakes("writerName", file.category))
+  );
 
   const labels = $derived.by(() => {
     if (!file || !cells) return [];
@@ -115,7 +120,14 @@
     const approved = file.status === "approved";
     if (cells.writer && !approved) rows.push({ label: "Writer", value: cells.writer.tone === "amber" ? "No writer yet" : cells.writer.text });
     if (file.reviewerName && !approved) rows.push({ label: "Reviewer", value: file.reviewerName });
-    if (file.reviewerInitials) rows.push({ label: "Reviewer initials", value: file.reviewerInitials });
+    if (file.reviewerInitials) {
+      rows.push({
+        label: "Reviewer initials",
+        value: file.reviewerInProgress ? `${file.reviewerInitials} (in progress)` : file.reviewerInitials,
+      });
+    }
+    if (file.clientInitials) rows.push({ label: "Client initials", value: file.clientInitials });
+    if (file.financialInitials) rows.push({ label: "Financial initials", value: file.financialInitials });
     if (cells.scienceCode?.kind === "code" && !approved) {
       rows.push({ label: "Science code", value: [cells.scienceCode.code, cells.scienceCode.title].filter(Boolean).join(" ") });
     }
@@ -189,6 +201,17 @@
               </dd>
             {/each}
           </dl>
+
+          {#if canEditInitials}
+            <ImportInitialsSlots
+              fileId={file._id}
+              writerInitials={file.writerInitials}
+              reviewerInitials={file.reviewerInitials}
+              clientInitials={file.clientInitials}
+              financialInitials={file.financialInitials}
+              reviewerInProgress={file.reviewerInProgress}
+            />
+          {/if}
 
           {#if file.status === "approved"}
             <ImportApprovedDetails {file} onSentBack={onClose} />

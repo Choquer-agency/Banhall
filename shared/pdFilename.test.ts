@@ -15,11 +15,12 @@ describe("parsePdFilename", () => {
       revision: "1",
       writerInitials: "LR",
       reviewerInitials: "MO",
+      reviewerInProgress: true,
       title: "Marine Battery Electricaland Thermal Behaviour Advancements",
     });
   });
 
-  it("upper-cases lowercase initials and accepts a lowercase r", () => {
+  it("upper-cases lowercase initials, flags lowercase reviewer as in progress, and accepts a lowercase r", () => {
     expect(parsePdFilename("7 AcmeLabs 2024-06-30 r12.tl.ec SolarTrackerPrototype.pdf")).toEqual({
       projectNumber: "7",
       clientName: "Acme Labs",
@@ -28,8 +29,10 @@ describe("parsePdFilename", () => {
       revision: "12",
       writerInitials: "TL",
       reviewerInitials: "EC",
+      reviewerInProgress: true,
       title: "Solar Tracker Prototype",
     });
+    expect(parsePdFilename("7 AcmeLabs 2024-06-30 R12.TL.EC SolarTrackerPrototype.pdf")?.reviewerInProgress).toBeUndefined();
   });
 
   it("strips the leading zero so the page validator accepts the number", () => {
@@ -42,8 +45,9 @@ describe("parsePdFilename", () => {
     }
   });
 
-  it("drops a project number above the per-company cap of 20 but keeps the rest", () => {
+  it("accepts 2-digit project numbers up to 99 per Banhall naming convention", () => {
     expect(parsePdFilename("21 Client 2025-12-31 R1.LR Title.docx")).toEqual({
+      projectNumber: "21",
       clientName: "Client",
       fiscalYearEnd: "2025-12-31",
       versionCode: "R",
@@ -51,7 +55,7 @@ describe("parsePdFilename", () => {
       writerInitials: "LR",
       title: "Title",
     });
-    expect(parsePdFilename("20 Client 2025-12-31")?.projectNumber).toBe("20");
+    expect(parsePdFilename("99 Client 2025-12-31")?.projectNumber).toBe("99");
   });
 
   it("needs a fiscal year-end or revision token before it trusts the name", () => {
@@ -177,6 +181,7 @@ describe("parsePdFilename", () => {
       revision: "1",
       writerInitials: "SO",
       reviewerInitials: "DW",
+      reviewerInProgress: true,
       title: "Shelf Life Model",
     });
   });
@@ -332,13 +337,39 @@ describe("parsePdFilename on the firm's real name shapes (2026-11-17)", () => {
     expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.docx")).toMatchObject({ versionCode: "T", revision: "0" });
   });
 
-  it("keeps three or four initials groups as groups only, with no writer or reviewer until the client confirms them", () => {
+  it("reads a W (work in progress) version with or without initials", () => {
+    expect(parsePdFilename("01 CadMakers 2020-02-02 W0.AD AutomatedMesh.docx")).toEqual({
+      projectNumber: "1",
+      clientName: "Cad Makers",
+      fiscalYearEnd: "2020-02-02",
+      versionCode: "W",
+      revision: "0",
+      writerInitials: "AD",
+      title: "Automated Mesh",
+    });
+    expect(parsePdFilename("02 CadMakers 2020-02-02 w2.ad.mo Title.docx")).toMatchObject({
+      versionCode: "W",
+      revision: "2",
+      writerInitials: "AD",
+      reviewerInitials: "MO",
+      reviewerInProgress: true,
+    });
+    expect(parsePdFilename("01 CadMakers 2020-02-02 W0.docx")).toMatchObject({
+      versionCode: "W",
+      revision: "0",
+    });
+  });
+
+  it("unpacks three or four initials groups positionally into writer, reviewer, client, and financial slots", () => {
     expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT LabelVision.docx")).toEqual({
       projectNumber: "1",
       clientName: "Cedarline Systems",
       fiscalYearEnd: "2026-03-31",
       versionCode: "T",
       revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
       initialsGroups: ["DW", "PN", "KT"],
       title: "Label Vision",
     });
@@ -348,17 +379,27 @@ describe("parsePdFilename on the firm's real name shapes (2026-11-17)", () => {
       fiscalYearEnd: "2026-03-31",
       versionCode: "T",
       revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      reviewerInProgress: true,
+      clientInitials: "KT",
+      financialInitials: "SO",
       initialsGroups: ["DW", "PN", "KT", "SO"],
       title: "Cold Chain-Sensor Drift",
     });
-    // One or two groups keep today's meaning and give no groups.
+    // One or two groups keep today's meaning and give no initialsGroups array.
     expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW LabelVision.docx")?.initialsGroups).toBeUndefined();
     // Five groups are not a version token: they stay title text.
     expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT.SO.AB Title.docx")).toMatchObject({
       title: "T0.DW.PN.KT.SO.AB Title",
     });
     // No extension: the last group is not mistaken for one.
-    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT")?.initialsGroups).toEqual(["DW", "PN", "KT"]);
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT")).toMatchObject({
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+    });
   });
 
   it("never reads a file extension as an initials group, and keeps one or two groups as writer and reviewer", () => {
@@ -369,10 +410,19 @@ describe("parsePdFilename on the firm's real name shapes (2026-11-17)", () => {
     }
     expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.msg")).toMatchObject({ writerInitials: "DW" });
     expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.PN.msg")?.initialsGroups).toBeUndefined();
-    // Three groups and an extension: the groups alone.
-    expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.PN.KT.msg")?.initialsGroups).toEqual(["DW", "PN", "KT"]);
+    // Three groups and an extension: unpacked plus initialsGroups.
+    expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.PN.KT.msg")).toMatchObject({
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+    });
     // Initials that are not a known extension, with no extension: still groups.
-    expect(parsePdFilename("3 Client 2025-12-31 R1.LR.mo")).toMatchObject({ writerInitials: "LR", reviewerInitials: "MO" });
+    expect(parsePdFilename("3 Client 2025-12-31 R1.LR.mo")).toMatchObject({
+      writerInitials: "LR",
+      reviewerInitials: "MO",
+      reviewerInProgress: true,
+    });
   });
 
   it("reads a title of hyphenated CamelCase words", () => {

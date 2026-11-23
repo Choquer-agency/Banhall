@@ -465,20 +465,19 @@ function normalizeProjectNumberInput(
 ): string | undefined {
   const raw = input?.trim().toLowerCase() ?? "";
   if (!raw) return undefined;
-  // 1–20, a letter a–z, or a combined form like 2a/14b (owner
-  // clarification 2026-08-11: numbering and lettering compose; stored
-  // lowercase since 2026-08-19).
+  // 1-99, a letter a-z, or a combined form like 2a/14b (2-digit zero-padded
+  // per Banhall naming convention, stored lowercase since 2026-08-19).
   if (!/^(?:[1-9][0-9]?[a-z]?|[a-z])$/.test(raw)) {
     domainError(
       "INVALID_INPUT",
-      "Project number must be 1–20, a letter a–z, or combined like 2a"
+      "Project number must be 1-99, a letter a-z, or combined like 2a"
     );
   }
   const numericPart = raw.match(/^[0-9]+/)?.[0];
-  if (numericPart && Number(numericPart) > 20) {
+  if (numericPart && Number(numericPart) > 99) {
     domainError(
       "INVALID_INPUT",
-      "Numbered projects are capped at 20 per company"
+      "Numbered projects are capped at 99 per company"
     );
   }
   return raw;

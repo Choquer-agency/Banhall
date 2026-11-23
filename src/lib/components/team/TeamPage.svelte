@@ -32,7 +32,14 @@
   import LinkWriterDialog from "./LinkWriterDialog.svelte";
   import WriterConfirmDialog from "./WriterConfirmDialog.svelte";
   import WriterWeightDialog from "./WriterWeightDialog.svelte";
-  import { DEFAULT_WRITER_WEIGHT, writerWeightText } from "../../../../shared/writerWeight";
+  import AddPastWriterDialog, { type PastWriterFormValues } from "./AddPastWriterDialog.svelte";
+  import {
+    defaultWeightForStaffRole,
+    WRITER_STAFF_ROLE_DEFAULT_WEIGHTS,
+    WRITER_STAFF_ROLE_LABELS,
+    writerWeightText,
+    type WriterStaffRole,
+  } from "../../../../shared/writerWeight";
 
   let { origin = typeof window === "undefined" ? "" : window.location.origin }: { origin?: string } = $props();
 
@@ -67,6 +74,9 @@
   const unlinkPastWriter = useMutation(api.users.unlinkPastWriter);
   const deletePastWriter = useMutation(api.users.deletePastWriter);
   const setWriterWeight = useMutation(api.users.setWriterWeight);
+  const setWriterStaffRole = useMutation(api.users.setWriterStaffRole);
+  const createPastWriter = useMutation(api.users.createPastWriter);
+  const updatePastWriter = useMutation(api.users.updatePastWriter);
 
   // Relative times ("12 min ago") move on without a refetch.
   let now = $state(Date.now());
@@ -86,6 +96,9 @@
   let initialsOpen = $state(false);
   let nameTarget = $state<PastWriter | null>(null);
   let nameOpen = $state(false);
+  let pastWriterDialogOpen = $state(false);
+  let pastWriterDialogMode = $state<"create" | "edit">("create");
+  let pastWriterEditTarget = $state<PastWriter | null>(null);
   let linkTarget = $state<PastWriter | null>(null);
   let linkOpen = $state(false);
   let deleteTarget = $state<PastWriter | null>(null);
@@ -254,6 +267,9 @@
   const weightNow = $derived(
     (weightTarget?.kind === "member" ? weightTarget.member.weight : weightTarget?.kind === "writer" ? weightTarget.writer.weight : null) ?? null,
   );
+  const weightStaffRole = $derived<WriterStaffRole | null>(
+    (weightTarget?.kind === "member" ? weightTarget.member.staffRole : weightTarget?.kind === "writer" ? weightTarget.writer.staffRole : null) ?? null,
+  );
 
   async function saveWeight(weight: number | null) {
     const target = weightTarget!;
@@ -262,11 +278,78 @@
         ? { userId: target.member._id as Id<"users">, weight }
         : { writerId: target.writer._id as Id<"pdWriters">, weight },
     );
+    const effectiveDefault = defaultWeightForStaffRole(weightStaffRole);
+    const roleDefault = weightStaffRole ? WRITER_STAFF_ROLE_DEFAULT_WEIGHTS[weightStaffRole] : null;
     toast.success(
       result.weight === null
-        ? `${weightName} uses the default weight of ${writerWeightText(DEFAULT_WRITER_WEIGHT)} now.`
+        ? roleDefault !== null && weightStaffRole
+          ? `${weightName} uses the ${WRITER_STAFF_ROLE_LABELS[weightStaffRole]} default weight of ${writerWeightText(effectiveDefault)} now.`
+          : `${weightName} uses the default weight of ${writerWeightText(effectiveDefault)} now.`
         : `Weight for ${weightName} saved as ${writerWeightText(result.weight)}.`,
     );
+  }
+
+  async function changeMemberStaffRole(member: TeamMember, staffRole: WriterStaffRole | null) {
+    if ((member.staffRole ?? null) === staffRole) return;
+    try {
+      await setWriterStaffRole({ userId: member._id as Id<"users">, staffRole });
+      toast.success(
+        staffRole
+          ? `${member.name} is set as ${WRITER_STAFF_ROLE_LABELS[staffRole]}.`
+          : `PD role cleared for ${member.name}.`,
+      );
+    } catch (cause) {
+      toast.error(userErrorMessage(cause, "The PD role could not be saved. Try again."));
+    }
+  }
+
+  async function changeWriterStaffRole(writer: PastWriter, staffRole: WriterStaffRole | null) {
+    if ((writer.staffRole ?? null) === staffRole) return;
+    try {
+      await setWriterStaffRole({ writerId: writer._id as Id<"pdWriters">, staffRole });
+      toast.success(
+        staffRole
+          ? `${writer.label} is set as ${WRITER_STAFF_ROLE_LABELS[staffRole]}.`
+          : `PD role cleared for ${writer.label}.`,
+      );
+    } catch (cause) {
+      toast.error(userErrorMessage(cause, "The PD role could not be saved. Try again."));
+    }
+  }
+
+  function openAddPastWriter() {
+    pastWriterDialogMode = "create";
+    pastWriterEditTarget = null;
+    pastWriterDialogOpen = true;
+  }
+
+  function askEditPastWriterDetails(writer: PastWriter) {
+    pastWriterDialogMode = "edit";
+    pastWriterEditTarget = writer;
+    pastWriterDialogOpen = true;
+  }
+
+  async function savePastWriterDetails(values: PastWriterFormValues) {
+    if (pastWriterDialogMode === "create") {
+      const result = await createPastWriter({
+        name: values.name,
+        initials: values.initials || undefined,
+        staffRole: values.staffRole,
+        isActive: values.isActive,
+        weight: values.weight,
+      });
+      toast.success(`${result.label} added.`);
+      return;
+    }
+    const target = pastWriterEditTarget!;
+    const result = await updatePastWriter({
+      writerId: target._id as Id<"pdWriters">,
+      name: values.name,
+      initials: values.initials,
+      staffRole: values.staffRole,
+      isActive: values.isActive,
+    });
+    toast.success(`${result.label} updated.`);
   }
 
   function askDelete(writer: PastWriter) {
@@ -315,7 +398,17 @@
     {:else if !canView}
       <ViewAsHiddenPage pageName="Team" />
     {:else}
-      <p data-team-subtitle class="text-sm leading-[calc(10/7)] text-ink-muted">{subtitle}</p>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <p data-team-subtitle class="text-sm leading-[calc(10/7)] text-ink-muted">{subtitle}</p>
+        {#if isAdminViewer}
+          <button
+            type="button"
+            data-add-past-writer
+            onclick={openAddPastWriter}
+            class="h-8 shrink-0 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+          >Add person without login</button>
+        {/if}
+      </div>
       {#if membersQ.data === undefined}
         <div data-team-loading class="flex flex-col overflow-hidden rounded-[0.625rem] border border-line-soft" aria-busy="true">
           {#each [0, 1, 2, 3] as row (row)}
@@ -330,6 +423,7 @@
           {now}
           showActions={isAdminViewer}
           onChangeRole={changeMemberRole}
+          onChangeStaffRole={isAdminViewer ? changeMemberStaffRole : null}
           onSetPassword={askPassword}
           onEditInitials={askInitials}
           onSetWeight={askMemberWeight}
@@ -355,6 +449,8 @@
           showActions={isAdminViewer}
           onInvite={askInvite}
           onEditName={askName}
+          onEditDetails={isAdminViewer ? askEditPastWriterDetails : null}
+          onChangeStaffRole={isAdminViewer ? changeWriterStaffRole : null}
           onLink={askLink}
           onSetWeight={askWriterWeight}
           onDelete={askDelete}
@@ -396,6 +492,17 @@
 {#if isAdminViewer && nameTarget}
   <WriterNameDialog bind:open={nameOpen} initials={nameTarget.initials} name={nameTarget.name} onSubmit={saveName} />
 {/if}
+{#if isAdminViewer}
+  <AddPastWriterDialog
+    bind:open={pastWriterDialogOpen}
+    mode={pastWriterDialogMode}
+    initialName={pastWriterEditTarget?.name ?? null}
+    initialInitials={pastWriterEditTarget?.initials ?? null}
+    initialStaffRole={pastWriterEditTarget?.staffRole ?? null}
+    initialIsActive={pastWriterEditTarget?.isActive ?? true}
+    onSubmit={savePastWriterDetails}
+  />
+{/if}
 {#if isAdminViewer && linkTarget}
   <LinkWriterDialog
     bind:open={linkOpen}
@@ -406,7 +513,13 @@
   />
 {/if}
 {#if isAdminViewer && weightTarget}
-  <WriterWeightDialog bind:open={weightOpen} name={weightName} weight={weightNow} onSubmit={saveWeight} />
+  <WriterWeightDialog
+    bind:open={weightOpen}
+    name={weightName}
+    weight={weightNow}
+    staffRole={weightStaffRole}
+    onSubmit={saveWeight}
+  />
 {/if}
 {#if isAdminViewer && deleteTarget}
   <WriterConfirmDialog

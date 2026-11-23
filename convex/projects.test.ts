@@ -1456,11 +1456,17 @@ describe("project numbering", () => {
     });
     project = await asActor(t, "owner").query(api.projects.getProject, { projectId });
     expect(project?.projectNumber).toBe("14b");
-    // combined form still respects the 20 cap
+    // combined form accepts up to 99 and rejects above 99
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: "99a",
+    });
+    project = await asActor(t, "owner").query(api.projects.getProject, { projectId });
+    expect(project?.projectNumber).toBe("99a");
     await expect(
       asActor(t, "owner").mutation(api.projects.setProjectNumber, {
         projectId,
-        projectNumber: "21A",
+        projectNumber: "100A",
       })
     ).rejects.toThrow();
   });
@@ -1491,7 +1497,19 @@ describe("project numbering", () => {
     });
   });
 
-  test.each([["21"], ["99"]])("rejects numbers above the 20 cap (%s)", async (value) => {
+  test.each([["21"], ["99"]])("accepts numbers up to the 99 cap (%s)", async (value) => {
+    const { t, projectId } = await setup();
+
+    await asActor(t, "owner").mutation(api.projects.setProjectNumber, {
+      projectId,
+      projectNumber: value,
+    });
+    await expect(getProject(t, projectId)).resolves.toMatchObject({
+      projectNumber: value,
+    });
+  });
+
+  test.each([["100"], ["150"]])("rejects numbers above the 99 cap (%s)", async (value) => {
     const { t, projectId } = await setup();
 
     await expect(

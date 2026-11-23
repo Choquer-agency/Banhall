@@ -8,7 +8,7 @@
   of a popover: mount it when the popover opens.
 -->
 <script lang="ts">
-  import { MAX_PD_NUMBER, normalizePdNumber, PD_NUMBER_RULE } from "../../../../shared/importSheetRules";
+  import { normalizePdNumber, PD_NUMBER_RULE } from "../../../../shared/importSheetRules";
   import ImportNameList from "./ImportNameList.svelte";
 
   let {
@@ -21,7 +21,8 @@
     onPick: (pdNumber: string) => void;
   } = $props();
 
-  const NUMBERS = Array.from({ length: MAX_PD_NUMBER }, (_, index) => String(index + 1));
+  const QUICK_PD_NUMBERS = 20;
+  const NUMBERS = Array.from({ length: QUICK_PD_NUMBERS }, (_, index) => String(index + 1));
   let query = $state("");
 
   /** A typed number as stored, "PD 7" read as 7; null when it is not one. */

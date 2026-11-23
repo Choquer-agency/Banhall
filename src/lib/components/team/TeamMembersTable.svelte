@@ -27,6 +27,7 @@
     ROLE_COLUMN,
   } from "./teamColumns";
   import type { Role } from "../../../../shared/roles";
+  import { WRITER_STAFF_ROLE_LABELS, type WriterStaffRole } from "../../../../shared/writerWeight";
 
   export type TeamMember = {
     _id: string;
@@ -43,8 +44,12 @@
     initials: string | null;
     /** The past writer an Admin linked to this account, if any. */
     linkedWriter: { writerId: string; label: string; initials: string | null; fileCount: number } | null;
-    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Shown only in its dialog. */
+    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Omitted for Managers. */
     weight?: number | null;
+    /** Banhall PD staff role (technical_manager, technical_writer, junior_technical_writer, financial). */
+    staffRole?: WriterStaffRole | null;
+    /** Number of imported PDs linked to this member's writer profile. */
+    pdCount?: number;
   };
 
   let {
@@ -52,6 +57,7 @@
     now,
     showActions,
     onChangeRole,
+    onChangeStaffRole = null,
     onSetPassword,
     onEditInitials,
     onSetWeight,
@@ -61,6 +67,7 @@
     now: number;
     showActions: boolean;
     onChangeRole: (member: TeamMember, role: Role) => void;
+    onChangeStaffRole?: ((member: TeamMember, staffRole: WriterStaffRole | null) => void) | null;
     onSetPassword: (member: TeamMember) => void;
     onEditInitials: (member: TeamMember) => void;
     onSetWeight: (member: TeamMember) => void;
@@ -81,8 +88,11 @@
     {#each members as member (member._id)}
       <div role="row" data-member-row={member._id} class={PEOPLE_ROW}>
         <!-- Plain names, no avatar (owner rule; Paper S11, 2026-10-28). -->
-        <span role="cell" class={`flex items-center ${NAME_COLUMN}`}>
+        <span role="cell" class={`flex items-center gap-2 ${NAME_COLUMN}`}>
           <span data-member-name class={NAME_TEXT}>{member.name}</span>
+          {#if member.staffRole}
+            <span data-member-staff-role class="shrink-0 truncate text-xs leading-[calc(4/3)] text-ink-muted">{WRITER_STAFF_ROLE_LABELS[member.staffRole]}</span>
+          {/if}
         </span>
         <span role="cell" data-member-initials class={`${INITIALS_COLUMN} ${QUIET_TEXT}`}>{member.initials ?? ""}</span>
         <span role="cell" class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}>{member.email ?? ""}</span>
@@ -98,9 +108,11 @@
               name={member.name}
               userId={member._id}
               role={member.role}
+              staffRole={member.staffRole ?? null}
               isSelf={member.isSelf}
               linkedWriterLabel={member.linkedWriter?.label ?? null}
               onChangeRole={(role) => onChangeRole(member, role)}
+              onChangeStaffRole={onChangeStaffRole ? (staffRole) => onChangeStaffRole(member, staffRole) : null}
               onSetPassword={() => onSetPassword(member)}
               onEditInitials={() => onEditInitials(member)}
               onSetWeight={() => onSetWeight(member)}

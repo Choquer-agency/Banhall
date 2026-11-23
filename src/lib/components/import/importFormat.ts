@@ -392,7 +392,13 @@ export type WriterCell = CellText & { initials: string | null; remembered: boole
  * as the initials, muted, or nothing. Never amber: a reviewer is never
  * required.
  */
-export type ReviewerCell = CellText & { initials: string | null; remembered: boolean; missing: boolean };
+export type ReviewerCell = CellText & {
+  initials: string | null;
+  remembered: boolean;
+  missing: boolean;
+  /** Lowercase reviewer initials in the filename (e.g. ".mo") indicate review in progress. */
+  inProgress: boolean;
+};
 
 export type FileCells = {
   /** New (2026-11-12): the green label after the name, on To review. */
@@ -444,6 +450,7 @@ export function fileCells(
     | "reviewerName"
     | "reviewerSource"
     | "reviewerInitials"
+    | "reviewerInProgress"
     | "craReviewed"
     | "scienceCode"
     | "scienceCodeSource"
@@ -490,6 +497,7 @@ export function fileCells(
 
   const reviewerName = row.reviewerName?.trim();
   const reviewerInitials = writerInitialsKey(row.reviewerInitials);
+  const reviewerInProgress = row.reviewerInProgress === true;
   const reviewer: ReviewerCell | null = !categoryTakes("writerName", row.category)
     ? null
     : reviewerName
@@ -499,8 +507,16 @@ export function fileCells(
           initials: reviewerInitials,
           remembered: row.reviewerSource === "initials" || row.reviewerSource === "pick",
           missing: false,
+          inProgress: reviewerInProgress,
         }
-      : { text: reviewerInitials ?? "", tone: "muted", initials: reviewerInitials, remembered: false, missing: true };
+      : {
+          text: reviewerInitials ?? "",
+          tone: "muted",
+          initials: reviewerInitials,
+          remembered: false,
+          missing: true,
+          inProgress: reviewerInProgress,
+        };
 
   const code = row.scienceCode?.trim();
   const display = code ? scienceCodeDisplay(code) : null;

@@ -327,7 +327,7 @@ type FinalPdTab = "review" | "approved";
 /** The fields of a row the final PD counts read. */
 export type FinalPdCountedRow = Pick<
   Doc<"ingestionItems">,
-  "sheetTab" | "category" | "fiscalYearEnd" | "writerId" | "initialsGroups"
+  "sheetTab" | "category" | "fiscalYearEnd" | "writerId" | "writerInitials" | "initialsGroups"
 >;
 
 /** Where one final PD counts. */
@@ -345,7 +345,8 @@ export function finalPdShareOf(row: FinalPdCountedRow | null | undefined): Final
   if (row.sheetTab !== "review" && row.sheetTab !== "approved") return null;
   const fiscalYear = fiscalYearBucket(row.fiscalYearEnd);
   if (row.writerId !== undefined) return { tab: row.sheetTab, fiscalYear, writerKey: row.writerId, writerId: row.writerId };
-  const unsorted = (row.initialsGroups?.length ?? 0) > 0;
+  // Legacy rows staged before 3-4 group unpacking have initialsGroups without writerInitials.
+  const unsorted = row.writerInitials === undefined && (row.initialsGroups?.length ?? 0) > 0;
   return { tab: row.sheetTab, fiscalYear, writerKey: unsorted ? UNSORTED_WRITER_KEY : NO_WRITER_KEY };
 }
 

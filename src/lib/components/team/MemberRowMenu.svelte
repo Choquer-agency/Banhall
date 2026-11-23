@@ -10,16 +10,20 @@
   import { IconLock, IconMore, IconPencil, IconTag } from "$lib/components/icons";
   import { resolve } from "$app/paths";
   import RoleSubmenu from "./RoleSubmenu.svelte";
+  import StaffRoleSubmenu from "./StaffRoleSubmenu.svelte";
   import { MENU_CONTENT, MENU_ITEM, ROW_MENU_TRIGGER } from "./menuStyles";
   import type { Role } from "../../../../shared/roles";
+  import type { WriterStaffRole } from "../../../../shared/writerWeight";
 
   let {
     name,
     userId,
     role,
+    staffRole = null,
     isSelf,
     linkedWriterLabel = null,
     onChangeRole,
+    onChangeStaffRole = null,
     onSetPassword,
     onEditInitials,
     onSetWeight = null,
@@ -28,10 +32,12 @@
     name: string;
     userId: string;
     role: Role;
+    staffRole?: WriterStaffRole | null;
     isSelf: boolean;
     /** The past writer an Admin linked to this person ("DW"), if any. */
     linkedWriterLabel?: string | null;
     onChangeRole: (role: Role) => void;
+    onChangeStaffRole?: ((staffRole: WriterStaffRole | null) => void) | null;
     onSetPassword: () => void;
     onEditInitials: () => void;
     /** Set weight (2026-11-18); absent: the item does not show. */
@@ -49,6 +55,9 @@
   <DropdownMenu.Portal>
     <DropdownMenu.Content side="bottom" align="end" sideOffset={4} class={`w-[14.5rem] ${MENU_CONTENT}`}>
       <RoleSubmenu heading="Role" roles={["writer", "manager", "admin"]} current={role} onSelect={onChangeRole} />
+      {#if onChangeStaffRole}
+        <StaffRoleSubmenu current={staffRole} onSelect={onChangeStaffRole} />
+      {/if}
       {#if !isSelf}
         <DropdownMenu.Item data-menu-item="password" onSelect={onSetPassword} class={`${MENU_ITEM} text-ink`}>
           <IconLock size={15} strokeWidth={1.5} class="shrink-0" />Set a temporary password

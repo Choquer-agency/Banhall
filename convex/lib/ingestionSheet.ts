@@ -17,6 +17,7 @@ import {
   PD_NUMBER_RULE,
   tabForStatus,
   writerInitialsKey,
+  type ImportLabel,
 } from "../../shared/importSheetRules";
 import {
   classifyItemPath,
@@ -49,6 +50,7 @@ export const EDITABLE_LABELS: readonly EditableLabel[] = [
   "writerName",
   "scienceCode",
   "pdTitle",
+  "initialsSlots",
 ];
 
 /** The tab a status shows on (shared/importSheetRules.ts, which the page reads too). */
@@ -361,8 +363,8 @@ const NUMBERED_CATEGORIES: ReadonlySet<IngestionCategory> = new Set([
   "review_copy",
 ]);
 
-/** Version letters in the order a PD moves through them: in review, to be submitted, submitted. */
-const VERSION_STAGE: Record<"R" | "T" | "S", string> = { R: "1", T: "2", S: "3" };
+/** Version letters in the order a PD moves through them: WIP, in review, to be submitted, submitted. */
+const VERSION_STAGE: Record<"W" | "R" | "T" | "S", string> = { W: "0", R: "1", T: "2", S: "3" };
 
 /** Sorts after every number or version. */
 const LAST = "~";
@@ -375,9 +377,9 @@ function pdNumberSortPart(pdNumber: string | undefined): string {
   return `${match[1].padStart(4, "0")}${(match[2] || "-").toLowerCase()}`;
 }
 
-function versionSortPart(code: "T" | "S" | "R" | undefined, number: number | undefined): string {
+function versionSortPart(code: "W" | "T" | "S" | "R" | undefined, number: number | undefined): string {
   if (code === undefined && number === undefined) return LAST;
-  const stage = code === undefined ? "0" : VERSION_STAGE[code];
+  const stage = code === undefined ? "-" : VERSION_STAGE[code];
   const n = number === undefined || !Number.isFinite(number) ? 0 : Math.max(0, Math.floor(number));
   return `${stage}${String(n).padStart(4, "0")}`;
 }
@@ -399,7 +401,7 @@ function fiscalYearSortPart(fiscalYearEnd: number | undefined): string {
  * ascending (the sheet's index). Final PDs, drafts and review copies go by
  * fiscal year, newest first (live QA fixes, 2026-11-11: two "PD 1" rows of
  * different years no longer sit together as if they were the same file),
- * then PD number (number, then letter), then version (R, then T, then S,
+ * then PD number (number, then letter), then version (W, then R, then T, then S,
  * each by number), then name; rows with no year, number or version come
  * after the ones with one. Everything else goes by name. Every write settles
  * the row (settleItem), so a new year end moves the row at once, and the
@@ -430,6 +432,11 @@ type KeptLabels = Pick<
   | "versionCode"
   | "versionNumber"
   | "pdTitle"
+  | "writerInitials"
+  | "reviewerInitials"
+  | "reviewerInProgress"
+  | "clientInitials"
+  | "financialInitials"
 >;
 
 /**
@@ -464,6 +471,14 @@ export function pathFieldsFor(path: string, name: string, kept?: KeptLabels | nu
   }
   // 2026-11-17: a title an Admin set after approval (kept after a Send back).
   if (edited.has("pdTitle")) fields.pdTitle = kept.pdTitle;
+  // 2026-11-23: manual initials slot reassignment survives OneDrive re-sync.
+  if (edited.has("initialsSlots")) {
+    fields.writerInitials = kept.writerInitials;
+    fields.reviewerInitials = kept.reviewerInitials;
+    fields.reviewerInProgress = kept.reviewerInProgress;
+    fields.clientInitials = kept.clientInitials;
+    fields.financialInitials = kept.financialInitials;
+  }
   return fields;
 }
 
@@ -686,7 +701,7 @@ export { normalizePdNumber };
  */
 export function labelPatchFields(patch: SheetLabelPatch): {
   fields: Partial<IngestionItemFields>;
-  labels: EditableLabel[];
+  labels: ImportLabel[];
   /**
    * The writer chosen (2026-11-16), a typed name cleaned: the caller turns
    * it into a writer (ingestion.ts setSheetLabels) and sets writerId and
@@ -695,7 +710,7 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   writer?: WriterChoice;
 } {
   const fields: Partial<IngestionItemFields> = {};
-  const labels: EditableLabel[] = [];
+  const labels: ImportLabel[] = [];
   let writer: WriterChoice | undefined;
 
   if (patch.company !== undefined) {
@@ -775,6 +790,14 @@ const LABEL_FIELDS: Record<EditableLabel, ReadonlyArray<keyof IngestionItemField
   writerName: ["writerId", "writerName", "writerNameSource"],
   scienceCode: ["scienceCode", "scienceCodeSource"],
   pdTitle: ["pdTitle"],
+  initialsSlots: [
+    "writerInitials",
+    "reviewerInitials",
+    "reviewerInProgress",
+    "clientInitials",
+    "financialInitials",
+    "initialsGroups",
+  ],
 };
 
 /** Only the fields of `labels` from what labelPatchFields gave (2026-11-11, phase 3b fixes). */

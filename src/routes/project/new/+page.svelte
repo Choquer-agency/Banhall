@@ -2494,7 +2494,7 @@
         <label for="projectNumber" class={labelClass}>Project number</label>
         <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
         {#if !projectNumberValid}
-          <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
+          <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 99, a letter a to z, or both, like 2a.</p>
         {/if}
       </div>
       {#if allTags.length > 0}

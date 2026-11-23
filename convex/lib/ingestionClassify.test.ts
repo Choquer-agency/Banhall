@@ -589,12 +589,15 @@ describe("labelsForItemPath", () => {
     expect(Object.keys(labels).sort()).toEqual(
       [
         "category",
+        "clientInitials",
         "companyKey",
+        "financialInitials",
         "fiscalYearEnd",
         "fiscalYearEndAssumed",
         "initialsGroups",
         "pdNumber",
         "pdTitle",
+        "reviewerInProgress",
         "reviewerInitials",
         "versionCode",
         "versionNumber",

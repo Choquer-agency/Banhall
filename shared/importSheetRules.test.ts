@@ -112,12 +112,13 @@ describe("writer initials (2026-11-12)", () => {
 });
 
 describe("normalizePdNumber", () => {
-  it("stores a PD number from 1 to 20 with an optional letter, the rule the page and setSheetLabels share", () => {
+  it("stores a PD number from 1 to 99 with an optional letter, the rule the page and setSheetLabels share", () => {
     expect(normalizePdNumber(" 04 ")).toBe("4");
     expect(normalizePdNumber("12a")).toBe("12a");
-    expect(normalizePdNumber("20")).toBe("20");
-    for (const value of ["", "0", "21", "PD 4", "4ab", "4.5", "-1"]) expect(normalizePdNumber(value), value).toBeNull();
-    expect(PD_NUMBER_RULE).toBe("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.");
+    expect(normalizePdNumber("25")).toBe("25");
+    expect(normalizePdNumber("99")).toBe("99");
+    for (const value of ["", "0", "100", "PD 4", "4ab", "4.5", "-1"]) expect(normalizePdNumber(value), value).toBeNull();
+    expect(PD_NUMBER_RULE).toBe("A PD number is 1 to 99, with an optional letter, for example 4 or 12a.");
   });
 });
 

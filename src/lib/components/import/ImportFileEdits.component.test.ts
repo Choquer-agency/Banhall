@@ -175,11 +175,12 @@ describe("changing one file on the Import sheet", () => {
     await userEvent.click(inRow("pd1", "[data-import-version-edit]"));
     const menu = one("[data-import-version-menu]")!;
     expect(all("[data-import-version-code]", menu).map((node) => text(node))).toEqual([
+      "W - work in progress",
+      "R - in review",
       "T - to be submitted",
       "S - submitted",
-      "R - in review",
     ]);
-    expect(all("[data-import-version-number]", menu).map((node) => text(node))).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    expect(all("[data-import-version-number]", menu).map((node) => text(node))).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
     // It starts on the file's own T2.
     expect(one('[data-import-version-code="T"]', menu)!.getAttribute("aria-pressed")).toBe("true");
     expect(one('[data-import-version-number="2"]', menu)!.getAttribute("aria-pressed")).toBe("true");
@@ -611,8 +612,8 @@ describe("changing one file on the Import sheet", () => {
     await expect.poll(() => document.activeElement).toBe(search());
     await expect.poll(() => all("[data-import-pd-number-picker] [data-import-name-option]").length).toBe(20);
     // A number the server would refuse is refused here, in its words, and nothing is sent.
-    await userEvent.fill(search(), "25");
-    await expect.element(page.getByText("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.")).toBeVisible();
+    await userEvent.fill(search(), "100");
+    await expect.element(page.getByText("A PD number is 1 to 99, with an optional letter, for example 4 or 12a.")).toBeVisible();
     expect(one("[data-import-name-new]")).toBeNull();
     // "07" is PD 7, one of the list.
     await userEvent.fill(search(), "07");

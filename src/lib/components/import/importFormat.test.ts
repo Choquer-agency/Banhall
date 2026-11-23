@@ -253,7 +253,7 @@ describe("file rows", () => {
       version: "T2",
       writer: { text: "Dana Whitlock", tone: "ink", initials: "DW", remembered: false },
       // No reviewer and no reviewer initials (2026-11-17): quiet, never amber.
-      reviewer: { text: "", tone: "muted", initials: null, remembered: false, missing: true },
+      reviewer: { text: "", tone: "muted", initials: null, remembered: false, missing: true, inProgress: false },
       craReviewed: false,
       scienceCode: {
         kind: "code",
@@ -273,10 +273,13 @@ describe("file rows", () => {
 
   it("shows the reviewer from its initials as plain words, and a missing one quietly, never amber (2026-11-17)", () => {
     const named = fileCells(row({ reviewerName: "Priya Nair", reviewerInitials: "PN", reviewerSource: "initials" }));
-    expect(named.reviewer).toEqual({ text: "Priya Nair", tone: "ink", initials: "PN", remembered: true, missing: false });
-    expect(fileCells(row({ reviewerName: "Priya Nair", reviewerSource: "person" })).reviewer).toMatchObject({ remembered: false });
+    expect(named.reviewer).toEqual({ text: "Priya Nair", tone: "ink", initials: "PN", remembered: true, missing: false, inProgress: false });
+    expect(fileCells(row({ reviewerName: "Priya Nair", reviewerSource: "person" })).reviewer).toMatchObject({ remembered: false, inProgress: false });
+    expect(
+      fileCells(row({ reviewerName: "Priya Nair", reviewerInitials: "PN", reviewerSource: "initials", reviewerInProgress: true })).reviewer
+    ).toEqual({ text: "Priya Nair", tone: "ink", initials: "PN", remembered: true, missing: false, inProgress: true });
     // Initials that could be more than one person: no reviewer, and no check reason.
-    expect(fileCells(row({ reviewerInitials: "PN" })).reviewer).toEqual({ text: "PN", tone: "muted", initials: "PN", remembered: false, missing: true });
+    expect(fileCells(row({ reviewerInitials: "PN" })).reviewer).toEqual({ text: "PN", tone: "muted", initials: "PN", remembered: false, missing: true, inProgress: false });
     // A draft and a review copy take a reviewer; a transcript does not; a file being read shows nothing.
     expect(fileCells(row({ category: "draft", reviewerName: "PN" })).reviewer?.text).toBe("PN");
     expect(fileCells(row({ category: "transcript", reviewerName: "PN" })).reviewer).toBeNull();

@@ -556,8 +556,8 @@ describe("selecting files on the Import page", () => {
     await userEvent.click(one('[data-import-bar-more-choice="pdNumber"]')!);
     const search = one("[data-import-name-search]") as HTMLInputElement;
     await expect.poll(() => all("[data-import-name-option]").length).toBe(20);
-    await userEvent.fill(search, "30");
-    await expect.element(page.getByText("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.")).toBeVisible();
+    await userEvent.fill(search, "100");
+    await expect.element(page.getByText("A PD number is 1 to 99, with an optional letter, for example 4 or 12a.")).toBeVisible();
     expect(one("[data-import-bar-confirm]")).toBeNull();
     await userEvent.fill(search, "3");
     await expect.poll(() => all("[data-import-name-option]").map((node) => text(node))).toEqual(["PD 3", "PD 13"]);

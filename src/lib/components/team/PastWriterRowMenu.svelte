@@ -6,26 +6,34 @@
   // (second): Set weight.
   import { DropdownMenu } from "bits-ui";
   import { LinkIcon, ScalesIcon, TrashIcon, UserPlusIcon } from "phosphor-svelte";
-  import { IconMore, IconPencil } from "$lib/components/icons";
+  import { IconMore, IconPencil, IconTag } from "$lib/components/icons";
+  import StaffRoleSubmenu from "./StaffRoleSubmenu.svelte";
   import { MENU_CONTENT, MENU_ITEM, ROW_MENU_TRIGGER } from "./menuStyles";
+  import type { WriterStaffRole } from "../../../../shared/writerWeight";
 
   let {
     label,
     writerId,
+    staffRole = null,
     canInvite,
     canDelete,
     onInvite,
     onEditName,
+    onEditDetails = null,
+    onChangeStaffRole = null,
     onLink,
     onSetWeight = null,
     onDelete,
   }: {
     label: string;
     writerId: string;
+    staffRole?: WriterStaffRole | null;
     canInvite: boolean;
     canDelete: boolean;
     onInvite: () => void;
     onEditName: () => void;
+    onEditDetails?: (() => void) | null;
+    onChangeStaffRole?: ((staffRole: WriterStaffRole | null) => void) | null;
     onLink: () => void;
     /** Set weight (2026-11-18); absent: the item does not show. */
     onSetWeight?: (() => void) | null;
@@ -38,7 +46,7 @@
     <IconMore size={16} strokeWidth={3} />
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
-    <DropdownMenu.Content side="bottom" align="end" sideOffset={4} class={`w-[13.5rem] ${MENU_CONTENT}`}>
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={4} class={`w-[14rem] ${MENU_CONTENT}`}>
       {#if canInvite}
         <DropdownMenu.Item data-menu-item="invite" onSelect={onInvite} class={`${MENU_ITEM} text-ink`}>
           <UserPlusIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Invite to Banhall
@@ -50,6 +58,14 @@
       <DropdownMenu.Item data-menu-item="edit-name" onSelect={onEditName} class={`${MENU_ITEM} text-ink`}>
         <IconPencil size={15} strokeWidth={1.5} class="shrink-0" />Edit name
       </DropdownMenu.Item>
+      {#if onEditDetails}
+        <DropdownMenu.Item data-menu-item="edit-details" onSelect={onEditDetails} class={`${MENU_ITEM} text-ink`}>
+          <IconTag size={15} strokeWidth={1.5} class="shrink-0" />Edit initials and status
+        </DropdownMenu.Item>
+      {/if}
+      {#if onChangeStaffRole}
+        <StaffRoleSubmenu current={staffRole} onSelect={onChangeStaffRole} />
+      {/if}
       {#if onSetWeight}
         <DropdownMenu.Item data-menu-item="weight" onSelect={onSetWeight} class={`${MENU_ITEM} text-ink`}>
           <ScalesIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Set weight

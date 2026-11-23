@@ -473,15 +473,17 @@
           ? `Writer ${cells.writer.text}, from the initials ${cells.writer.initials}. Change the writer for ${cells.writer.initials}`
           : `Writer ${cells.writer.text}. Change the writer`
   );
-  const reviewerLabel = $derived(
-    !cells.reviewer || cells.reviewer.missing
-      ? cells.reviewer?.initials
-        ? `${CHOOSE_REVIEWER}, initials ${cells.reviewer.initials}`
-        : CHOOSE_REVIEWER
-      : cells.reviewer.remembered && cells.reviewer.initials && row.reviewerSource !== "person" && !approved
-        ? `Reviewer ${cells.reviewer.text}, from the initials ${cells.reviewer.initials}. Change the reviewer for ${cells.reviewer.initials}`
-        : `Reviewer ${cells.reviewer.text}. Change the reviewer`
-  );
+  const reviewerLabel = $derived.by(() => {
+    const suffix = cells.reviewer?.inProgress ? ", review in progress" : "";
+    if (!cells.reviewer || cells.reviewer.missing) {
+      return cells.reviewer?.initials
+        ? `${CHOOSE_REVIEWER}, initials ${cells.reviewer.initials}${suffix}`
+        : CHOOSE_REVIEWER;
+    }
+    return cells.reviewer.remembered && cells.reviewer.initials && row.reviewerSource !== "person" && !approved
+      ? `Reviewer ${cells.reviewer.text}, from the initials ${cells.reviewer.initials}${suffix}. Change the reviewer for ${cells.reviewer.initials}`
+      : `Reviewer ${cells.reviewer.text}${suffix}. Change the reviewer`;
+  });
   const codeLabel = $derived(
     cells.scienceCode?.kind === "code"
       ? `Science code ${cells.scienceCode.code}${cells.scienceCode.title ? ` ${cells.scienceCode.title}` : ""}${cells.scienceCode.fromDocument ? ", filled in by AI" : ""}. Change the science code`
@@ -754,11 +756,19 @@
             {#if cells.reviewer && !cells.reviewer.missing}
               <!-- Cut on a narrow window: the whole name on hover. -->
               <span
-                title={cells.reviewer.text}
+                title={cells.reviewer.inProgress ? `${cells.reviewer.text} (review in progress)` : cells.reviewer.text}
                 data-import-reviewer-tone={cells.reviewer.tone}
                 data-import-reviewer-remembered={cells.reviewer.remembered ? "" : undefined}
                 class={wordsClass[cells.reviewer.tone]}
               >{cells.reviewer.text}</span>
+              {#if cells.reviewer.inProgress}
+                <span
+                  data-import-reviewer-in-progress
+                  title="Review in progress"
+                  aria-hidden="true"
+                  class="size-1.5 shrink-0 rounded-full bg-warning-ink"
+                ></span>
+              {/if}
             {:else}
               <span title={CHOOSE_REVIEWER} data-import-reviewer-choose class="truncate text-ink-muted group-data-[state=open]/cell:text-ink">{CHOOSE_REVIEWER}</span>
             {/if}
@@ -778,7 +788,17 @@
       </ImportPickerPopover>
     {:else if cells.reviewer && cells.reviewer.text}
       <!-- Read only: the reviewer, or the file name's initials, muted, when they give none. -->
-      <span title={cells.reviewer.text} data-import-reviewer-tone={cells.reviewer.tone} class={`truncate ${toneClass[cells.reviewer.tone]}`}>{cells.reviewer.text}</span>
+      <span class="flex min-w-0 items-center gap-1.5">
+        <span title={cells.reviewer.inProgress ? `${cells.reviewer.text} (review in progress)` : cells.reviewer.text} data-import-reviewer-tone={cells.reviewer.tone} class={`truncate ${toneClass[cells.reviewer.tone]}`}>{cells.reviewer.text}</span>
+        {#if cells.reviewer.inProgress}
+          <span
+            data-import-reviewer-in-progress
+            title="Review in progress"
+            aria-label="Review in progress"
+            class="size-1.5 shrink-0 rounded-full bg-warning-ink"
+          ></span>
+        {/if}
+      </span>
     {/if}
   </div>
 

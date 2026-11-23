@@ -87,7 +87,7 @@
       </div>
       <div class="mx-1 my-1.5 h-px bg-line-soft" aria-hidden="true"></div>
       <p class={`px-2 pb-1 ${SHEET_SMALL} text-ink-muted`}>Number</p>
-      <div role="group" aria-label="Number" class="grid grid-cols-9 gap-0.5 px-1 pb-1">
+      <div role="group" aria-label="Number" class="grid grid-cols-5 gap-0.5 px-1 pb-1">
         {#each VERSION_NUMBERS as value (value)}
           {@const now = stage === code && value === number}
           <button

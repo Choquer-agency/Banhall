@@ -111,7 +111,7 @@ export type ImportBrainCopyInput = {
   /** The industry a person picked on the sheet for a new company (`importNewCompanies`). */
   newCompanyIndustry?: string;
   /** The file's writer (`pdWriters`), if it has one. */
-  writer: Pick<Doc<"pdWriters">, "name" | "tier"> | null;
+  writer: Pick<Doc<"pdWriters">, "name" | "tier" | "staffRole"> | null;
   /** Words or names the person approving asked to remove too (product names, nicknames). */
   alsoRemove?: readonly string[];
 };
@@ -1181,7 +1181,7 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
       content,
       industry,
       ...(writerName ? { writerName } : {}),
-      writerTier: writerWeight(tier),
+      writerTier: writerWeight(tier, input.writer?.staffRole),
       ...(scienceCode ? { scienceCode } : {}),
       ...(fiscalYear !== undefined ? { fiscalYear } : {}),
       importItemId: item._id,

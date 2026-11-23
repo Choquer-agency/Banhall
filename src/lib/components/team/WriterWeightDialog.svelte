@@ -8,16 +8,20 @@
   import Input from "$lib/components/ui/Input.svelte";
   import { userErrorMessage } from "$lib/errors";
   import {
-    DEFAULT_WRITER_WEIGHT,
+    defaultWeightForStaffRole,
     parseWriterWeight,
+    WRITER_STAFF_ROLE_DEFAULT_WEIGHTS,
+    WRITER_STAFF_ROLE_LABELS,
     WRITER_WEIGHT_RULE,
     writerWeightText,
+    type WriterStaffRole,
   } from "../../../../shared/writerWeight";
 
   let {
     open = $bindable(false),
     name,
     weight,
+    staffRole = null,
     onSubmit,
   }: {
     open?: boolean;
@@ -25,6 +29,8 @@
     name: string;
     /** The weight saved now, or null when they use the default. */
     weight: number | null;
+    /** The person's Banhall PD staff role, if set. */
+    staffRole?: WriterStaffRole | null;
     onSubmit: (weight: number | null) => Promise<unknown>;
   } = $props();
 
@@ -40,7 +46,8 @@
     }
   });
 
-  const defaultText = writerWeightText(DEFAULT_WRITER_WEIGHT);
+  const roleDefault = $derived(staffRole ? WRITER_STAFF_ROLE_DEFAULT_WEIGHTS[staffRole] : null);
+  const defaultText = $derived(writerWeightText(defaultWeightForStaffRole(staffRole)));
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -90,7 +97,11 @@
       class="w-32"
     />
     <p id="writer-weight-help" class="text-xs leading-[calc(4/3)] text-ink-muted">
-      A number from 0 to 1, with up to 3 decimal places. Leave it empty to use {defaultText}, the weight for writers with none.
+      {#if roleDefault !== null && staffRole}
+        A number from 0 to 1, with up to 3 decimal places. Leave it empty to use {defaultText}, the {WRITER_STAFF_ROLE_LABELS[staffRole]} default.
+      {:else}
+        A number from 0 to 1, with up to 3 decimal places. Leave it empty to use {defaultText}, the weight for writers with none.
+      {/if}
     </p>
     <p data-writer-weight-note class="mt-1 text-xs leading-[calc(4/3)] text-ink-muted">
       Their PDs already in the Brain take the new weight within a few minutes.

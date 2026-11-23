@@ -61,10 +61,15 @@ export type Classified = {
   versionNumber?: number;
   writerInitials?: string;
   reviewerInitials?: string;
+  /** True when slot 2 reviewer initials in the filename were all lowercase (e.g. ".mo"). */
+  reviewerInProgress?: boolean;
+  /** Slot 3 initials from the filename (accepted client edits). */
+  clientInitials?: string;
+  /** Slot 4 initials from the filename (financial reviewer). */
+  financialInitials?: string;
   /**
    * 2026-11-17: every initials group of a version token with three or four
-   * ("T0.DW.PN.KT"), which then gives no writer or reviewer initials until
-   * the client confirms what the later groups mean (shared/pdFilename.ts).
+   * ("T0.DW.PN.KT"), kept alongside the unpacked positional slots.
    */
   initialsGroups?: string[];
   pdTitle?: string;
@@ -207,10 +212,15 @@ export function classify(
   const parent = lower[lower.length - 1] ?? "";
   const ext = extensionOf(fileName);
 
+  const parsedForSubmitPdf =
+    parent.includes("submit") && ext === "pdf" ? parsePdFilename(fileName) : null;
   let docKind: Classified["docKind"] = "supporting";
   if (lower.includes("audio")) {
     docKind = "transcript";
-  } else if (parent.includes("submit") && (ext === "docx" || ext === "doc")) {
+  } else if (
+    parent.includes("submit") &&
+    (ext === "docx" || ext === "doc" || parsedForSubmitPdf?.versionCode === "S")
+  ) {
     docKind = "pd";
   } else if (!clientName || !fiscalYearLabel) {
     docKind = "unknown";
@@ -239,7 +249,7 @@ export function classify(
   };
   if (companyKey !== undefined) classified.companyKey = companyKey;
 
-  const parsed = PD_NAME_CATEGORIES.has(category) ? parsePdFilename(fileName) : null;
+  const parsed = PD_NAME_CATEGORIES.has(category) ? (parsedForSubmitPdf ?? parsePdFilename(fileName)) : null;
 
   if (fiscalYear !== undefined) {
     const end = readLabelFiscalYearEnd(fiscalYearLabel, fiscalYear);
@@ -268,6 +278,9 @@ export function classify(
     if (parsed.revision !== undefined) classified.versionNumber = Number(parsed.revision);
     if (parsed.writerInitials !== undefined) classified.writerInitials = parsed.writerInitials;
     if (parsed.reviewerInitials !== undefined) classified.reviewerInitials = parsed.reviewerInitials;
+    if (parsed.reviewerInProgress !== undefined) classified.reviewerInProgress = parsed.reviewerInProgress;
+    if (parsed.clientInitials !== undefined) classified.clientInitials = parsed.clientInitials;
+    if (parsed.financialInitials !== undefined) classified.financialInitials = parsed.financialInitials;
     if (parsed.initialsGroups !== undefined) classified.initialsGroups = parsed.initialsGroups;
     if (parsed.title !== undefined) classified.pdTitle = parsed.title;
   }
@@ -286,6 +299,9 @@ export type IngestionLabels = Pick<
   | "versionNumber"
   | "writerInitials"
   | "reviewerInitials"
+  | "reviewerInProgress"
+  | "clientInitials"
+  | "financialInitials"
   | "initialsGroups"
   | "pdTitle"
 >;
@@ -337,6 +353,9 @@ export function labelsOf(c: Classified): IngestionLabels {
     versionNumber: c.versionNumber,
     writerInitials: c.writerInitials,
     reviewerInitials: c.reviewerInitials,
+    reviewerInProgress: c.reviewerInProgress,
+    clientInitials: c.clientInitials,
+    financialInitials: c.financialInitials,
     initialsGroups: c.initialsGroups,
     pdTitle: c.pdTitle,
   };

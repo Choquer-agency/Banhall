@@ -131,6 +131,48 @@
     }
   }
 
+  // ─── Canonical client matching ("Similar to X?" vs. keep separate) ──────
+  const snapBand = useMutation(api.ingestion.snapBandToCompany);
+  const confirmDistinct = useMutation(api.ingestion.confirmNewCompanyDistinct);
+  let similarOpen = $state(false);
+  let matchingBusy = $state(false);
+  const suggestedCompanies = $derived(
+    band.isNew && tab === "review" && !band.confirmedDistinct ? (band.suggestedCompanies ?? []) : []
+  );
+
+  async function moveToSuggested(target: (typeof suggestedCompanies)[number]) {
+    if (matchingBusy) return;
+    matchingBusy = true;
+    try {
+      const result = await snapBand({ fromCompanyKey: band.companyKey, targetClientId: target.id });
+      similarOpen = false;
+      toast(
+        result.hasMore
+          ? `Moved ${plural(result.moved, "file")} to ${result.targetName} so far`
+          : `Moved ${plural(result.moved, "file")} to ${result.targetName}`,
+        result.hasMore ? { ...IMPORT_TOAST, description: "The remaining files follow in a moment." } : IMPORT_TOAST
+      );
+    } catch (error) {
+      toast.error(userErrorMessage(error, "Could not move files to that company."), IMPORT_TOAST);
+    } finally {
+      matchingBusy = false;
+    }
+  }
+
+  async function keepSeparateCompany() {
+    if (matchingBusy) return;
+    matchingBusy = true;
+    try {
+      await confirmDistinct({ companyKey: band.companyKey, distinct: true });
+      similarOpen = false;
+      toast(`Kept ${name} as a separate company`, IMPORT_TOAST);
+    } catch (error) {
+      toast.error(userErrorMessage(error, "Could not save that choice."), IMPORT_TOAST);
+    } finally {
+      matchingBusy = false;
+    }
+  }
+
   // ─── Approve N ready (2026-11-17) ────────────────────────────────────────
   const approvable = $derived(tab === "review" && band.companyKey !== NO_COMPANY_KEY && band.ready > 0);
   const approveCompany = useMutation(api.ingestion.approveCompanyReady);
@@ -270,6 +312,59 @@
                   {/snippet}
                 </ImportPickerPopover>
               </span>
+              {#if suggestedCompanies.length > 0}
+                <span class="relative z-[1] flex min-w-0">
+                  <Popover.Root bind:open={similarOpen}>
+                    <Popover.Trigger
+                      type="button"
+                      data-import-band-similar={band.companyKey}
+                      class={PICK_CONTROL}
+                    >
+                      <span class="truncate">
+                        Similar to {suggestedCompanies[0].name}{suggestedCompanies.length > 1 ? ` (+${suggestedCompanies.length - 1})` : ""}?
+                      </span>
+                      <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
+                    </Popover.Trigger>
+                    <Popover.Portal>
+                      <Popover.Content
+                        side="bottom"
+                        align="start"
+                        sideOffset={6}
+                        collisionPadding={12}
+                        aria-label="Possible existing company match"
+                        data-import-band-similar-popover
+                        class={`${POPOVER_CARD} w-[20rem] max-w-[calc(100vw-1.5rem)] p-3`}
+                      >
+                        <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">Existing company match?</p>
+                        <p class={`mt-1 ${SHEET_SMALL} text-ink-muted`}>
+                          This folder name looks similar to an existing client. Move its files there, or keep it as a separate new company.
+                        </p>
+                        <div class="mt-2.5 flex flex-col gap-1.5">
+                          {#each suggestedCompanies as suggestion (suggestion.id)}
+                            <button
+                              type="button"
+                              disabled={matchingBusy}
+                              data-import-band-snap={suggestion.id}
+                              onclick={() => void moveToSuggested(suggestion)}
+                              class="flex w-full items-center justify-between gap-2 rounded-md border border-line-soft bg-surface px-2.5 py-2 text-left text-[0.8125rem] text-ink transition-colors hover:bg-primary-wash disabled:opacity-50"
+                            >
+                              <span class="min-w-0 flex-1 truncate font-medium">{suggestion.name}</span>
+                              <span class="shrink-0 text-xs font-medium text-primary-selected">Move files here</span>
+                            </button>
+                          {/each}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={matchingBusy}
+                          data-import-band-keep-separate
+                          onclick={() => void keepSeparateCompany()}
+                          class="mt-2.5 w-full rounded-md bg-chrome px-2.5 py-1.5 text-center text-xs font-medium text-ink transition-colors hover:bg-primary-wash disabled:opacity-50"
+                        >Keep as a separate company</button>
+                      </Popover.Content>
+                    </Popover.Portal>
+                  </Popover.Root>
+                </span>
+              {/if}
             {:else if picked}
               <span data-import-band-industry class="min-w-0 truncate text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{industryLabel(picked)}</span>
             {/if}

@@ -47,17 +47,18 @@ export const MOVE_CATEGORIES: readonly { category: ImportCategory; label: string
   { category: "company_file", label: "Company file" },
 ];
 
-export type VersionCode = "T" | "S" | "R";
+export type VersionCode = "W" | "R" | "T" | "S";
 
-/** The version letters in words. */
+/** The version letters in words, in Banhall's lifecycle order (W -> R -> T -> S). */
 export const VERSION_CODES: readonly { code: VersionCode; label: string }[] = [
+  { code: "W", label: "W - work in progress" },
+  { code: "R", label: "R - in review" },
   { code: "T", label: "T - to be submitted" },
   { code: "S", label: "S - submitted" },
-  { code: "R", label: "R - in review" },
 ];
 
-/** The version numbers the menu offers. */
-export const VERSION_NUMBERS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+/** The version numbers the menu offers (0 to 9, including S0 for original submitted). */
+export const VERSION_NUMBERS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /** The quick picks under the year end calendar, as on a project's Details. */
 export const YEAR_END_QUICK_PICKS = [

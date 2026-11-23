@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { isWriterWeight, parseWriterWeight, writerWeightText } from "./writerWeight";
+import {
+  brainCheckWriterRank,
+  DEFAULT_WRITER_WEIGHT,
+  defaultWeightForStaffRole,
+  isWriterWeight,
+  parseWriterWeight,
+  writerWeight,
+  writerWeightText,
+} from "./writerWeight";
 
 describe("writer weights", () => {
   it("accepts numbers from 0 to 1 with at most 3 decimal places", () => {
@@ -24,5 +32,30 @@ describe("writer weights", () => {
       const shown = writerWeightText(weight);
       expect(parseWriterWeight(shown)).toBe(weight);
     }
+  });
+
+  it("resolves effective weight from custom override first, then staff role default, then global default", () => {
+    expect(defaultWeightForStaffRole("technical_manager")).toBe(0.8);
+    expect(defaultWeightForStaffRole("technical_writer")).toBe(0.5);
+    expect(defaultWeightForStaffRole("junior_technical_writer")).toBe(0.2);
+    expect(defaultWeightForStaffRole("financial")).toBe(DEFAULT_WRITER_WEIGHT);
+    expect(defaultWeightForStaffRole(undefined)).toBe(DEFAULT_WRITER_WEIGHT);
+
+    // Custom override always takes priority over staff role default.
+    expect(writerWeight(0.01, "junior_technical_writer")).toBe(0.01);
+    expect(writerWeight(1, "technical_writer")).toBe(1);
+    expect(writerWeight(0, "technical_manager")).toBe(0);
+
+    // Without a custom override, staff role default applies.
+    expect(writerWeight(null, "technical_manager")).toBe(0.8);
+    expect(writerWeight(undefined, "technical_writer")).toBe(0.5);
+    expect(writerWeight(undefined, "junior_technical_writer")).toBe(0.2);
+    expect(writerWeight(undefined, "financial")).toBe(0.7);
+    expect(writerWeight(undefined, undefined)).toBe(0.7);
+
+    // Brain check rank reflects the effective weight.
+    expect(brainCheckWriterRank(undefined, "technical_manager")).toBe(-800);
+    expect(brainCheckWriterRank(undefined, "junior_technical_writer")).toBe(-200);
+    expect(brainCheckWriterRank(0.01, "junior_technical_writer")).toBe(-10);
   });
 });

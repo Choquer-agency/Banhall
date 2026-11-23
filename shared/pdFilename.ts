@@ -11,16 +11,15 @@
  * from 0 ("T0"). A name may end in a version with no initials
  * ("… 2025-12-31 T1.docx").
  *
- * The firm's real names (2026-11-17, a dry run on its files) also have a
- * client part of two or more words ("01 Cedarline Systems 2025-03-31 …"),
- * a title of hyphenated CamelCase words ("LabelVision-ColdChain") and up to
- * four initials groups after the version ("T0.DW.PN.KT.SO"). With one or
- * two groups the first is the writer and the second the reviewer. What a
- * third and fourth group mean waits for the client's naming walkthrough
- * (owner, 2026-11-17: "we can wait to get confirmation from the client"):
- * until then a name with three or four groups gives no writer and no
- * reviewer, only `initialsGroups`, and a later backfill reads those files
- * again once the meaning is confirmed.
+ * The firm's real names (2026-11-17 dry run, confirmed by client walkthrough
+ * 2026-11-23) also have a client part of two or more words
+ * ("01 Cedarline Systems 2025-03-31 …"), a title of hyphenated CamelCase words
+ * ("LabelVision-ColdChain"), WIP versions ("W0"), and up to four dot-separated
+ * initials groups in positional order:
+ *   1. Preparer / writer
+ *   2. Technical reviewer (lowercase such as ".mo" means review in progress)
+ *   3. Client (accepted edits)
+ *   4. Financial reviewer
  *
  * Pure and framework-free so the create-project page can prefill from a
  * dropped file and tests can pin the grammar. Parsing is positional and
@@ -33,8 +32,8 @@
  * writer with no login made from them, and never a guess between two.
  */
 
-/** The version letter: T to be submitted, S submitted, R in review. */
-export type PdVersionCode = "T" | "S" | "R";
+/** The version letter: W work in progress, R in review, T to be submitted, S submitted. */
+export type PdVersionCode = "W" | "R" | "T" | "S";
 
 export type ParsedPdFilename = {
   /** Leading zero stripped: "03" → "3", "12a" → "12a". */
@@ -52,12 +51,18 @@ export type ParsedPdFilename = {
    * no initials right before the extension ("… T1.docx").
    */
   writerInitials?: string;
+  /** Slot 2 (technical reviewer), upper-cased. */
   reviewerInitials?: string;
+  /** True when the raw technical reviewer initials were all lowercase (e.g. ".mo": review in progress). */
+  reviewerInProgress?: boolean;
+  /** Slot 3 (client accepted edits), upper-cased. */
+  clientInitials?: string;
+  /** Slot 4 (financial reviewer), upper-cased. */
+  financialInitials?: string;
   /**
    * Every initials group, upper-cased, of a version token with three or four
-   * ("T0.DW.PN.KT" -> ["DW", "PN", "KT"]). Set instead of writerInitials and
-   * reviewerInitials, which stay empty until the client confirms what the
-   * later groups mean (see above). Absent with one or two groups.
+   * groups ("T0.DW.PN.KT" -> ["DW", "PN", "KT"]). Kept alongside the unpacked
+   * positional fields for audit and slot reassignment. Absent with one or two.
    */
   initialsGroups?: string[];
   /** Remaining tokens, CamelCase split; lowercase runs are left as typed. */
@@ -67,14 +72,14 @@ export type ParsedPdFilename = {
 const PROJECT_NUMBER = /^(\d{1,2})([A-Za-z])?$/;
 const CLIENT_TOKEN = /^[A-Za-z0-9][A-Za-z0-9&'-]*$/;
 const FISCAL_YEAR_END = /^(\d{4})-(\d{2})-(\d{2})$/;
-// Version letter (either case), version number, then one to four initials
-// groups: writer, reviewer, and two whose meaning waits for the client.
-const REVISION = /^([RrSsTt])(\d+)((?:\.[A-Za-z]{2,3}){1,4})$/;
+// Version letter (either case: W, R, T, S), version number, then one to four
+// positional initials groups: writer, technical reviewer, client, financial.
+const REVISION = /^([WwRrSsTt])(\d+)((?:\.[A-Za-z]{2,3}){1,4})$/;
 /** The most words a client part may have before the date or version. */
 const MAX_CLIENT_WORDS = 6;
-// A version with no initials ("T1"). Read only as the last token, right
+// A version with no initials ("T1", "W0"). Read only as the last token, right
 // before a document extension ("… T1.doc"); see parsePdFilename.
-const BARE_VERSION = /^([RrSsTt])(\d+)$/;
+const BARE_VERSION = /^([WwRrSsTt])(\d+)$/;
 
 /**
  * The extensions a PD file can have (the file types ingestion stages, in
@@ -162,8 +167,8 @@ function stripExtension(fileName: string): { stem: string; documentExtension: bo
   return { stem: trimmed.slice(0, extension.index), documentExtension };
 }
 
-/** Numbered projects are capped at 20 per company (convex/projects.ts). */
-const MAX_PROJECT_NUMBER = 20;
+/** Numbered projects are 2-digit zero-padded up to 99 per company (Banhall naming spec). */
+const MAX_PROJECT_NUMBER = 99;
 
 /**
  * Parse a PD file name into its scheme fields, or null when the name is not
@@ -218,13 +223,18 @@ export function parsePdFilename(fileName: string): ParsedPdFilename | null {
   if (revision) {
     parsed.versionCode = revision[1].toUpperCase() as PdVersionCode;
     parsed.revision = String(Number.parseInt(revision[2], 10));
-    const groups = revision[3].split(".").filter(Boolean).map((group) => group.toUpperCase());
-    if (groups.length <= 2) {
-      parsed.writerInitials = groups[0];
-      if (groups[1]) parsed.reviewerInitials = groups[1];
-    } else {
-      // Three or four groups: their meaning waits for the client (see the
-      // top of this file), so no writer or reviewer is read from them yet.
+    const rawGroups = revision[3].split(".").filter(Boolean);
+    const groups = rawGroups.map((group) => group.toUpperCase());
+    if (groups[0]) parsed.writerInitials = groups[0];
+    if (groups[1]) {
+      parsed.reviewerInitials = groups[1];
+      if (rawGroups[1] && rawGroups[1] === rawGroups[1].toLowerCase()) {
+        parsed.reviewerInProgress = true;
+      }
+    }
+    if (groups[2]) parsed.clientInitials = groups[2];
+    if (groups[3]) parsed.financialInitials = groups[3];
+    if (groups.length >= 3) {
       parsed.initialsGroups = groups;
     }
     index += 1;

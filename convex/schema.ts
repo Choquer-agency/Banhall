@@ -43,6 +43,7 @@ import {
   scienceCodeSourceValidator,
   sheetTabValidator,
   writerNameSourceValidator,
+  writerStaffRoleValidator,
 } from "./lib/ingestionSheetValidators";
 import {
   sectionMetricsValidator,
@@ -2821,7 +2822,7 @@ export default defineSchema({
     importLabels: v.optional(
       v.object({
         pdTitle: v.optional(v.string()),
-        versionCode: v.optional(v.union(v.literal("T"), v.literal("S"), v.literal("R"))),
+        versionCode: v.optional(pdVersionCodeValidator),
         versionNumber: v.optional(v.number()),
         scienceCode: v.optional(v.string()),
         fiscalYearEnd: v.optional(v.number()),
@@ -4916,11 +4917,13 @@ export default defineSchema({
     versionNumber: v.optional(v.number()),
     writerInitials: v.optional(v.string()),
     reviewerInitials: v.optional(v.string()),
+    // 2026-11-23 widen: slot 2 lowercase reviewer initials (".mo" = review in
+    // progress), slot 3 accepted client edits, slot 4 financial reviewer.
+    reviewerInProgress: v.optional(v.boolean()),
+    clientInitials: v.optional(v.string()),
+    financialInitials: v.optional(v.string()),
     // 2026-11-17 widen: every initials group of a version token with three
-    // or four ("T0.DW.PN.KT"). Such a name gives no writerInitials and no
-    // reviewerInitials until the client confirms what the later groups mean
-    // (shared/pdFilename.ts); a later backfill reads them again then.
-    // Shown nowhere yet. Absent with one or two groups.
+    // or four ("T0.DW.PN.KT"), kept alongside the unpacked positional slots.
     initialsGroups: v.optional(v.array(v.string())),
     pdTitle: v.optional(v.string()),
     // 2026-11-11 widen (Import sheet, phase 2). Worked out on every write by
@@ -5215,6 +5218,14 @@ export default defineSchema({
     // carry the same value. Absent: 0.7 (shared/writerWeight.ts; owner:
     // Tracy 1.0, everyone else 0.7).
     tier: v.optional(v.number()),
+    // 2026-11-23 widen: Banhall PD staff role (technical_manager,
+    // technical_writer, junior_technical_writer, financial), which supplies a
+    // default writer weight when no custom tier is set. One per person: synced
+    // across a team member's own row and linked past writer.
+    staffRole: v.optional(writerStaffRoleValidator),
+    // 2026-11-23 widen: whether a writer without a login is still active at
+    // Banhall (true: current staff without login yet; false/absent: former).
+    isActive: v.optional(v.boolean()),
   })
     .index("by_initials", ["initials"])
     .index("by_userId", ["userId"])
@@ -5239,10 +5250,12 @@ export default defineSchema({
   // company the app does not have yet, kept by company key so it holds on
   // every tab until the company is created on approval. `industry` is a
   // slug from the app's industry list (shared/industries.ts), as on
-  // clients.industry.
+  // clients.industry. `confirmedDistinct` (2026-11-23) is true when an Admin
+  // dismissed a "Similar to existing client?" match to keep it separate.
   importNewCompanies: defineTable({
     companyKey: v.string(),
     industry: v.optional(v.string()),
+    confirmedDistinct: v.optional(v.boolean()),
     setBy: v.string(),
     updatedAt: v.number(),
   }).index("by_companyKey", ["companyKey"]),

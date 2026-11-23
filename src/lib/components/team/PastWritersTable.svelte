@@ -11,6 +11,7 @@
   // writer stay on the server, not on this table.
   import PastWriterRowMenu from "./PastWriterRowMenu.svelte";
   import { NO_LOGIN } from "../../../../shared/importSheetRules";
+  import { WRITER_STAFF_ROLE_LABELS, type WriterStaffRole } from "../../../../shared/writerWeight";
   import {
     EMAIL_COLUMN,
     INITIALS_COLUMN,
@@ -38,8 +39,15 @@
     canDelete: boolean;
     /** An invite an Admin sent for this person is waiting (2026-11-17). */
     invitePending: boolean;
-    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Shown only in its dialog. */
+    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Omitted for Managers. */
     weight?: number | null;
+    /** Banhall PD staff role, if assigned. */
+    staffRole?: WriterStaffRole | null;
+    /** Whether this non-login writer is still active (true) or former staff (false). */
+    isActive?: boolean;
+    /** Number of imported PDs as writer/reviewer. */
+    fileCount?: number;
+    reviewCount?: number;
     /** The one member with the same saved initials, if exactly one: the Link dialog starts with them. */
     sameInitialsAs: { userId: string; name: string; canLink: boolean } | null;
   };
@@ -49,6 +57,8 @@
     showActions,
     onInvite,
     onEditName,
+    onEditDetails = null,
+    onChangeStaffRole = null,
     onLink,
     onSetWeight,
     onDelete,
@@ -57,6 +67,8 @@
     showActions: boolean;
     onInvite: (writer: PastWriter) => void;
     onEditName: (writer: PastWriter) => void;
+    onEditDetails?: ((writer: PastWriter) => void) | null;
+    onChangeStaffRole?: ((writer: PastWriter, staffRole: WriterStaffRole | null) => void) | null;
     onLink: (writer: PastWriter) => void;
     onSetWeight: (writer: PastWriter) => void;
     onDelete: (writer: PastWriter) => void;
@@ -89,22 +101,25 @@
             <span data-past-writer-name class={NAME_TEXT}>{writer.label}</span>
           </span>
           <span role="cell" data-past-writer-initials class={`${INITIALS_COLUMN} ${QUIET_TEXT}`}>{writer.initials ?? ""}</span>
-          <span role="cell" data-past-writer-email class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}></span>
+          <span role="cell" data-past-writer-email class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}>{writer.staffRole ? WRITER_STAFF_ROLE_LABELS[writer.staffRole] : ""}</span>
           <span role="cell" class={`flex ${ROLE_COLUMN}`}>
             <span data-past-writer-role class={NEUTRAL_CHIP}>{NO_LOGIN}</span>
           </span>
           <span role="cell" data-past-writer-last-active class={`${LAST_ACTIVE_COLUMN} ${MUTED_TEXT} ${showActions ? MENU_ROOM : ""}`}>
-            {writer.invitePending ? "Invite sent" : ""}
+            {writer.invitePending ? "Invite sent" : writer.isActive === false ? "Former" : ""}
           </span>
           {#if showActions}
             <span role="cell" class={MENU_CELL}>
               <PastWriterRowMenu
                 label={writer.label}
                 writerId={writer._id}
+                staffRole={writer.staffRole ?? null}
                 canInvite={!writer.invitePending}
                 canDelete={writer.canDelete}
                 onInvite={() => onInvite(writer)}
                 onEditName={() => onEditName(writer)}
+                onEditDetails={onEditDetails ? () => onEditDetails(writer) : null}
+                onChangeStaffRole={onChangeStaffRole ? (staffRole) => onChangeStaffRole(writer, staffRole) : null}
                 onLink={() => onLink(writer)}
                 onSetWeight={() => onSetWeight(writer)}
                 onDelete={() => onDelete(writer)}

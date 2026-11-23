@@ -308,19 +308,28 @@ describe("the reviewer check on each imported file", () => {
     await expectWriterCountsByHand(t, "after the initials were freed");
   });
 
-  it("gives no writer and no reviewer to a name with three or four initials groups, until the client says what they mean", async () => {
+  it("unpacks three and four positional initials groups into writer, reviewer, client, and financial, preserving lowercase reviewerInProgress", async () => {
     const { t } = await setup();
-    const id = await stage(t, `${FY}/To be submitted/01 Cedarline Systems 2026-03-31 T0.DW.PN.KT LabelVision-ColdChain.docx`);
+    const id = await stage(t, `${FY}/To be submitted/01 Cedarline Systems 2026-03-31 T0.DW.pn.KT.FA LabelVision-ColdChain.docx`);
     await markRead(t, id);
     const row = await getItem(t, id);
-    expect(row).toMatchObject({ initialsGroups: ["DW", "PN", "KT"], versionCode: "T", versionNumber: 0, pdNumber: "1", pdTitle: "Label Vision-Cold Chain" });
-    expect(row.writerInitials).toBeUndefined();
-    expect(row.reviewerInitials).toBeUndefined();
-    expect(row.writerId).toBeUndefined();
-    expect(row.reviewerId).toBeUndefined();
-    // As a file with no initials: the writer is to be chosen.
-    expect(row.checkReasons).toContain("no_writer");
-    expect(await t.run((ctx) => ctx.db.query("pdWriters").collect())).toEqual([]);
+    expect(row).toMatchObject({
+      initialsGroups: ["DW", "PN", "KT", "FA"],
+      versionCode: "T",
+      versionNumber: 0,
+      pdNumber: "1",
+      pdTitle: "Label Vision-Cold Chain",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      reviewerInProgress: true,
+      clientInitials: "KT",
+      financialInitials: "FA",
+    });
+    expect(row.writerId).toBeDefined();
+    expect(row.reviewerId).toBeDefined();
+    expect(row.checkReasons).not.toContain("no_writer");
+    const writers = await t.run((ctx) => ctx.db.query("pdWriters").collect());
+    expect(writers.map((w) => w.initials).sort()).toEqual(["DW", "PN"]);
   });
 });
 

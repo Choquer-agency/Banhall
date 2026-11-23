@@ -438,7 +438,12 @@ describe("the bar's words", () => {
       "Supporting file",
       "Company file",
     ]);
-    expect(VERSION_CODES.map((entry) => entry.label)).toEqual(["T - to be submitted", "S - submitted", "R - in review"]);
+    expect(VERSION_CODES.map((entry) => entry.label)).toEqual([
+      "W - work in progress",
+      "R - in review",
+      "T - to be submitted",
+      "S - submitted",
+    ]);
     expect(deletedReasonText("deleted")).toBe("Deleted in Import");
     expect(deletedReasonText("removed_in_onedrive")).toBe("Removed in OneDrive");
     expect(deletedReasonText("rejected")).toBe("Rejected");

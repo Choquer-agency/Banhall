@@ -156,6 +156,7 @@ import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboard
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
+import { clientNamesLookAlike } from "../shared/clientNames";
 import { brainCheckWriterRank, writerWeight } from "../shared/writerWeight";
 import {
   APPROVAL_STALE_MS,
@@ -166,9 +167,11 @@ import {
   craReviewedApplies,
   DELETED_IN_ONEDRIVE_NOTE,
   deletedReasonFor,
+  INITIALS_RULE,
   labelApplies,
   looksLikeEmail,
   reviewerApplies,
+  savedInitials,
   type BatchSkipReason,
 } from "../shared/importSheetRules";
 
@@ -382,7 +385,7 @@ async function withBrainCheckOrder(ctx: MutationCtx, fields: IngestionItemFields
   return {
     ...fields,
     brainCheckYearRank: year !== undefined ? -year : 0,
-    brainCheckWriterRank: recent ? undefined : brainCheckWriterRank(writer?.tier),
+    brainCheckWriterRank: recent ? undefined : brainCheckWriterRank(writer?.tier, writer?.staffRole),
   };
 }
 
@@ -624,6 +627,13 @@ const sheetRowFields = {
   writerHasLogin: v.optional(v.boolean()),
   writerInitials: v.optional(v.string()),
   reviewerInitials: v.optional(v.string()),
+  // 2026-11-23: lowercase reviewer initials (e.g. ".mo") mean review is in
+  // progress; client/financial initials come from 3-4 group PD names or manual
+  // slot reassignment on the sheet.
+  reviewerInProgress: v.optional(v.boolean()),
+  clientInitials: v.optional(v.string()),
+  financialInitials: v.optional(v.string()),
+  initialsGroups: v.optional(v.array(v.string())),
   // 2026-11-17: the writer who reviewed the PD, its label as it is now
   // (withWriterLabels), whether it has a login, and where it came from
   // ("initials", "pick" or "person", as writerNameSource).
@@ -682,6 +692,10 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     writerId: item.writerId,
     writerInitials: item.writerInitials,
     reviewerInitials: item.reviewerInitials,
+    reviewerInProgress: item.reviewerInProgress === true ? true : undefined,
+    clientInitials: item.clientInitials,
+    financialInitials: item.financialInitials,
+    initialsGroups: item.initialsGroups,
     reviewerId: item.reviewerId,
     reviewerSource: item.reviewerSource,
     craReviewed: item.craReviewed === true && item.category === "final_pd" ? true : undefined,
@@ -885,6 +899,19 @@ const sheetBandValidator = v.object({
   // A new company's industry, as a person picked it on the sheet
   // (2026-11-12, importNewCompanies): a slug from the app's industry list.
   pickedIndustry: v.optional(v.string()),
+  // 2026-11-23: active Banhall clients whose name looks similar to a new
+  // company band (never auto-merged; Admin chooses Move files or Keep separate).
+  suggestedCompanies: v.optional(
+    v.array(
+      v.object({
+        id: v.id("clients"),
+        name: v.string(),
+        companyKey: v.string(),
+      })
+    )
+  ),
+  // 2026-11-23: true when an Admin chose Keep separate on a similar-name prompt.
+  confirmedDistinct: v.optional(v.boolean()),
 });
 
 /** What a person picked on the sheet for a company the app does not have yet. */
@@ -1044,6 +1071,16 @@ export const sheetCompanies = query({
           .query("importCompanies")
           .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab));
     const result = await bands.paginate(boundedPage(args.paginationOpts, SHEET_COMPANIES_PAGE_MAX));
+    let activeClientsCache: Doc<"clients">[] | null = null;
+    const loadActiveClients = async () => {
+      if (activeClientsCache === null) {
+        activeClientsCache = await ctx.db
+          .query("clients")
+          .withIndex("by_status_and_nameKey", (q) => q.eq("status", "active"))
+          .take(500);
+      }
+      return activeClientsCache;
+    };
     const page = [];
     for (const band of result.page) {
       // A rebuild's start row has no files yet (rebuildImportCompanyCounts).
@@ -1051,6 +1088,16 @@ export const sheetCompanies = query({
       const company = await knownCompany(ctx, band.companyKey);
       const isNew = band.companyKey !== NO_COMPANY_KEY && company === null;
       const picks = isNew ? await newCompanyPicks(ctx, band.companyKey) : null;
+      const confirmedDistinct = picks?.confirmedDistinct === true ? true : undefined;
+      let suggestedCompanies: Array<{ id: Id<"clients">; name: string; companyKey: string }> | undefined;
+      if (isNew && !confirmedDistinct && band.displayName.trim()) {
+        const active = await loadActiveClients();
+        const matches = active
+          .filter((client) => client.nameKey !== band.companyKey && clientNamesLookAlike(client.name, band.displayName))
+          .slice(0, 3)
+          .map((client) => ({ id: client._id, name: client.name, companyKey: client.nameKey }));
+        if (matches.length > 0) suggestedCompanies = matches;
+      }
       page.push(
         definedFields({
           companyKey: band.companyKey,
@@ -1065,6 +1112,8 @@ export const sheetCompanies = query({
           company,
           isNew,
           pickedIndustry: picks?.industry,
+          suggestedCompanies,
+          confirmedDistinct,
         })
       );
     }
@@ -3334,7 +3383,7 @@ export const editApprovedFile = mutation({
             ? {
                 // As the Brain copy is made (convex/lib/importBrainCopy.ts): the writer's own name, else its label.
                 writerName: newWriter.name?.trim() || patch.writerName || null,
-                writerTier: writerWeight(newWriter.tier),
+                writerTier: writerWeight(newWriter.tier, newWriter.staffRole),
               }
             : {}),
           ...(changed.has("scienceCode") ? { scienceCode: scienceCodeNow ?? null } : {}),
@@ -3462,7 +3511,7 @@ export const retierWriterBrainCopies = internalMutation({
   handler: async (ctx, args) => {
     const writer = await ctx.db.get(args.writerId);
     if (!writer) return { retiered: 0, passedOver: 0, waitingMoved: 0, done: true };
-    const weight = writerWeight(writer.tier);
+    const weight = writerWeight(writer.tier, writer.staffRole);
     const page = await ctx.db
       .query("ingestionItems")
       .withIndex("by_writerId_and_sheetTab", (q) => q.eq("writerId", writer._id).eq("sheetTab", "approved"))
@@ -3937,6 +3986,9 @@ export const setSheetLabels = mutation({
         patch.versionNumber = read.versionNumber;
         patch.writerInitials = read.writerInitials;
         patch.reviewerInitials = read.reviewerInitials;
+        patch.reviewerInProgress = read.reviewerInProgress;
+        patch.clientInitials = read.clientInitials;
+        patch.financialInitials = read.financialInitials;
         patch.initialsGroups = read.initialsGroups;
         patch.pdTitle = read.pdTitle;
       }
@@ -4005,6 +4057,88 @@ export const setFileReviewers = mutation({
       if (result.changed) outcome.changed(id);
     }
     return outcome.result();
+  },
+});
+
+function cleanSlotInitials(value: string | null | undefined, current: string | undefined): string | undefined {
+  if (value === undefined) return current;
+  if (value === null) return undefined;
+  const cleaned = savedInitials(value);
+  if (cleaned === null) domainError("INVALID_INPUT", INITIALS_RULE);
+  return cleaned || undefined;
+}
+
+/**
+ * Reassigns the 4 positional initial slots (writer, reviewer, client,
+ * financial) and optional reviewerInProgress flag on a single staged PD file.
+ * Admin only. Preserves manual slot choices across future re-reads via
+ * "initialsSlots" in editedLabels, and re-resolves writer/reviewer whenever
+ * their initials slot changes.
+ */
+export const reassignFileInitials = mutation({
+  args: {
+    id: v.id("ingestionItems"),
+    writerInitials: v.optional(v.union(v.string(), v.null())),
+    reviewerInitials: v.optional(v.union(v.string(), v.null())),
+    clientInitials: v.optional(v.union(v.string(), v.null())),
+    financialInitials: v.optional(v.union(v.string(), v.null())),
+    reviewerInProgress: v.optional(v.boolean()),
+  },
+  returns: v.object({ changed: v.boolean() }),
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+    const item = await ctx.db.get(args.id);
+    if (!item) domainError("NOT_FOUND", ITEM_NOT_FOUND);
+    if (sheetTabForStatus(item.status) !== "review") {
+      domainError("INVALID_INPUT", "Only files on To review can reassign initials.");
+    }
+    if (isBeingRead(item.status)) {
+      domainError("INVALID_INPUT", "Wait until this file finishes reading.");
+    }
+    const nextWriter = cleanSlotInitials(args.writerInitials, item.writerInitials);
+    const nextReviewer = cleanSlotInitials(args.reviewerInitials, item.reviewerInitials);
+    const nextClient = cleanSlotInitials(args.clientInitials, item.clientInitials);
+    const nextFinancial = cleanSlotInitials(args.financialInitials, item.financialInitials);
+    const nextInProgress =
+      nextReviewer === undefined
+        ? undefined
+        : args.reviewerInProgress !== undefined
+          ? args.reviewerInProgress
+            ? true
+            : undefined
+          : item.reviewerInProgress;
+
+    const writerChanged = nextWriter !== item.writerInitials;
+    const reviewerChanged = nextReviewer !== item.reviewerInitials;
+    const presentSlots = [nextWriter, nextReviewer, nextClient, nextFinancial].filter(
+      (value): value is string => Boolean(value)
+    );
+
+    const baseEdited = writerChanged
+      ? (item.editedLabels ?? []).filter((label) => label !== "writerName")
+      : item.editedLabels;
+    const patch: Partial<IngestionItemFields> = {
+      writerInitials: nextWriter,
+      reviewerInitials: nextReviewer,
+      reviewerInProgress: nextInProgress,
+      clientInitials: nextClient,
+      financialInitials: nextFinancial,
+      initialsGroups: presentSlots.length >= 3 ? presentSlots : undefined,
+      editedLabels: mergeEditedLabels(baseEdited, ["initialsSlots"]),
+    };
+    if (writerChanged) {
+      patch.writerName = undefined;
+      patch.writerId = undefined;
+      patch.writerNameSource = undefined;
+      patch.writerBeforePick = undefined;
+    }
+    if (reviewerChanged) {
+      patch.reviewerId = undefined;
+      patch.reviewerSource = undefined;
+      patch.reviewerBeforePick = undefined;
+    }
+    const result = await patchItem(ctx, item, patch, { touch: true });
+    return { changed: result.changed };
   },
 });
 
@@ -4829,6 +4963,137 @@ export const setNewCompanyIndustry = mutation({
       await ctx.db.patch(picks._id, { industry, setBy: admin, updatedAt: Date.now() });
     }
     return { industry };
+  },
+});
+
+/**
+ * Marks a new company band as intentionally distinct from similar existing
+ * Banhall clients (or clears that mark) so the "Similar to [Client]?" prompt
+ * stays dismissed. Never auto-merges. Admin only.
+ */
+export const confirmNewCompanyDistinct = mutation({
+  args: { companyKey: v.string(), distinct: v.boolean() },
+  returns: v.object({ confirmedDistinct: v.boolean() }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const companyKey = args.companyKey.trim();
+    if (companyKey === NO_COMPANY_KEY || dashboardCompanyKey(companyKey) !== companyKey) {
+      domainError("INVALID_INPUT", "Pick the company first.");
+    }
+    if ((await knownCompany(ctx, companyKey)) !== null) {
+      domainError("INVALID_INPUT", "This company is already in Banhall.");
+    }
+    const picks = await newCompanyPicks(ctx, companyKey);
+    const value = args.distinct ? true : undefined;
+    if (!picks) {
+      if (args.distinct) {
+        await ctx.db.insert("importNewCompanies", {
+          companyKey,
+          confirmedDistinct: true,
+          setBy: admin,
+          updatedAt: Date.now(),
+        });
+      }
+    } else if (picks.confirmedDistinct !== value) {
+      await ctx.db.patch(picks._id, {
+        confirmedDistinct: value,
+        setBy: admin,
+        updatedAt: Date.now(),
+      });
+    }
+    return { confirmedDistinct: args.distinct };
+  },
+});
+
+async function moveBandBatchToClient(
+  ctx: MutationCtx,
+  fromCompanyKey: string,
+  targetName: string
+): Promise<{ moved: number; hasMore: boolean }> {
+  const rows = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_sheetTab_and_companyKey", (q) =>
+      q.eq("sheetTab", "review").eq("companyKey", fromCompanyKey)
+    )
+    .take(SHEET_BATCH_MAX_FILES + 1);
+  const batch = rows.slice(0, SHEET_BATCH_MAX_FILES);
+  const hasMore = rows.length > SHEET_BATCH_MAX_FILES;
+  const groups = new Set<string>();
+  let moved = 0;
+  for (const item of batch) {
+    const result = await patchItem(
+      ctx,
+      item,
+      {
+        clientName: targetName,
+        editedLabels: mergeEditedLabels(item.editedLabels, ["company"]),
+      },
+      { touch: true }
+    );
+    if (result.changed) {
+      moved += 1;
+      for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+    }
+  }
+  if (groups.size > 0) await recomputeGroups(ctx, groups, MANY_ROWS);
+  return { moved, hasMore };
+}
+
+/**
+ * Moves all staged ("To review") files from a new company band onto an
+ * existing active Banhall client when an Admin confirms a "Similar to [Name]?"
+ * match. Moves the first 100 files synchronously and schedules continuation
+ * batches if more remain. Admin only.
+ */
+export const snapBandToCompany = mutation({
+  args: {
+    fromCompanyKey: v.string(),
+    targetClientId: v.id("clients"),
+  },
+  returns: v.object({
+    moved: v.number(),
+    hasMore: v.boolean(),
+    targetName: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+    const fromCompanyKey = args.fromCompanyKey.trim();
+    if (fromCompanyKey === NO_COMPANY_KEY || dashboardCompanyKey(fromCompanyKey) !== fromCompanyKey) {
+      domainError("INVALID_INPUT", "Pick a company band to move.");
+    }
+    const target = await ctx.db.get(args.targetClientId);
+    if (!target || target.status !== "active") {
+      domainError("NOT_FOUND", "That company is no longer active in Banhall.");
+    }
+    if (target.nameKey === fromCompanyKey) {
+      domainError("INVALID_INPUT", "Those files are already under that company.");
+    }
+    const { moved, hasMore } = await moveBandBatchToClient(ctx, fromCompanyKey, target.name);
+    if (hasMore) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.continueSnapBandToCompany, {
+        fromCompanyKey,
+        targetName: target.name,
+      });
+    }
+    return { moved, hasMore, targetName: target.name };
+  },
+});
+
+export const continueSnapBandToCompany = internalMutation({
+  args: {
+    fromCompanyKey: v.string(),
+    targetName: v.string(),
+  },
+  returns: v.object({ moved: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { moved, hasMore } = await moveBandBatchToClient(ctx, args.fromCompanyKey, args.targetName);
+    if (hasMore) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.continueSnapBandToCompany, {
+        fromCompanyKey: args.fromCompanyKey,
+        targetName: args.targetName,
+      });
+    }
+    return { moved, done: !hasMore };
   },
 });
 
