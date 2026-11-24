@@ -56,7 +56,7 @@
     <DropdownMenu.Content side="bottom" align="end" sideOffset={4} class={`w-[14.5rem] ${MENU_CONTENT}`}>
       <RoleSubmenu heading="Role" roles={["writer", "manager", "admin"]} current={role} onSelect={onChangeRole} />
       {#if onChangeStaffRole}
-        <StaffRoleSubmenu current={staffRole} onSelect={onChangeStaffRole} />
+        <StaffRoleSubmenu current={staffRole} showDefaultWeights={Boolean(onSetWeight)} onSelect={onChangeStaffRole} />
       {/if}
       {#if !isSelf}
         <DropdownMenu.Item data-menu-item="password" onSelect={onSetPassword} class={`${MENU_ITEM} text-ink`}>

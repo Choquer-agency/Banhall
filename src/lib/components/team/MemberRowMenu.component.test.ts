@@ -70,4 +70,26 @@ describe("MemberRowMenu", () => {
     await page.getByRole("menuitem", { name: "Unlink past writer DW" }).click();
     expect(unlink).toHaveBeenCalledOnce();
   });
+
+  it("hides PD role default weights when the viewer cannot set weights", async () => {
+    const onChangeStaffRole = vi.fn();
+    await render(MemberRowMenu, props({ onChangeStaffRole, onSetWeight: null }));
+    await open();
+    await page.getByRole("menuitem", { name: "PD role" }).hover();
+    await expect.poll(() => document.querySelectorAll("[data-staff-role-choice]").length).toBe(4);
+    const plainAdminText = document.querySelector('[data-staff-role-choice="technical_manager"]')?.textContent ?? "";
+    expect(plainAdminText).toContain("Technical Manager");
+    expect(plainAdminText).not.toContain("0.8");
+    expect(document.querySelector('[data-staff-role-choice="financial"]')?.textContent ?? "").not.toContain("No weight");
+  });
+
+  it("shows PD role default weights when the viewer can set weights", async () => {
+    const onChangeStaffRole = vi.fn();
+    await render(MemberRowMenu, props({ onChangeStaffRole, onSetWeight: vi.fn() }));
+    await open();
+    await page.getByRole("menuitem", { name: "PD role" }).hover();
+    await expect.poll(() => document.querySelectorAll("[data-staff-role-choice]").length).toBe(4);
+    expect(document.querySelector('[data-staff-role-choice="technical_manager"]')?.textContent ?? "").toContain("0.8");
+    expect(document.querySelector('[data-staff-role-choice="financial"]')?.textContent ?? "").toContain("No weight");
+  });
 });

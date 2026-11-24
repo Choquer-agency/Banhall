@@ -64,7 +64,7 @@
         </DropdownMenu.Item>
       {/if}
       {#if onChangeStaffRole}
-        <StaffRoleSubmenu current={staffRole} onSelect={onChangeStaffRole} />
+        <StaffRoleSubmenu current={staffRole} showDefaultWeights={Boolean(onSetWeight)} onSelect={onChangeStaffRole} />
       {/if}
       {#if onSetWeight}
         <DropdownMenu.Item data-menu-item="weight" onSelect={onSetWeight} class={`${MENU_ITEM} text-ink`}>

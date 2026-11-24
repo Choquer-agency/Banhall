@@ -16,9 +16,12 @@
 
   let {
     current = null,
+    showDefaultWeights = false,
     onSelect,
   }: {
     current?: WriterStaffRole | null;
+    /** Only Owner and Developer viewers see role default weights. */
+    showDefaultWeights?: boolean;
     onSelect: (staffRole: WriterStaffRole | null) => void;
   } = $props();
 </script>
@@ -51,9 +54,11 @@
             {/if}
           </span>
           <span class="min-w-0 flex-1 truncate">{WRITER_STAFF_ROLE_LABELS[staffRole]}</span>
-          <span class="shrink-0 text-xs tabular-nums text-ink-muted">
-            {defaultWeight !== null ? writerWeightText(defaultWeight) : "No weight"}
-          </span>
+          {#if showDefaultWeights}
+            <span class="shrink-0 text-xs tabular-nums text-ink-muted">
+              {defaultWeight !== null ? writerWeightText(defaultWeight) : "No weight"}
+            </span>
+          {/if}
         </DropdownMenu.Item>
       {/each}
       {#if current !== null}

@@ -52,7 +52,6 @@
 
   let industry = $state("");
   let writerName = $state("");
-  let writerTier = $state("0.4");
   let scienceCode = $state("");
   let rejectNote = $state("");
 
@@ -121,7 +120,6 @@
   function resetReviewForm() {
     industry = "";
     writerName = "";
-    writerTier = "0.4";
     scienceCode = "";
     rejectNote = "";
     errorMsg = null;
@@ -670,18 +668,10 @@
                     Writer
                     <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={writerName} placeholder="Optional" />
                   </label>
-                  <div class="grid grid-cols-2 gap-3">
-                    <label class="text-xs font-medium text-ink-secondary">
-                      Writer tier
-                      <select class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={writerTier}>
-                        <option value="1">1.0</option><option value="0.7">0.7</option><option value="0.4">0.4</option><option value="0.2">0.2</option>
-                      </select>
-                    </label>
-                    <label class="text-xs font-medium text-ink-secondary">
-                      Science code
-                      <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={scienceCode} placeholder="Optional" />
-                    </label>
-                  </div>
+                  <label class="block text-xs font-medium text-ink-secondary">
+                    Science code
+                    <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={scienceCode} placeholder="Optional" />
+                  </label>
                   <label class="block text-xs font-medium text-ink-secondary">
                     Rejection note
                     <textarea class="field-control mt-1.5 min-h-20 w-full resize-y rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={rejectNote} placeholder="Optional context for rejection"></textarea>
