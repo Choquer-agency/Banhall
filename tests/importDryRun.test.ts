@@ -168,21 +168,21 @@ describe("import dry run", () => {
   it("counts final PD names that parse, and initials only", () => {
     expect(report.finalPdNames).toEqual({
       total: 5,
-      // The wider name reader (this layer) also reads a name with three or
-      // more initials groups: it parses, with no writer or reviewer set.
+      // Names with 3+ initials groups (e.g. T0.DW.PN.SO) now unpack positional
+      // writer (slot 1) and reviewer (slot 2) initials alongside initialsGroups.
       parses: 3,
       doesNotParse: 2,
       withVersion: 3,
-      withWriterInitials: 2,
-      withReviewerInitials: 1,
+      withWriterInitials: 3,
+      withReviewerInitials: 2,
       withFiscalYearEnd: 3,
       withPdNumber: 3,
       byInitialsGroups: { "0": 2, "1": 1, "2": 1, "3": 1 },
     });
     expect(report.longVersionInitials).toEqual({ firstGroup: { DW: 1 }, laterGroups: { PN: 1, SO: 1 } });
     expect(report.draftAndReviewNames).toEqual({ total: 2, withVersion: 1 });
-    expect(report.writerInitials).toEqual({ DW: 2, PN: 1 });
-    expect(report.reviewerInitials).toEqual({ SO: 1 });
+    expect(report.writerInitials).toEqual({ DW: 3, PN: 1 });
+    expect(report.reviewerInitials).toEqual({ PN: 1, SO: 1 });
     expect(report.unparsedFinalPdPatterns).toEqual([
       { pattern: "Word Word PD 2 final Word Word.docx", count: 1 },
       { pattern: "WordWord Word Word PD.docx", count: 1 },
@@ -191,7 +191,7 @@ describe("import dry run", () => {
 
   it("reads text with the import's reader: writer names that fit the initials, sizes, duplicates, failures", () => {
     expect(report.writerNames).toEqual({
-      finalPd: { withInitials: 2, textNameMatches: 2, textNamesNoMatch: 0, noTextName: 0, notRead: 0 },
+      finalPd: { withInitials: 3, textNameMatches: 3, textNamesNoMatch: 0, noTextName: 0, notRead: 0 },
       draftOrReview: { withInitials: 1, textNameMatches: 1, textNamesNoMatch: 0, noTextName: 0, notRead: 0 },
     });
     expect(report.text).toMatchObject({
@@ -212,7 +212,7 @@ describe("import dry run", () => {
     expect(output).toContain("Final PD: 5");
     expect(output).toContain("would be imported, online only (not opened): 1");
     expect(output).toContain("by initials groups in the version token (such as T1.AA.BB): 0 2, 1 1, 2 1, 3 1");
-    expect(output).toContain("writer: DW 2, PN 1");
+    expect(output).toContain("writer: DW 3, PN 1");
     expectNoMadeUpNames(output);
     expectNoMadeUpNames(JSON.stringify(report));
   });
