@@ -70,11 +70,23 @@ export type ParsedPdFilename = {
 };
 
 const PROJECT_NUMBER = /^(\d{1,2})([A-Za-z])?$/;
-const CLIENT_TOKEN = /^[A-Za-z0-9][A-Za-z0-9&'-]*$/;
+// Client words allow legal-suffix dots/commas ("Inc.", "Ltd.") and balanced
+// capitalized parenthesized DBA names ("1234567 Ontario (Cedar-Labs)") while
+// still rejecting lowercase OS copy markers like "(copy)".
+const CLIENT_WORD = /^[A-Za-z0-9][A-Za-z0-9&'.,-]*$/;
+const CLIENT_PAREN_SINGLE = /^\([A-Z][A-Za-z0-9&'.,-]*\)$/;
+const CLIENT_PAREN_OPEN = /^\([A-Z][A-Za-z0-9&'.,-]*$/;
+const CLIENT_PAREN_CLOSE = /^[A-Za-z0-9][A-Za-z0-9&'.,-]*\)$/;
 const FISCAL_YEAR_END = /^(\d{4})-(\d{2})-(\d{2})$/;
-// Version letter (either case: W, R, T, S), version number, then one to four
-// positional initials groups: writer, technical reviewer, client, financial.
-const REVISION = /^([WwRrSsTt])(\d+)((?:\.[A-Za-z]{2,3}){1,4})$/;
+// Version letter (either case: W, R, T, S), version number (or capital "O"
+// typed for zero, e.g. "TO.DW.PN.KT"), then one to four positional initials
+// groups: writer, technical reviewer, client, financial.
+const REVISION = /^([WwRrSsTt])(\d+|O)((?:\.[A-Za-z]{2,3}){1,4})$/;
+// Writers occasionally type a stray space after the version dot
+// ("T0. DW.PN.KT"). Collapse it before extension stripping so trailing initials
+// are not mistaken for an extension.
+const SPACED_VERSION_DOT =
+  /(?<=\s)([WwRrSsTt])(\d+|O)\.\s+(?=(?:[A-Za-z]{2,3}(?:\.[A-Za-z]{2,3}){1,3}|[A-Z]{2,3})(?=\s|\.[A-Za-z0-9]{1,8}$|$))/g;
 /** The most words a client part may have before the date or version. */
 const MAX_CLIENT_WORDS = 6;
 // A version with no initials ("T1", "W0"). Read only as the last token, right
@@ -155,7 +167,7 @@ const SHORT_FILE_EXTENSIONS = new Set([
  * PN in a .msg file.
  */
 function stripExtension(fileName: string): { stem: string; documentExtension: boolean } {
-  const trimmed = fileName.trim();
+  const trimmed = fileName.trim().replace(SPACED_VERSION_DOT, "$1$2.");
   const extension = /\.([A-Za-z0-9]{1,8})$/.exec(trimmed);
   const ext = extension?.[1].toLowerCase() ?? "";
   const documentExtension = extension !== null && DOCUMENT_EXTENSIONS.has(ext);
@@ -197,11 +209,26 @@ export function parsePdFilename(fileName: string): ParsedPdFilename | null {
     at < tokens.length && (FISCAL_YEAR_END.test(tokens[at]) || REVISION.test(tokens[at]) || bareVersionAt(at) !== null);
 
   let index = 1;
-  while (index < tokens.length && index <= MAX_CLIENT_WORDS && !anchorAt(index) && CLIENT_TOKEN.test(tokens[index])) {
+  let inParen = false;
+  while (index < tokens.length && index <= MAX_CLIENT_WORDS && !anchorAt(index)) {
+    const token = tokens[index];
+    if (inParen) {
+      if (CLIENT_PAREN_CLOSE.test(token)) {
+        inParen = false;
+      } else if (!CLIENT_WORD.test(token)) {
+        break;
+      }
+    } else if (CLIENT_WORD.test(token) || CLIENT_PAREN_SINGLE.test(token)) {
+      // Valid standalone client word or single-token parenthesized DBA.
+    } else if (CLIENT_PAREN_OPEN.test(token)) {
+      inParen = true;
+    } else {
+      break;
+    }
     index += 1;
   }
-  // No client words, or no date or version right after them: not a scheme name.
-  if (index === 1 || !anchorAt(index)) return null;
+  // No client words, unclosed DBA parenthesis, or no date/version right after: not a scheme name.
+  if (index === 1 || inParen || !anchorAt(index)) return null;
 
   const parsed: ParsedPdFilename = {};
   if (number <= MAX_PROJECT_NUMBER) {
@@ -222,7 +249,8 @@ export function parsePdFilename(fileName: string): ParsedPdFilename | null {
   const revision = tokens[index] ? REVISION.exec(tokens[index]) : null;
   if (revision) {
     parsed.versionCode = revision[1].toUpperCase() as PdVersionCode;
-    parsed.revision = String(Number.parseInt(revision[2], 10));
+    const versionDigits = revision[2] === "O" ? "0" : revision[2];
+    parsed.revision = String(Number.parseInt(versionDigits, 10));
     const rawGroups = revision[3].split(".").filter(Boolean);
     const groups = rawGroups.map((group) => group.toUpperCase());
     if (groups[0]) parsed.writerInitials = groups[0];

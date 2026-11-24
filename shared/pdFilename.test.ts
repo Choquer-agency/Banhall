@@ -434,9 +434,102 @@ describe("parsePdFilename on the firm's real name shapes (2026-11-17)", () => {
   it("still needs a date or version right after the client words", () => {
     expect(parsePdFilename("3 Cedarline Systems Notes.docx")).toBeNull();
     expect(parsePdFilename("3 Cedarline Systems (copy) 2025-03-31 T1.DW.docx")).toBeNull();
+    expect(parsePdFilename("3 Cedarline (Unclosed 2025-03-31 T1.DW.docx")).toBeNull();
+    expect(parsePdFilename("3 Cedarline Systems) 2025-03-31 T1.DW.docx")).toBeNull();
     // More than six client words is not a scheme name.
     expect(parsePdFilename("3 A B C D E F G 2025-03-31 T1.DW Title.docx")).toBeNull();
     expect(parsePdFilename("3 A B C D E F 2025-03-31 T1.DW Title.docx")?.clientName).toBe("A B C D E F");
+  });
+
+  it("handles legal-suffix periods and parenthesized DBA names in the client part", () => {
+    expect(
+      parsePdFilename("01 NorthgateLabsInc. 2025-12-31 T0.DW.PN.KT AutomatedSensorCalibration.docx")
+    ).toEqual({
+      projectNumber: "1",
+      clientName: "Northgate Labs Inc.",
+      fiscalYearEnd: "2025-12-31",
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+      title: "Automated Sensor Calibration",
+    });
+    expect(
+      parsePdFilename("01 HaldenBrewingLtd. 2026-02-28 T0.DW.PN.KT.SO FermentationControl.docx")
+    ).toMatchObject({
+      projectNumber: "1",
+      clientName: "Halden Brewing Ltd.",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      financialInitials: "SO",
+      initialsGroups: ["DW", "PN", "KT", "SO"],
+    });
+    expect(
+      parsePdFilename("01 1234567 Ontario (Cedar-Labs) 2024-06-30 T0.DW.PN.KT PerformanceScaling.docx")
+    ).toEqual({
+      projectNumber: "1",
+      clientName: "1234567 Ontario (Cedar-Labs)",
+      fiscalYearEnd: "2024-06-30",
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+      title: "Performance Scaling",
+    });
+    expect(
+      parsePdFilename("01 1234567 Ontario (Cedar Labs) 2024-06-30 T0.DW.PN Title.docx")?.clientName
+    ).toBe("1234567 Ontario (Cedar Labs)");
+  });
+
+  it("tolerates a stray space after the version dot and capital O typed for version 0", () => {
+    expect(
+      parsePdFilename("01 NorthgateLabsInc. 2025-12-31 T0. DW.PN.KT SensorProtocols.docx")
+    ).toEqual({
+      projectNumber: "1",
+      clientName: "Northgate Labs Inc.",
+      fiscalYearEnd: "2025-12-31",
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+      title: "Sensor Protocols",
+    });
+    // Without extension or title, collapsing the space prevents stripping the last initials group.
+    expect(parsePdFilename("01 HaldenBrewingLtd. 2026-02-28 T0. DW.PN.KT")).toEqual({
+      projectNumber: "1",
+      clientName: "Halden Brewing Ltd.",
+      fiscalYearEnd: "2026-02-28",
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+    });
+    // Capital O instead of 0 in a revision with initials parses as version 0.
+    expect(
+      parsePdFilename("02 Cedarline 2024-12-31 TO.DW.PN.KT AutomatedContentGeneration")
+    ).toEqual({
+      projectNumber: "2",
+      clientName: "Cedarline",
+      fiscalYearEnd: "2024-12-31",
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      initialsGroups: ["DW", "PN", "KT"],
+      title: "Automated Content Generation",
+    });
+    // Lowercase "To." is never treated as version T0.
+    expect(parsePdFilename("02 Cedarline 2024-12-31 To.DW Title.docx")?.revision).toBeUndefined();
   });
 });
 
