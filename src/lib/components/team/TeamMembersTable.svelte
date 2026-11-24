@@ -19,15 +19,22 @@
     MUTED_TEXT,
     NAME_COLUMN,
     NAME_TEXT,
+    PDS_COLUMN,
     PEOPLE_FRAME,
     PEOPLE_HEADER_ROW,
     PEOPLE_ROW,
     PEOPLE_TABLE,
     QUIET_TEXT,
     ROLE_COLUMN,
+    WEIGHT_COLUMN,
   } from "./teamColumns";
   import type { Role } from "../../../../shared/roles";
-  import { WRITER_STAFF_ROLE_LABELS, type WriterStaffRole } from "../../../../shared/writerWeight";
+  import {
+    WRITER_STAFF_ROLE_LABELS,
+    writerWeight,
+    writerWeightText,
+    type WriterStaffRole,
+  } from "../../../../shared/writerWeight";
 
   export type TeamMember = {
     _id: string;
@@ -44,7 +51,7 @@
     initials: string | null;
     /** The past writer an Admin linked to this account, if any. */
     linkedWriter: { writerId: string; label: string; initials: string | null; fileCount: number } | null;
-    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Omitted for Managers. */
+    /** The custom writer weight (0 to 1), or null for the default. Omitted unless Owner/Developer Admin. */
     weight?: number | null;
     /** Banhall PD staff role (technical_manager, technical_writer, junior_technical_writer, financial). */
     staffRole?: WriterStaffRole | null;
@@ -56,21 +63,23 @@
     members,
     now,
     showActions,
+    showWeights = false,
     onChangeRole,
     onChangeStaffRole = null,
     onSetPassword,
     onEditInitials,
-    onSetWeight,
+    onSetWeight = null,
     onUnlinkWriter,
   }: {
     members: TeamMember[];
     now: number;
     showActions: boolean;
+    showWeights?: boolean;
     onChangeRole: (member: TeamMember, role: Role) => void;
     onChangeStaffRole?: ((member: TeamMember, staffRole: WriterStaffRole | null) => void) | null;
     onSetPassword: (member: TeamMember) => void;
     onEditInitials: (member: TeamMember) => void;
-    onSetWeight: (member: TeamMember) => void;
+    onSetWeight?: ((member: TeamMember) => void) | null;
     onUnlinkWriter: (member: TeamMember) => void;
   } = $props();
 </script>
@@ -81,11 +90,16 @@
       <span role="columnheader" class={NAME_COLUMN}>Name</span>
       <span role="columnheader" class={INITIALS_COLUMN}>Initials</span>
       <span role="columnheader" class={EMAIL_COLUMN}>Email</span>
+      <span role="columnheader" class={PDS_COLUMN}>PDs</span>
+      {#if showWeights}<span role="columnheader" class={WEIGHT_COLUMN}>Weight</span>{/if}
       <span role="columnheader" class={ROLE_COLUMN}>Role</span>
       <span role="columnheader" class={LAST_ACTIVE_COLUMN}>Last active</span>
       {#if showActions}<span role="columnheader" class="sr-only">Actions</span>{/if}
     </div>
     {#each members as member (member._id)}
+      {@const pdCount = member.pdCount ?? 0}
+      {@const effectiveWeight = writerWeight(member.weight, member.staffRole)}
+      {@const hasCustomWeight = member.weight !== undefined && member.weight !== null}
       <div role="row" data-member-row={member._id} class={PEOPLE_ROW}>
         <!-- Plain names, no avatar (owner rule; Paper S11, 2026-10-28). -->
         <span role="cell" class={`flex items-center gap-2 ${NAME_COLUMN}`}>
@@ -96,6 +110,29 @@
         </span>
         <span role="cell" data-member-initials class={`${INITIALS_COLUMN} ${QUIET_TEXT}`}>{member.initials ?? ""}</span>
         <span role="cell" class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}>{member.email ?? ""}</span>
+        <span role="cell" data-member-pds class={`${PDS_COLUMN} ${pdCount > 0 ? QUIET_TEXT : MUTED_TEXT}`}>
+          {pdCount > 0 ? pdCount : "-"}
+        </span>
+        {#if showWeights}
+          <span role="cell" data-member-weight class={`${WEIGHT_COLUMN} flex justify-end`}>
+            {#if onSetWeight}
+              <button
+                type="button"
+                data-member-weight-button={member._id}
+                onclick={() => onSetWeight(member)}
+                title={hasCustomWeight ? "Custom writer weight - click to edit" : "Default writer weight - click to edit"}
+                aria-label={`Edit weight for ${member.name} (${writerWeightText(effectiveWeight)})`}
+                class={`inline-flex h-6 items-center rounded px-1.5 text-[0.8125rem] leading-[calc(19/13)] transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${
+                  hasCustomWeight ? "font-medium text-ink" : "text-ink-muted"
+                }`}
+              >{writerWeightText(effectiveWeight)}</button>
+            {:else}
+              <span class={hasCustomWeight ? "text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink" : MUTED_TEXT}>
+                {writerWeightText(effectiveWeight)}
+              </span>
+            {/if}
+          </span>
+        {/if}
         <span role="cell" class={`flex ${ROLE_COLUMN}`}>
           <RoleChip role={member.role} isOwner={member.isOwner} isDeveloper={member.isDeveloper} />
         </span>
@@ -115,7 +152,7 @@
               onChangeStaffRole={onChangeStaffRole ? (staffRole) => onChangeStaffRole(member, staffRole) : null}
               onSetPassword={() => onSetPassword(member)}
               onEditInitials={() => onEditInitials(member)}
-              onSetWeight={() => onSetWeight(member)}
+              onSetWeight={showWeights && onSetWeight ? () => onSetWeight(member) : null}
               onUnlinkWriter={member.linkedWriter ? () => onUnlinkWriter(member) : null}
             />
           </span>

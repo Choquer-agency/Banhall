@@ -328,6 +328,30 @@ describe("pathFieldsFor", () => {
     });
     expect(pathOnly).toMatchObject({ clientName: "Cedarline Systems", category: "final_pd", pdNumber: "9", versionCode: "T" });
   });
+
+  it("keeps initialsGroups, coWriterInitials, and extraClientInitials when initialsSlots was edited", () => {
+    const fields = pathFieldsFor(`${FY}/To be submitted/${PD_NAME}`, PD_NAME, {
+      editedLabels: ["initialsSlots"],
+      writerInitials: "PN",
+      reviewerInitials: "DW",
+      reviewerInProgress: true,
+      clientInitials: "BM",
+      financialInitials: "FR",
+      initialsGroups: ["PN", "AL", "DW", "BM", "JT", "FR"],
+      coWriterInitials: ["AL"],
+      extraClientInitials: ["JT"],
+    });
+    expect(fields).toMatchObject({
+      writerInitials: "PN",
+      reviewerInitials: "DW",
+      reviewerInProgress: true,
+      clientInitials: "BM",
+      financialInitials: "FR",
+      initialsGroups: ["PN", "AL", "DW", "BM", "JT", "FR"],
+      coWriterInitials: ["AL"],
+      extraClientInitials: ["JT"],
+    });
+  });
 });
 
 describe("pathFieldsFor with a category a person set", () => {
@@ -641,7 +665,7 @@ describe("labelPatchFields", () => {
     expect(() => labelPatchFields({ fiscalYearEnd: Date.UTC(2024, 5, 30) + 1 })).toThrow(/fiscal year end/);
     expect(() => labelPatchFields({ fiscalYearEnd: Date.UTC(1800, 0, 1) })).toThrow(/fiscal year end/);
     expect(() => labelPatchFields({ fiscalYearEnd: Number.NaN })).toThrow(/fiscal year end/);
-    expect(() => labelPatchFields({ pdNumber: "21" })).toThrow(/PD number/);
+    expect(() => labelPatchFields({ pdNumber: "100" })).toThrow(/PD number/);
     expect(() => labelPatchFields({ pdNumber: "4ab" })).toThrow(/PD number/);
     expect(() => labelPatchFields({ version: { code: "R", number: 1.5 } })).toThrow(/version number/);
     expect(() => labelPatchFields({ writerName: " " })).toThrow("Type the writer's name.");
@@ -684,8 +708,9 @@ describe("normalizePdNumber", () => {
     expect(normalizePdNumber("04")).toBe("4");
     expect(normalizePdNumber("12a")).toBe("12a");
     expect(normalizePdNumber("20")).toBe("20");
+    expect(normalizePdNumber("99")).toBe("99");
     expect(normalizePdNumber("0")).toBeNull();
-    expect(normalizePdNumber("21")).toBeNull();
+    expect(normalizePdNumber("100")).toBeNull();
     expect(normalizePdNumber("PD 4")).toBeNull();
   });
 });

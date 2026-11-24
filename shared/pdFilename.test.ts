@@ -389,9 +389,35 @@ describe("parsePdFilename on the firm's real name shapes (2026-11-17)", () => {
     });
     // One or two groups keep today's meaning and give no initialsGroups array.
     expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW LabelVision.docx")?.initialsGroups).toBeUndefined();
-    // Five groups are not a version token: they stay title text.
-    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT.SO.AB Title.docx")).toMatchObject({
-      title: "T0.DW.PN.KT.SO.AB Title",
+    // Five and six groups parse (co-writers or multiple client contributors)
+    // and preserve every group in initialsGroups alongside the first 4 slots.
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT.SO.AB Title.docx")).toEqual({
+      projectNumber: "1",
+      clientName: "Cedarline Systems",
+      fiscalYearEnd: "2026-03-31",
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      financialInitials: "SO",
+      initialsGroups: ["DW", "PN", "KT", "SO", "AB"],
+      title: "Title",
+    });
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT.SO.AB.CD Title.docx")).toMatchObject({
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "KT",
+      financialInitials: "SO",
+      initialsGroups: ["DW", "PN", "KT", "SO", "AB", "CD"],
+      title: "Title",
+    });
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0. DW.PN.KT.SO.AB")).toMatchObject({
+      initialsGroups: ["DW", "PN", "KT", "SO", "AB"],
+    });
+    // Seven groups are not a version token: they stay title text.
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT.SO.AB.CD.EF Title.docx")).toMatchObject({
+      title: "T0.DW.PN.KT.SO.AB.CD.EF Title",
     });
     // No extension: the last group is not mistaken for one.
     expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT")).toMatchObject({

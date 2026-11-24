@@ -3,6 +3,7 @@ import { getPendingReportProvenance, reportWithBody } from "./reportBodies";
 import { latestQaResult, qaResultIsCurrent } from "./qaResults";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { canManageWriterWeights } from "../../shared/writerWeight";
 import {
   domainError,
   type FilingReadiness,
@@ -118,6 +119,21 @@ export async function requireRole(
   // field is somehow present — role-gated actions require a real account.
   if (user.isAnonymous === true || !user.role || !roles.includes(user.role)) {
     domainError("NOT_AUTHORIZED", "This action requires an active elevated role");
+  }
+  return user;
+}
+
+/**
+ * Only workspace Owners (isOwner) and Developers (isDeveloper) with an active
+ * admin role may view or change writer weights.
+ */
+export async function requireWeightManager(ctx: Ctx) {
+  const user = await requireCurrentUser(ctx);
+  if (!canManageWriterWeights(user)) {
+    domainError(
+      "NOT_AUTHORIZED",
+      "Only workspace owners and developers can manage writer weights.",
+    );
   }
   return user;
 }

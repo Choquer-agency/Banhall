@@ -11,7 +11,12 @@
   // writer stay on the server, not on this table.
   import PastWriterRowMenu from "./PastWriterRowMenu.svelte";
   import { NO_LOGIN } from "../../../../shared/importSheetRules";
-  import { WRITER_STAFF_ROLE_LABELS, type WriterStaffRole } from "../../../../shared/writerWeight";
+  import {
+    WRITER_STAFF_ROLE_LABELS,
+    writerWeight,
+    writerWeightText,
+    type WriterStaffRole,
+  } from "../../../../shared/writerWeight";
   import {
     EMAIL_COLUMN,
     INITIALS_COLUMN,
@@ -22,12 +27,14 @@
     NAME_COLUMN,
     NAME_TEXT,
     NEUTRAL_CHIP,
+    PDS_COLUMN,
     PEOPLE_FRAME,
     PEOPLE_HEADER_ROW,
     PEOPLE_ROW,
     PEOPLE_TABLE,
     QUIET_TEXT,
     ROLE_COLUMN,
+    WEIGHT_COLUMN,
   } from "./teamColumns";
 
   export type PastWriter = {
@@ -39,7 +46,7 @@
     canDelete: boolean;
     /** An invite an Admin sent for this person is waiting (2026-11-17). */
     invitePending: boolean;
-    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Omitted for Managers. */
+    /** The custom writer weight (0 to 1), or null for the default. Omitted unless Owner/Developer Admin. */
     weight?: number | null;
     /** Banhall PD staff role, if assigned. */
     staffRole?: WriterStaffRole | null;
@@ -55,22 +62,24 @@
   let {
     writers,
     showActions,
+    showWeights = false,
     onInvite,
     onEditName,
     onEditDetails = null,
     onChangeStaffRole = null,
     onLink,
-    onSetWeight,
+    onSetWeight = null,
     onDelete,
   }: {
     writers: PastWriter[];
     showActions: boolean;
+    showWeights?: boolean;
     onInvite: (writer: PastWriter) => void;
     onEditName: (writer: PastWriter) => void;
     onEditDetails?: ((writer: PastWriter) => void) | null;
     onChangeStaffRole?: ((writer: PastWriter, staffRole: WriterStaffRole | null) => void) | null;
     onLink: (writer: PastWriter) => void;
-    onSetWeight: (writer: PastWriter) => void;
+    onSetWeight?: ((writer: PastWriter) => void) | null;
     onDelete: (writer: PastWriter) => void;
   } = $props();
 </script>
@@ -91,17 +100,45 @@
         <span role="columnheader" class={NAME_COLUMN}>Name</span>
         <span role="columnheader" class={INITIALS_COLUMN}>Initials</span>
         <span role="columnheader" class={EMAIL_COLUMN}>Email</span>
+        <span role="columnheader" class={PDS_COLUMN}>PDs</span>
+        {#if showWeights}<span role="columnheader" class={WEIGHT_COLUMN}>Weight</span>{/if}
         <span role="columnheader" class={ROLE_COLUMN}>Role</span>
         <span role="columnheader" class={LAST_ACTIVE_COLUMN}>Last active</span>
         {#if showActions}<span role="columnheader" class="sr-only">Actions</span>{/if}
       </div>
       {#each writers as writer (writer._id)}
+        {@const pdCount = writer.fileCount ?? 0}
+        {@const effectiveWeight = writerWeight(writer.weight, writer.staffRole)}
+        {@const hasCustomWeight = writer.weight !== undefined && writer.weight !== null}
         <div role="row" data-past-writer-row={writer._id} class={PEOPLE_ROW}>
           <span role="cell" class={`flex items-center ${NAME_COLUMN}`}>
             <span data-past-writer-name class={NAME_TEXT}>{writer.label}</span>
           </span>
           <span role="cell" data-past-writer-initials class={`${INITIALS_COLUMN} ${QUIET_TEXT}`}>{writer.initials ?? ""}</span>
           <span role="cell" data-past-writer-email class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}>{writer.staffRole ? WRITER_STAFF_ROLE_LABELS[writer.staffRole] : ""}</span>
+          <span role="cell" data-past-writer-pds class={`${PDS_COLUMN} ${pdCount > 0 ? QUIET_TEXT : MUTED_TEXT}`}>
+            {pdCount > 0 ? pdCount : "-"}
+          </span>
+          {#if showWeights}
+            <span role="cell" data-past-writer-weight class={`${WEIGHT_COLUMN} flex justify-end`}>
+              {#if onSetWeight}
+                <button
+                  type="button"
+                  data-past-writer-weight-button={writer._id}
+                  onclick={() => onSetWeight(writer)}
+                  title={hasCustomWeight ? "Custom writer weight - click to edit" : "Default writer weight - click to edit"}
+                  aria-label={`Edit weight for ${writer.label} (${writerWeightText(effectiveWeight)})`}
+                  class={`inline-flex h-6 items-center rounded px-1.5 text-[0.8125rem] leading-[calc(19/13)] transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${
+                    hasCustomWeight ? "font-medium text-ink" : "text-ink-muted"
+                  }`}
+                >{writerWeightText(effectiveWeight)}</button>
+              {:else}
+                <span class={hasCustomWeight ? "text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink" : MUTED_TEXT}>
+                  {writerWeightText(effectiveWeight)}
+                </span>
+              {/if}
+            </span>
+          {/if}
           <span role="cell" class={`flex ${ROLE_COLUMN}`}>
             <span data-past-writer-role class={NEUTRAL_CHIP}>{NO_LOGIN}</span>
           </span>
@@ -121,7 +158,7 @@
                 onEditDetails={onEditDetails ? () => onEditDetails(writer) : null}
                 onChangeStaffRole={onChangeStaffRole ? (staffRole) => onChangeStaffRole(writer, staffRole) : null}
                 onLink={() => onLink(writer)}
-                onSetWeight={() => onSetWeight(writer)}
+                onSetWeight={showWeights && onSetWeight ? () => onSetWeight(writer) : null}
                 onDelete={() => onDelete(writer)}
               />
             </span>

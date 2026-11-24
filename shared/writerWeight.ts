@@ -132,3 +132,27 @@ export function brainCheckWriterRank(
 ): number {
   return -Math.round(writerWeight(tier, staffRole) * 1000);
 }
+
+/**
+ * Only workspace Owners (isOwner) and Developers (isDeveloper) with an active
+ * admin role may view or edit writer weights. Plain Admins, Managers, and
+ * Consultants never see or mutate writer scoring.
+ */
+export function canManageWriterWeights(
+  user:
+    | {
+        role?: string | null;
+        isOwner?: boolean | null;
+        isDeveloper?: boolean | null;
+        isAnonymous?: boolean | null;
+      }
+    | null
+    | undefined,
+): boolean {
+  return (
+    Boolean(user) &&
+    user?.isAnonymous !== true &&
+    user?.role === "admin" &&
+    (user?.isOwner === true || user?.isDeveloper === true)
+  );
+}

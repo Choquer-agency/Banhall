@@ -34,6 +34,7 @@
   import WriterWeightDialog from "./WriterWeightDialog.svelte";
   import AddPastWriterDialog, { type PastWriterFormValues } from "./AddPastWriterDialog.svelte";
   import {
+    canManageWriterWeights,
     defaultWeightForStaffRole,
     WRITER_STAFF_ROLE_DEFAULT_WEIGHTS,
     WRITER_STAFF_ROLE_LABELS,
@@ -51,6 +52,7 @@
   const canView = $derived(hasCapability(viewer.role, "team.view"));
   const canInvite = $derived(hasCapability(viewer.role, "invites.manage"));
   const isAdminViewer = $derived(hasCapability(viewer.role, "roles.manage"));
+  const canManageWeights = $derived(canManageWriterWeights(viewer));
 
   const membersQ = useQuery(api.team.listMembers, () => (auth.isAuthenticated && realCanView ? {} : "skip"));
   const invitesQ = useQuery(api.invites.listTeamInvites, () =>
@@ -336,7 +338,7 @@
         initials: values.initials || undefined,
         staffRole: values.staffRole,
         isActive: values.isActive,
-        weight: values.weight,
+        ...(canManageWeights ? { weight: values.weight } : {}),
       });
       toast.success(`${result.label} added.`);
       return;
@@ -422,11 +424,12 @@
           {members}
           {now}
           showActions={isAdminViewer}
+          showWeights={canManageWeights}
           onChangeRole={changeMemberRole}
           onChangeStaffRole={isAdminViewer ? changeMemberStaffRole : null}
           onSetPassword={askPassword}
           onEditInitials={askInitials}
-          onSetWeight={askMemberWeight}
+          onSetWeight={canManageWeights ? askMemberWeight : null}
           onUnlinkWriter={askUnlink}
         />
       {/if}
@@ -447,12 +450,13 @@
         <PastWritersTable
           writers={pastWriters}
           showActions={isAdminViewer}
+          showWeights={canManageWeights}
           onInvite={askInvite}
           onEditName={askName}
           onEditDetails={isAdminViewer ? askEditPastWriterDetails : null}
           onChangeStaffRole={isAdminViewer ? changeWriterStaffRole : null}
           onLink={askLink}
-          onSetWeight={askWriterWeight}
+          onSetWeight={canManageWeights ? askWriterWeight : null}
           onDelete={askDelete}
         />
       {/if}
@@ -496,6 +500,7 @@
   <AddPastWriterDialog
     bind:open={pastWriterDialogOpen}
     mode={pastWriterDialogMode}
+    canSetWeight={canManageWeights}
     initialName={pastWriterEditTarget?.name ?? null}
     initialInitials={pastWriterEditTarget?.initials ?? null}
     initialStaffRole={pastWriterEditTarget?.staffRole ?? null}
@@ -512,7 +517,7 @@
     onSubmit={saveLink}
   />
 {/if}
-{#if isAdminViewer && weightTarget}
+{#if canManageWeights && weightTarget}
   <WriterWeightDialog
     bind:open={weightOpen}
     name={weightName}

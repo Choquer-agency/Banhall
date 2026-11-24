@@ -36,6 +36,11 @@ import {
   dashboardFiscalYearRank,
 } from "../shared/dashboardProjection";
 import { clientNamesLookAlike, isValidClientYearEnd } from "../shared/clientNames";
+import {
+  BULK_CREATE_BATCH_MAX,
+  BULK_IMPORT_MAX_LINES,
+  classifyBulkCompanyNames,
+} from "../shared/bulkImportClients";
 import { COMPANY_WEBSITE_INVALID, companyWebsiteProblem, normalizeCompanyWebsite } from "../shared/companyWebsite";
 import { onCompanyWebsiteChanged } from "./companyWebsite";
 import { userDisplayLabel } from "./lib/teamRoster";
@@ -56,7 +61,7 @@ import { MERGE_COMPANY_FILES_PER_STEP } from "../shared/companyFileMoves";
 type Ctx = QueryCtx | MutationCtx;
 
 /** Most rows each source contributes to the client directory. */
-const CLIENT_DIRECTORY_BOUND = 1_000;
+export const CLIENT_DIRECTORY_BOUND = 1_000;
 /** Most similar names findSimilarClients returns. */
 const SIMILAR_CLIENT_LIMIT = 5;
 /** Longest accepted client name. */
@@ -370,6 +375,213 @@ export const createClient = mutation({
     await linkKeyProjects(ctx, key, clientId, MERGE_PROJECT_LIMIT);
     if (website) await onCompanyWebsiteChanged(ctx, clientId, website, user._id, now);
     return { clientId, key, name };
+  },
+});
+
+// ─── Bulk import companies ──────────────────────────────────────────────────
+
+const bulkCompanyStatusValidator = v.union(
+  v.literal("new"),
+  v.literal("similar"),
+  v.literal("exists"),
+  v.literal("merged"),
+  v.literal("duplicate"),
+  v.literal("invalid")
+);
+
+const bulkCompanyPreviewRowValidator = v.object({
+  index: v.number(),
+  name: v.string(),
+  key: v.string(),
+  status: bulkCompanyStatusValidator,
+  existingName: v.optional(v.string()),
+  mergedInto: v.optional(v.string()),
+  similarMatches: v.optional(v.array(v.string())),
+  reason: v.optional(v.string()),
+});
+
+const bulkCompanyCountsValidator = v.object({
+  total: v.number(),
+  new: v.number(),
+  similar: v.number(),
+  exists: v.number(),
+  merged: v.number(),
+  duplicate: v.number(),
+  invalid: v.number(),
+});
+
+/**
+ * Classifies up to 500 candidate company names against existing active and
+ * merged companies before bulk-creating them. Manager and Admin only.
+ */
+export const previewBulkImportClients = query({
+  args: {
+    names: v.array(v.string()),
+  },
+  returns: v.object({
+    rows: v.array(bulkCompanyPreviewRowValidator),
+    counts: bulkCompanyCountsValidator,
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["manager", "admin"]);
+    if (args.names.length > BULK_IMPORT_MAX_LINES) {
+      domainError("INVALID_INPUT", `Check at most ${BULK_IMPORT_MAX_LINES} companies at a time.`);
+    }
+
+    const directory = await loadClientDirectory(ctx);
+    const active = directory.clients.map((entry) => ({ key: entry.key, name: entry.name }));
+    const activeNameById = new Map<Id<"clients">, string>();
+    for (const entry of directory.clients) {
+      if (entry.clientId !== null) activeNameById.set(entry.clientId, entry.name);
+    }
+
+    const mergedRows = await ctx.db
+      .query("clients")
+      .withIndex("by_status_and_nameKey", (q) => q.eq("status", "merged"))
+      .take(CLIENT_DIRECTORY_BOUND + 1);
+    const mergedTruncated = mergedRows.length > CLIENT_DIRECTORY_BOUND;
+    const boundedMerged = mergedRows.slice(0, CLIENT_DIRECTORY_BOUND);
+
+    // Keep the most recently merged tombstone per key and resolve merge chains
+    // in memory first to avoid N+1 database reads.
+    const mergedById = new Map<Id<"clients">, Doc<"clients">>();
+    const latestMergedByKey = new Map<string, Doc<"clients">>();
+    for (const row of boundedMerged) {
+      mergedById.set(row._id, row);
+      const prev = latestMergedByKey.get(row.nameKey);
+      if (!prev || (row.mergedAt ?? row.updatedAt) > (prev.mergedAt ?? prev.updatedAt)) {
+        latestMergedByKey.set(row.nameKey, row);
+      }
+    }
+
+    const merged: Array<{ key: string; name: string; intoName: string }> = [];
+    for (const row of latestMergedByKey.values()) {
+      let intoName: string | null = null;
+      let cursor: Doc<"clients"> | undefined = row;
+      for (let hop = 0; hop < 10 && cursor?.mergedIntoClientId; hop += 1) {
+        const targetId: Id<"clients"> = cursor.mergedIntoClientId;
+        const activeTarget = activeNameById.get(targetId);
+        if (activeTarget) {
+          intoName = activeTarget;
+          break;
+        }
+        cursor = mergedById.get(targetId);
+      }
+      if (intoName === null) {
+        const resolved = await activeClientAfterMerges(ctx, row);
+        intoName = resolved?.name ?? "another company";
+      }
+      merged.push({ key: row.nameKey, name: row.name, intoName });
+    }
+
+    const classified = classifyBulkCompanyNames(args.names, { active, merged });
+    return {
+      rows: classified.rows,
+      counts: classified.counts,
+      truncated: directory.truncated || mergedTruncated,
+    };
+  },
+});
+
+/**
+ * Bulk-creates up to 100 official companies in a single idempotent transaction.
+ * Manager and Admin only. Safe to retry or submit in sequential chunks.
+ */
+export const bulkCreateClients = mutation({
+  args: {
+    names: v.array(v.string()),
+  },
+  returns: v.object({
+    createdCount: v.number(),
+    skippedExists: v.number(),
+    skippedMerged: v.number(),
+    skippedDuplicate: v.number(),
+    skippedInvalid: v.number(),
+    created: v.array(
+      v.object({
+        clientId: v.id("clients"),
+        key: v.string(),
+        name: v.string(),
+      })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["manager", "admin"]);
+    if (args.names.length > BULK_CREATE_BATCH_MAX) {
+      domainError("INVALID_INPUT", `Import at most ${BULK_CREATE_BATCH_MAX} companies per batch.`);
+    }
+
+    const now = Date.now();
+    const seenKeys = new Set<string>();
+    const created: Array<{ clientId: Id<"clients">; key: string; name: string }> = [];
+    let skippedExists = 0;
+    let skippedMerged = 0;
+    let skippedDuplicate = 0;
+    let skippedInvalid = 0;
+
+    for (const raw of args.names) {
+      const name = raw.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+      if (!name || name.length > CLIENT_NAME_MAX_LENGTH || !/[\p{L}\p{N}]/u.test(name)) {
+        skippedInvalid += 1;
+        continue;
+      }
+      const key = dashboardCompanyKey(name);
+      if (!key || key === DASHBOARD_UNNAMED_COMPANY_KEY) {
+        skippedInvalid += 1;
+        continue;
+      }
+      if (seenKeys.has(key)) {
+        skippedDuplicate += 1;
+        continue;
+      }
+      seenKeys.add(key);
+
+      const existing = await activeClientForKey(ctx, key);
+      if (existing) {
+        skippedExists += 1;
+        continue;
+      }
+      const company = await dashboardCompanyForKey(ctx, key);
+      if (company) {
+        skippedExists += 1;
+        continue;
+      }
+      const merged = await mergedClientForKey(ctx, key);
+      if (merged) {
+        skippedMerged += 1;
+        continue;
+      }
+
+      const clientId = await ctx.db.insert("clients", {
+        name,
+        nameKey: key,
+        status: "active",
+        nameHistoryComplete: true,
+        createdBy: user._id,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const straggler = await ctx.db
+        .query("projects")
+        .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
+        .take(1);
+      if (straggler.length > 0) {
+        await linkKeyProjects(ctx, key, clientId, MERGE_PROJECT_LIMIT);
+      }
+
+      created.push({ clientId, key, name });
+    }
+
+    return {
+      createdCount: created.length,
+      skippedExists,
+      skippedMerged,
+      skippedDuplicate,
+      skippedInvalid,
+      created,
+    };
   },
 });
 

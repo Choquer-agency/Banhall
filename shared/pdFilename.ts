@@ -60,7 +60,7 @@ export type ParsedPdFilename = {
   /** Slot 4 (financial reviewer), upper-cased. */
   financialInitials?: string;
   /**
-   * Every initials group, upper-cased, of a version token with three or four
+   * Every initials group, upper-cased, of a version token with three to six
    * groups ("T0.DW.PN.KT" -> ["DW", "PN", "KT"]). Kept alongside the unpacked
    * positional fields for audit and slot reassignment. Absent with one or two.
    */
@@ -79,14 +79,15 @@ const CLIENT_PAREN_OPEN = /^\([A-Z][A-Za-z0-9&'.,-]*$/;
 const CLIENT_PAREN_CLOSE = /^[A-Za-z0-9][A-Za-z0-9&'.,-]*\)$/;
 const FISCAL_YEAR_END = /^(\d{4})-(\d{2})-(\d{2})$/;
 // Version letter (either case: W, R, T, S), version number (or capital "O"
-// typed for zero, e.g. "TO.DW.PN.KT"), then one to four positional initials
-// groups: writer, technical reviewer, client, financial.
-const REVISION = /^([WwRrSsTt])(\d+|O)((?:\.[A-Za-z]{2,3}){1,4})$/;
+// typed for zero, e.g. "TO.DW.PN.KT"), then one to six positional initials
+// groups (writer, technical reviewer, client, financial, plus optional
+// co-writers or additional client reviewers).
+const REVISION = /^([WwRrSsTt])(\d+|O)((?:\.[A-Za-z]{2,3}){1,6})$/;
 // Writers occasionally type a stray space after the version dot
 // ("T0. DW.PN.KT"). Collapse it before extension stripping so trailing initials
 // are not mistaken for an extension.
 const SPACED_VERSION_DOT =
-  /(?<=\s)([WwRrSsTt])(\d+|O)\.\s+(?=(?:[A-Za-z]{2,3}(?:\.[A-Za-z]{2,3}){1,3}|[A-Z]{2,3})(?=\s|\.[A-Za-z0-9]{1,8}$|$))/g;
+  /(?<=\s)([WwRrSsTt])(\d+|O)\.\s+(?=(?:[A-Za-z]{2,3}(?:\.[A-Za-z]{2,3}){1,5}|[A-Z]{2,3})(?=\s|\.[A-Za-z0-9]{1,8}$|$))/g;
 /** The most words a client part may have before the date or version. */
 const MAX_CLIENT_WORDS = 6;
 // A version with no initials ("T1", "W0"). Read only as the last token, right

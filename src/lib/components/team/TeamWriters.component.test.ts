@@ -28,7 +28,8 @@ const text = (node: Element | null | undefined) => (node?.textContent ?? "").rep
 const one = (selector: string, root: ParentNode = document) => root.querySelector<HTMLElement>(selector);
 const all = (selector: string, root: ParentNode = document) => [...root.querySelectorAll<HTMLElement>(selector)];
 
-const ADMIN = { _id: "u-dana", firstName: "Dana", lastName: "Whitlock", email: "dana@example.com", role: "admin" };
+const ADMIN = { _id: "u-dana", firstName: "Dana", lastName: "Whitlock", email: "dana@example.com", role: "admin", isOwner: true };
+const PLAIN_ADMIN = { _id: "u-dana", firstName: "Dana", lastName: "Whitlock", email: "dana@example.com", role: "admin" };
 const MANAGER = { _id: "u-sam", firstName: "Sam", lastName: "Okafor", email: "sam@example.com", role: "manager" };
 
 const member = (id: string, name: string, role: string, initials: string | null, extra: Record<string, unknown> = {}) => {
@@ -167,11 +168,11 @@ describe("Team: writers from initials", () => {
     expect(invites.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(text(one("h2", section))).toBe("Past writers 3");
     const headers = (root: ParentNode) => all('[role="columnheader"]', root);
-    expect(headers(section).map((node) => text(node))).toEqual(["Name", "Initials", "Email", "Role", "Last active", "Actions"]);
+    expect(headers(section).map((node) => text(node))).toEqual(["Name", "Initials", "Email", "PDs", "Weight", "Role", "Last active", "Actions"]);
     expect(headers(membersTable).map((node) => text(node))).toEqual(headers(section).map((node) => text(node)));
     // Every column starts and ends where the members' column does.
     const box = (node: HTMLElement) => node.getBoundingClientRect();
-    headers(section).slice(0, 5).forEach((node, index) => {
+    headers(section).slice(0, 7).forEach((node, index) => {
       const above = headers(membersTable)[index]!;
       expect(Math.round(box(node).left), text(node)).toBe(Math.round(box(above).left));
       expect(Math.round(box(node).width), text(node)).toBe(Math.round(box(above).width));
@@ -180,16 +181,17 @@ describe("Team: writers from initials", () => {
     expect(all("[data-past-writer-name]").map((node) => text(node))).toEqual(["DW", "Jordan Ellis", "SO"]);
     expect(all("[data-past-writer-initials]").map((node) => text(node))).toEqual(["DW", "JE", "SO"]);
     expect(all("[data-past-writer-email]").map((node) => text(node))).toEqual(["", "", ""]);
+    expect(all("[data-past-writer-pds]").map((node) => text(node))).toEqual(["12", "-", "3"]);
+    expect(all("[data-past-writer-weight]").map((node) => text(node))).toEqual(["0.7", "0.7", "0.7"]);
     expect(all("[data-past-writer-role]").map((node) => text(node))).toEqual(["No login", "No login", "No login"]);
     expect(all("[data-past-writer-last-active]").map((node) => text(node))).toEqual(["", "Invite sent", ""]);
     // The tag sits where a member's role chip does, at the chip's height.
     expect(Math.round(box(one("[data-past-writer-role]")!).left)).toBe(Math.round(box(one("[data-role-chip]", memberRow("u-dana"))!).left));
     expect(Math.round(box(one("[data-past-writer-role]")!).height)).toBe(Math.round(box(one("[data-role-chip]", memberRow("u-dana"))!).height));
-    // Gone from the page: the PD count, where a name came from, the inline hint and Add a name.
+    // Gone from the page: where a name came from, the inline hint and Add a name.
     expect(section.textContent).not.toContain("From a PD");
-    expect(one('[role="table"]', section)!.textContent).not.toContain("PDs");
     expect(section.textContent).not.toContain("Same initials");
-    expect(all("[data-past-writer-pds], [data-past-writer-from-pd], [data-past-writer-hint], [data-past-writer-add-name]")).toEqual([]);
+    expect(all("[data-past-writer-from-pd], [data-past-writer-hint], [data-past-writer-add-name]")).toEqual([]);
     // Weight 500 at most.
     for (const node of [one("[data-past-writer-name]")!, one("[data-past-writer-role]")!]) {
       expect(Number(getComputedStyle(node).fontWeight)).toBeLessThanOrEqual(500);
@@ -385,7 +387,7 @@ describe("Team: writers from initials", () => {
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
     expect(all("[data-past-writer-menu], [data-member-menu]")).toEqual([]);
-    expect(all('[role="columnheader"]', one("[data-past-writers]")!).map((node) => text(node))).toEqual(["Name", "Initials", "Email", "Role", "Last active"]);
+    expect(all('[role="columnheader"]', one("[data-past-writers]")!).map((node) => text(node))).toEqual(["Name", "Initials", "Email", "PDs", "Role", "Last active"]);
     // The waiting invite still shows.
     expect(text(one("[data-past-writer-last-active]", writerRow("w-jordan")))).toBe("Invite sent");
 
@@ -394,6 +396,44 @@ describe("Team: writers from initials", () => {
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => all("[data-member-row]").length).toBe(4);
     expect(one("[data-past-writers]")).toBeNull();
+  });
+
+  it("hides the Weight column, Set weight menu item, and custom weight input from a plain Admin", async () => {
+    seed(PLAIN_ADMIN);
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
+    expect(all('[role="columnheader"]', one("[data-team-members]")!).map((node) => text(node))).toEqual([
+      "Name",
+      "Initials",
+      "Email",
+      "PDs",
+      "Role",
+      "Last active",
+      "Actions",
+    ]);
+    expect(all("[data-member-weight], [data-past-writer-weight]")).toEqual([]);
+    await openMenu('[data-member-menu="u-kim"]');
+    expect(all('[role="menuitem"]').map((node) => text(node))).not.toContain("Set weight");
+    await userEvent.keyboard("{Escape}");
+    await openMenu('[data-past-writer-menu="w-dw"]');
+    expect(all('[role="menuitem"]').map((node) => text(node))).not.toContain("Set weight");
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(one("[data-add-past-writer]")!);
+    await expect.poll(() => one('[data-testid="past-writer-dialog"]')).not.toBeNull();
+    expect(one("[data-past-writer-weight-input]")).toBeNull();
+  });
+
+  it("lets an Owner open the Weight dialog by clicking the Weight column button directly", async () => {
+    seed(ADMIN);
+    __setQueryData("team:listMembers", MEMBERS.map((row) => (row._id === "u-kim" ? { ...row, pdCount: 7, weight: 0.85 } : { ...row, pdCount: 0, weight: null })));
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one('[data-member-weight-button="u-kim"]')).not.toBeNull();
+    expect(text(one("[data-member-pds]", memberRow("u-kim")))).toBe("7");
+    expect(text(one('[data-member-weight-button="u-kim"]'))).toBe("0.85");
+    await userEvent.click(one('[data-member-weight-button="u-kim"]')!);
+    await expect.element(page.getByRole("dialog", { name: "Weight for Kim Tran" })).toBeVisible();
+    expect((one("#writer-weight") as HTMLInputElement).value).toBe("0.85");
   });
 
   it("sets a member's writer weight from their menu, starting from the weight they have, and refuses one out of range", async () => {
@@ -462,6 +502,7 @@ describe("Team: writers from initials", () => {
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => all("[data-member-row]").length).toBe(4);
     expect(all("[data-member-menu], [data-past-writer-menu]")).toEqual([]);
+    expect(all("[data-member-weight], [data-past-writer-weight]")).toEqual([]);
     expect(page.getByRole("menuitem", { name: "Set weight" }).elements()).toEqual([]);
   });
 

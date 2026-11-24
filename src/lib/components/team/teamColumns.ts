@@ -1,7 +1,8 @@
 // The Team people grid (C1), shared by the members table and Past writers
 // (owner, 2026-11-17: "same layout as above") so their columns cannot
-// drift: Name (260), Initials (56), Email (flex), Role (120), Last active
-// (110), with the Admin's 28px row menu over the right end of Last active.
+// drift: Name (192), Initials (48), Email (flex), PDs (44), Weight (52,
+// Owner/Developer only), Role (108), Last active (104), with the Admin's
+// 28px row menu over the right end of Last active.
 // 36px header (12/16 muted on canvas), 48px rows, 13/19 cells.
 
 /** The table's own width before it scrolls sideways. */
@@ -10,14 +11,16 @@ export const PEOPLE_TABLE = "min-w-[44rem]";
 export const PEOPLE_FRAME = "flex shrink-0 scroll-mt-4 flex-col overflow-x-auto rounded-[0.625rem] border border-line-soft";
 
 export const PEOPLE_HEADER_ROW =
-  "flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted";
-export const PEOPLE_ROW = "relative flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0";
+  "flex h-9 items-center gap-3 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted";
+export const PEOPLE_ROW = "relative flex h-12 items-center gap-3 border-b border-line-soft px-4 last:border-b-0";
 
-export const NAME_COLUMN = "w-[16.25rem] shrink-0";
-export const INITIALS_COLUMN = "w-[3.5rem] shrink-0";
+export const NAME_COLUMN = "w-[12rem] shrink-0";
+export const INITIALS_COLUMN = "w-[3rem] shrink-0";
 export const EMAIL_COLUMN = "min-w-0 flex-1";
-export const ROLE_COLUMN = "w-[7.5rem] shrink-0";
-export const LAST_ACTIVE_COLUMN = "w-[6.875rem] shrink-0";
+export const PDS_COLUMN = "w-[2.75rem] shrink-0 text-right tabular-nums";
+export const WEIGHT_COLUMN = "w-[3.25rem] shrink-0 text-right tabular-nums";
+export const ROLE_COLUMN = "w-[6.75rem] shrink-0";
+export const LAST_ACTIVE_COLUMN = "w-[6.5rem] shrink-0";
 /** Room for the row menu at the right end of Last active. */
 export const MENU_ROOM = "pr-8";
 /** Where the 28px row menu sits. */

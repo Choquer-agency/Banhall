@@ -31,6 +31,7 @@
   import ImportApprovedDetails from "./ImportApprovedDetails.svelte";
   import ImportInitialsSlots from "./ImportInitialsSlots.svelte";
   import { categoryTakes } from "../../../../shared/importSheetRules";
+  import { matchClientInitials } from "../../../../shared/pdSectionC";
   import { CATEGORY_NAMES, checkLines, fileStateText, FILE_VIEW_MAX_CHARS, textNote } from "./importFileView";
   import { fileCells, fiscalYearTooltip, isBeingRead, yearEndDate, type SheetFileRow } from "./importFormat";
   import { AMBER, SHEET_SMALL, SHOW_MORE } from "./sheetLayout";
@@ -119,6 +120,9 @@
     // An approved file's writer and science code are in its Details, where they can be changed.
     const approved = file.status === "approved";
     if (cells.writer && !approved) rows.push({ label: "Writer", value: cells.writer.tone === "amber" ? "No writer yet" : cells.writer.text });
+    if (file.coWriterInitials && file.coWriterInitials.length > 0) {
+      rows.push({ label: "Co-writers", value: file.coWriterInitials.join(", ") });
+    }
     if (file.reviewerName && !approved) rows.push({ label: "Reviewer", value: file.reviewerName });
     if (file.reviewerInitials) {
       rows.push({
@@ -126,7 +130,16 @@
         value: file.reviewerInProgress ? `${file.reviewerInitials} (in progress)` : file.reviewerInitials,
       });
     }
-    if (file.clientInitials) rows.push({ label: "Client initials", value: file.clientInitials });
+    const allClientInitials = [file.clientInitials, ...(file.extraClientInitials ?? [])].filter(
+      (code): code is string => Boolean(code)
+    );
+    if (allClientInitials.length > 0) {
+      const formattedClients = allClientInitials.map((code) => {
+        const hit = matchClientInitials(file.documentClientNames, code, { companyName: file.clientName });
+        return hit ? `${code} - ${hit.name}` : code;
+      });
+      rows.push({ label: "Client initials", value: formattedClients.join(", ") });
+    }
     if (file.financialInitials) rows.push({ label: "Financial initials", value: file.financialInitials });
     if (cells.scienceCode?.kind === "code" && !approved) {
       rows.push({ label: "Science code", value: [cells.scienceCode.code, cells.scienceCode.title].filter(Boolean).join(" ") });
@@ -209,7 +222,12 @@
               reviewerInitials={file.reviewerInitials}
               clientInitials={file.clientInitials}
               financialInitials={file.financialInitials}
+              coWriterInitials={file.coWriterInitials}
+              extraClientInitials={file.extraClientInitials}
+              initialsGroups={file.initialsGroups}
               reviewerInProgress={file.reviewerInProgress}
+              documentClientNames={file.documentClientNames}
+              companyName={file.clientName}
             />
           {/if}
 

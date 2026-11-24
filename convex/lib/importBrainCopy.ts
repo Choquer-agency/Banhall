@@ -30,6 +30,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { deidentifyNames, isOrdinaryCompanyWord, NAME_EDGE_BEFORE, surfacePattern } from "./deidentify";
 import { parsePdFilename } from "../../shared/pdFilename";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../../shared/writerNameFromText";
+import { clientNamesForRedaction, clientNamesFromSectionC } from "../../shared/pdSectionC";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import { DEFAULT_WRITER_WEIGHT, writerWeight } from "../../shared/writerWeight";
 
@@ -103,6 +104,7 @@ export type ImportBrainCopyInput = {
     | "scienceCode"
     | "writerName"
     | "documentWriterNames"
+    | "documentClientNames"
   >;
   /** The company's row, or null for a company the app does not have yet. */
   company: Pick<Doc<"clients">, "name" | "industry" | "website"> | null;
@@ -1126,6 +1128,8 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
     ...new Set([
       ...input.identity.people,
       ...cleanDocumentWriterNames([...(item.documentWriterNames ?? []), ...writerNamesFromText(visibleText(text))]),
+      ...clientNamesForRedaction(item.documentClientNames),
+      ...clientNamesForRedaction(clientNamesFromSectionC(visibleText(text))),
       ...peopleNamedByCues(text),
     ]),
   ];
@@ -1243,6 +1247,7 @@ export function scrubNominatedReportForBrain(input: {
         ...(input.interviewees ?? []),
         ...(input.identity?.people ?? []),
         ...cleanDocumentWriterNames(writerNamesFromText(visibleText(text))),
+        ...clientNamesForRedaction(clientNamesFromSectionC(visibleText(text))),
         ...peopleNamedByCues(text),
       ]
         .map((v) => v?.trim())

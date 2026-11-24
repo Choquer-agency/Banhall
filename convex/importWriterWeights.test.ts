@@ -46,7 +46,7 @@ async function setup() {
   const t = convexTest(schema, modules);
   t.registerComponent("embedPool", workpoolSchema, workpoolModules);
   const ids = await t.run(async (ctx) => ({
-    adminId: await ctx.db.insert("users", { authId: "weight-admin", role: "admin", firstName: "Jordan", lastName: "Ellis" }),
+    adminId: await ctx.db.insert("users", { authId: "weight-admin", role: "admin", isOwner: true, firstName: "Jordan", lastName: "Ellis" }),
     tracyId: await ctx.db.insert("users", { authId: "weight-tracy", role: "writer", firstName: "Tracy", lastName: "Lindqvist", initials: "TL" }),
     managerId: await ctx.db.insert("users", { authId: "weight-manager", role: "manager", firstName: "Lee" }),
   }));
@@ -170,7 +170,7 @@ describe("users.setWriterWeight", () => {
     const pd = await stagePd(t, 1, "DW");
     const pastWriter = await writerOf(t, pd);
     expect(await errorOf(manager.mutation(api.users.setWriterWeight, { userId: tracyId, weight: 1 }))).toBe(
-      "This action requires an active elevated role"
+      "Only workspace owners and developers can manage writer weights."
     );
     for (const weight of [Number.NaN, 1.5, -0.1, Number.POSITIVE_INFINITY, 0.123456, 0.0005]) {
       expect(await errorOf(admin.mutation(api.users.setWriterWeight, { userId: tracyId, weight }))).toBe(WRITER_WEIGHT_RULE);

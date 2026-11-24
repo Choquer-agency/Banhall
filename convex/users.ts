@@ -25,7 +25,13 @@ import {
   writerInUse,
 } from "./lib/teamRoster";
 import { writerStaffRoleValidator } from "./lib/ingestionSheetValidators";
-import { isWriterWeight, storedWriterWeight, writerWeight, WRITER_WEIGHT_RULE } from "../shared/writerWeight";
+import {
+  canManageWriterWeights,
+  isWriterWeight,
+  storedWriterWeight,
+  writerWeight,
+  WRITER_WEIGHT_RULE,
+} from "../shared/writerWeight";
 import { sameWriterName } from "../shared/writerNameFromText";
 import { cleanWriterName } from "./lib/ingestionSheet";
 import { hasCapability } from "./lib/roleCapabilities";
@@ -39,6 +45,7 @@ import {
   getCurrentUserOrNull,
   requireCurrentUser,
   requireRole,
+  requireWeightManager,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { authComponent, createAuth } from "./auth";
@@ -511,7 +518,7 @@ export const listPastWriters = query({
   handler: async (ctx) => {
     const viewer = await getCurrentUserOrNull(ctx);
     if (!viewer || viewer.isAnonymous === true || !hasCapability(viewer.role, "team.view")) return [];
-    const canSeeWeight = hasCapability(viewer.role, "roles.manage");
+    const canSeeWeight = canManageWriterWeights(viewer);
     const writers = await ctx.db
       .query("pdWriters")
       .withIndex("by_userId", (q) => q.eq("userId", undefined))
@@ -561,7 +568,8 @@ async function pastWriterOrRefuse(ctx: MutationCtx, writerId: Id<"pdWriters">): 
 /**
  * Adds a person without a login on Team (current staff without an account yet
  * or former writers/reviewers) so their initials, role, and weight are ready
- * before historical PDs are uploaded. Admin only.
+ * before historical PDs are uploaded. Admin only; setting a custom weight
+ * requires workspace Owner or Developer access.
  */
 export const createPastWriter = mutation({
   args: {
@@ -574,6 +582,12 @@ export const createPastWriter = mutation({
   returns: v.object({ writerId: v.id("pdWriters"), label: v.string() }),
   handler: async (ctx, args) => {
     const admin = await requireRole(ctx, ["admin"]);
+    if (args.weight !== undefined && args.weight !== null && !canManageWriterWeights(admin)) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only workspace owners and developers can set writer weights.",
+      );
+    }
     const name = cleanWriterName(args.name);
     let initials: string | undefined;
     if (args.initials !== undefined) {
@@ -832,7 +846,7 @@ export const setWriterWeight = mutation({
   },
   returns: v.object({ weight: v.union(v.number(), v.null()) }),
   handler: async (ctx, args) => {
-    const admin = await requireRole(ctx, ["admin"]);
+    const admin = await requireWeightManager(ctx);
     if ((args.userId === undefined) === (args.writerId === undefined)) {
       domainError("INVALID_INPUT", "Choose one person to set a weight for.");
     }

@@ -337,7 +337,7 @@
                       >
                         <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">Existing company match?</p>
                         <p class={`mt-1 ${SHEET_SMALL} text-ink-muted`}>
-                          This folder name looks similar to an existing client. Move its files there, or keep it as a separate new company.
+                          This folder name looks similar to an existing company. Move its files there, or keep it as a separate new company.
                         </p>
                         <div class="mt-2.5 flex flex-col gap-1.5">
                           {#each suggestedCompanies as suggestion (suggestion.id)}

@@ -33,6 +33,7 @@
   let {
     open = $bindable(false),
     mode = "create",
+    canSetWeight = false,
     initialName = null,
     initialInitials = null,
     initialStaffRole = null,
@@ -41,6 +42,7 @@
   }: {
     open?: boolean;
     mode?: "create" | "edit";
+    canSetWeight?: boolean;
     initialName?: string | null;
     initialInitials?: string | null;
     initialStaffRole?: WriterStaffRole | null;
@@ -99,7 +101,7 @@
       return;
     }
     let parsedWeight: number | null = null;
-    if (mode === "create") {
+    if (mode === "create" && canSetWeight) {
       const parsed = parseWriterWeight(weightText);
       if (parsed === "invalid") {
         error = WRITER_WEIGHT_RULE;
@@ -174,11 +176,15 @@
         bind:value={staffRole}
         class="field-control h-9 w-full rounded-lg px-3 text-sm text-ink"
       >
-        <option value="">Not set (default weight 0.7)</option>
+        <option value="">{canSetWeight ? "Not set (default weight 0.7)" : "Not set"}</option>
         {#each WRITER_STAFF_ROLES as role (role)}
           {@const w = WRITER_STAFF_ROLE_DEFAULT_WEIGHTS[role]}
           <option value={role}>
-            {WRITER_STAFF_ROLE_LABELS[role]} ({w !== null ? `default weight ${writerWeightText(w)}` : "unweighted"})
+            {#if canSetWeight}
+              {WRITER_STAFF_ROLE_LABELS[role]} ({w !== null ? `default weight ${writerWeightText(w)}` : "unweighted"})
+            {:else}
+              {WRITER_STAFF_ROLE_LABELS[role]}
+            {/if}
           </option>
         {/each}
       </select>
@@ -208,7 +214,7 @@
       </div>
     </fieldset>
 
-    {#if mode === "create"}
+    {#if mode === "create" && canSetWeight}
       <div class="flex flex-col gap-1.5">
         <label for="past-writer-weight" class="text-xs leading-[calc(4/3)] font-medium text-ink-secondary">Custom weight (optional)</label>
         <Input
@@ -224,7 +230,7 @@
           class="w-32"
         />
         <p class="text-xs leading-[calc(4/3)] text-ink-muted">
-          Leave empty to use {roleDefaultText} from their PD role. Only Admins see weights.
+          Leave empty to use {roleDefaultText} from their PD role. Only workspace owners and developers see weights.
         </p>
       </div>
     {/if}

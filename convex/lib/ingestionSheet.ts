@@ -419,6 +419,8 @@ export function sortKeyFor(
 export type PathFields = IngestionLabels & {
   clientName: string | undefined;
   fiscalYearLabel: string | undefined;
+  coWriterInitials?: string[];
+  extraClientInitials?: string[];
 };
 
 type KeptLabels = Pick<
@@ -437,6 +439,9 @@ type KeptLabels = Pick<
   | "reviewerInProgress"
   | "clientInitials"
   | "financialInitials"
+  | "initialsGroups"
+  | "coWriterInitials"
+  | "extraClientInitials"
 >;
 
 /**
@@ -478,6 +483,9 @@ export function pathFieldsFor(path: string, name: string, kept?: KeptLabels | nu
     fields.reviewerInProgress = kept.reviewerInProgress;
     fields.clientInitials = kept.clientInitials;
     fields.financialInitials = kept.financialInitials;
+    fields.initialsGroups = kept.initialsGroups;
+    fields.coWriterInitials = kept.coWriterInitials;
+    fields.extraClientInitials = kept.extraClientInitials;
   }
   return fields;
 }
@@ -797,6 +805,8 @@ const LABEL_FIELDS: Record<EditableLabel, ReadonlyArray<keyof IngestionItemField
     "clientInitials",
     "financialInitials",
     "initialsGroups",
+    "coWriterInitials",
+    "extraClientInitials",
   ],
 };
 

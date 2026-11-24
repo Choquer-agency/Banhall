@@ -124,9 +124,14 @@ export function filesFromCompaniesText(totals: Pick<SheetTotals, "files" | "comp
 
 // ─── Company bands ──────────────────────────────────────────────────────────
 
-/** What a band is called: the folder's company name, or "No company yet". */
-export function bandName(band: Pick<SheetBand, "companyKey" | "displayName">): string {
+/** What a band is called: the canonical company name if linked directly (not merged away), else the folder name, or "No company yet". */
+export function bandName(
+  band: Pick<SheetBand, "companyKey" | "displayName"> & { company?: SheetBand["company"] }
+): string {
   if (band.companyKey === NO_COMPANY_KEY) return NO_COMPANY_NAME;
+  if (band.company && band.company.via !== "merge" && band.company.name.trim()) {
+    return band.company.name.trim();
+  }
   return band.displayName.trim() || band.companyKey;
 }
 

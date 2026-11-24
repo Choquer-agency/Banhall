@@ -50,12 +50,14 @@ async function setup() {
   const t = convexTest(schema, modules);
   t.registerComponent("embedPool", workpoolSchema, workpoolModules);
   await t.run(async (ctx) => {
-    await ctx.db.insert("users", { authId: "volume-admin", role: "admin", name: "Admin" });
+    await ctx.db.insert("users", { authId: "volume-admin", role: "admin", isOwner: true, name: "Admin" });
+    await ctx.db.insert("users", { authId: "volume-plain-admin", role: "admin", name: "Plain Admin" });
     await ctx.db.insert("users", { authId: "volume-writer", role: "writer", name: "Writer" });
   });
   return {
     t,
     admin: t.withIdentity({ subject: "volume-admin" }),
+    plainAdmin: t.withIdentity({ subject: "volume-plain-admin" }),
     writer: t.withIdentity({ subject: "volume-writer" }),
   };
 }

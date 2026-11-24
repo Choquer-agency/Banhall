@@ -69,7 +69,9 @@ import {
   getCurrentUserOrNull,
   requireInternalProjectAccess,
   requireRole,
+  requireWeightManager,
 } from "./lib/auth";
+import { canManageWriterWeights } from "../shared/writerWeight";
 import { domainError } from "./lib/contracts";
 import { sha256HexSync } from "./lib/sha256Sync";
 import { turnOffWithdrawnPublishedSet, withdrawFeedback, withdrawSourceFeedback } from "./lib/learningWithdrawal";
@@ -2466,7 +2468,7 @@ export const servableBrainSources = internalQuery({
 export const reweightSource = mutation({
   args: { sourceId: v.id("brainSources"), writerTier: v.number() },
   handler: async (ctx, args) => {
-    const admin = await assertAdmin(ctx);
+    const actor = await requireWeightManager(ctx);
     if (!Number.isFinite(args.writerTier)) throw new Error("Weight must be a number from 0 to 1.");
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
@@ -2478,7 +2480,7 @@ export const reweightSource = mutation({
     await ctx.db.insert("brainAuditLog", {
       action: "reweight",
       sourceId: args.sourceId,
-      actorId: admin,
+      actorId: actor._id,
       reason: `writerTier → ${tier}`,
       at: Date.now(),
     });
@@ -2712,7 +2714,11 @@ export const linkBrainFeedbackSources = internalMutation({
  * One row of the admin list, read from `brainSourceCards` (never a source's
  * text). `hasEntry`: the source has an entry in the index search reads.
  */
-function listRow(card: Doc<"brainSourceCards">, serving: BrainIndexId = "voyage3") {
+function listRow(
+  card: Doc<"brainSourceCards">,
+  serving: BrainIndexId = "voyage3",
+  includeWeight = true,
+) {
   return {
     _id: card.sourceId,
     title: card.title,
@@ -2720,7 +2726,7 @@ function listRow(card: Doc<"brainSourceCards">, serving: BrainIndexId = "voyage3
     kind: card.kind,
     industry: card.industry,
     writerName: card.writerName ?? null,
-    writerTier: card.writerTier,
+    ...(includeWeight ? { writerTier: card.writerTier } : {}),
     docType: card.docType,
     craOutcome: card.craOutcome ?? null,
     scienceCode: normalizeCraScienceCode(card.scienceCode) ?? null,
@@ -2742,10 +2748,12 @@ export const listBrainSources = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
-    if (!(await adminOrNull(ctx))) {
+    const viewer = await getCurrentUserOrNull(ctx);
+    if (!viewer || viewer.isAnonymous === true || viewer.role !== "admin") {
       const none: ReturnType<typeof listRow>[] = [];
       return { page: none, isDone: true, continueCursor: "" };
     }
+    const includeWeight = canManageWriterWeights(viewer);
     const status = args.status;
     const cards = status
       ? ctx.db
@@ -2754,16 +2762,24 @@ export const listBrainSources = query({
       : ctx.db.query("brainSourceCards").withIndex("by_createdAt");
     const result = await cards.order("desc").paginate(args.paginationOpts);
     const { serving } = await readBrainIndexState(ctx);
-    return { ...result, page: result.page.map((card) => listRow(card, serving)) };
+    return { ...result, page: result.page.map((card) => listRow(card, serving, includeWeight)) };
   },
 });
 
-/** Full row (incl. content) for the review pane — list views strip content. */
+/** Full row (incl. content) for the review pane - list views strip content. */
 export const getBrainSource = query({
   args: { sourceId: v.id("brainSources") },
-  handler: async (ctx, args) => {
-    if (!(await adminOrNull(ctx))) return null;
-    return await ctx.db.get(args.sourceId);
+  handler: async (
+    ctx,
+    args
+  ): Promise<(Omit<Doc<"brainSources">, "writerTier"> & { writerTier?: number }) | null> => {
+    const viewer = await getCurrentUserOrNull(ctx);
+    if (!viewer || viewer.isAnonymous === true || viewer.role !== "admin") return null;
+    const row = await ctx.db.get(args.sourceId);
+    if (!row) return null;
+    if (canManageWriterWeights(viewer)) return row;
+    const { writerTier: _hiddenTier, ...rest } = row;
+    return rest;
   },
 });
 
@@ -2782,12 +2798,25 @@ export const listFeedbackQueue = query({
 export const listBrainAudit = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    if (!(await adminOrNull(ctx))) return null;
-    return await ctx.db
+    const viewer = await getCurrentUserOrNull(ctx);
+    if (!viewer || viewer.isAnonymous === true || viewer.role !== "admin") return null;
+    const rows = await ctx.db
       .query("brainAuditLog")
       .withIndex("by_at")
       .order("desc")
       .take(args.limit ?? 100);
+    if (canManageWriterWeights(viewer)) return rows;
+    return rows
+      .filter((entry) => entry.action !== "reweight")
+      .map((entry) => {
+        if (!entry.reason || !entry.reason.includes("writerTier")) return entry;
+        const cleaned = entry.reason
+          .split(";")
+          .map((part) => part.trim())
+          .filter((part) => !part.includes("writerTier"))
+          .join("; ");
+        return { ...entry, reason: cleaned || undefined };
+      });
   },
 });
 

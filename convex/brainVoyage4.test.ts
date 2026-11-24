@@ -69,7 +69,7 @@ function setup(): T {
 }
 
 async function withAdmin(t: T) {
-  await t.run((ctx) => ctx.db.insert("users", { authId: "v4-admin", role: "admin", name: "Admin" }));
+  await t.run((ctx) => ctx.db.insert("users", { authId: "v4-admin", role: "admin", isOwner: true, name: "Admin" }));
   return t.withIdentity({ subject: "v4-admin" });
 }
 

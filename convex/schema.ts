@@ -36,6 +36,7 @@ import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
   approveRefusalValidator,
   checkReasonValidator,
+  documentClientNameValidator,
   editableLabelValidator,
   importCountFields,
   ingestionCategoryValidator,
@@ -4923,8 +4924,13 @@ export default defineSchema({
     clientInitials: v.optional(v.string()),
     financialInitials: v.optional(v.string()),
     // 2026-11-17 widen: every initials group of a version token with three
-    // or four ("T0.DW.PN.KT"), kept alongside the unpacked positional slots.
+    // to six groups ("T0.DW.PN.KT"), kept alongside the unpacked positional slots.
     initialsGroups: v.optional(v.array(v.string())),
+    // 2026-11-24 widen: optional additional co-writer and extra client initials
+    // assigned manually on Import (primary writerInitials/reviewerInitials stay
+    // singular for writer ranking and Brain retiering).
+    coWriterInitials: v.optional(v.array(v.string())),
+    extraClientInitials: v.optional(v.array(v.string())),
     pdTitle: v.optional(v.string()),
     // 2026-11-11 widen (Import sheet, phase 2). Worked out on every write by
     // convex/lib/ingestionSheet.ts settleItem; absent on rows not written
@@ -5011,6 +5017,11 @@ export default defineSchema({
     // The one that matches the file's writer initials names a past writer
     // the check made (convex/lib/teamRoster.ts nameWriterFromDocument).
     documentWriterNames: v.optional(v.array(v.string())),
+    // 2026-11-24 widen: distinct client-side technical contact names extracted
+    // from CRA Schedule 60 Section C (lines 254, 256, 260/261 table; shared/pdSectionC.ts),
+    // with Track Changes and Comments sources reserved for future XML parsing.
+    // [] when text was read and found no contacts; absent until extracted.
+    documentClientNames: v.optional(v.array(documentClientNameValidator)),
     // The labels a person set. A move or a new copy on the drive keeps
     // these instead of what the new path says.
     editedLabels: v.optional(v.array(editableLabelValidator)),

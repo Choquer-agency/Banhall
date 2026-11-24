@@ -151,6 +151,16 @@ export type EditableLabel = Infer<typeof editableLabelValidator>;
 export const scienceCodeSourceValidator = v.union(v.literal("document"), v.literal("person"));
 
 /**
+ * A client-side technical contact name extracted from the PD text (CRA Schedule 60
+ * Section C today; Track Changes and Comments sources reserved for future XML parsing).
+ */
+export const documentClientNameValidator = v.object({
+  name: v.string(),
+  source: v.union(v.literal("section_c"), v.literal("track_changes"), v.literal("comments")),
+});
+export type DocumentClientName = Infer<typeof documentClientNameValidator>;
+
+/**
  * The labels one sheet edit may set (ingestion.setSheetLabels). Absent keys
  * are left as they are. `company` is a name, stored as the row's clientName;
  * `fiscalYearEnd` is the UTC midnight of the picked date.

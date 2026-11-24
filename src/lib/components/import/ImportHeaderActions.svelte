@@ -11,6 +11,7 @@
   import { FileIcon, FolderIcon } from "phosphor-svelte";
   import { filesFromInput, type IntakeFile } from "./importIntake";
   import ImportUploaderDialog from "./ImportUploaderDialog.svelte";
+  import BulkImportClientsDialog from "$lib/components/clients/BulkImportClientsDialog.svelte";
 
   let { onFiles }: { onFiles: (files: IntakeFile[]) => void } = $props();
 
@@ -18,6 +19,8 @@
   let folderInput = $state<HTMLInputElement | null>(null);
   let uploaderOpen = $state(false);
   let uploaderButton = $state<HTMLButtonElement | null>(null);
+  let bulkImportOpen = $state(false);
+  let bulkImportButton = $state<HTMLButtonElement | null>(null);
 
   function picked(input: HTMLInputElement) {
     const files = filesFromInput(input.files);
@@ -32,6 +35,17 @@
 </script>
 
 <div data-import-header-actions class="flex shrink-0 items-center gap-3">
+  <button
+    bind:this={bulkImportButton}
+    type="button"
+    data-import-companies
+    aria-haspopup="dialog"
+    onclick={() => (bulkImportOpen = true)}
+    class={`inline-flex h-[2.375rem] shrink-0 items-center gap-1.5 rounded-[0.5625rem] px-3 text-sm leading-[calc(9/7)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink motion-reduce:transition-none pointer-coarse:h-11 ${focusRing}`}
+  >
+    Import companies
+  </button>
+
   <button
     bind:this={uploaderButton}
     type="button"
@@ -100,3 +114,4 @@
 </div>
 
 <ImportUploaderDialog bind:open={uploaderOpen} returnFocus={() => uploaderButton} />
+<BulkImportClientsDialog bind:open={bulkImportOpen} returnFocus={() => bulkImportButton} />

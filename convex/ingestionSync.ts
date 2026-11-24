@@ -36,6 +36,7 @@ import { readFileOnServer } from "./ai/fileReader";
 import { scienceCodeFromText } from "./lib/scienceCodeFromText";
 import { IMPORT_TEXT_CUT_NOTE } from "./lib/ingestionSheet";
 import { writerNamesFromText } from "../shared/writerNameFromText";
+import { clientNamesFromSectionC } from "../shared/pdSectionC";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 // Full extracted text is byte-capped (UTF-8) and stored as a blob; only a
@@ -210,6 +211,9 @@ async function finishExtraction(
     // names a past writer the check made only from a name matching the
     // file's writer initials.
     documentWriterNames: writerNamesFromText(bounded.text),
+    // Client-side technical contacts from CRA Schedule 60 Section C (lines 254,
+    // 256, 260/261 table), used for client initials matching and Brain PII redaction.
+    documentClientNames: clientNamesFromSectionC(bounded.text),
   });
 }
 

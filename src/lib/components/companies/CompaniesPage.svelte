@@ -31,6 +31,7 @@
   import { IconSearch } from "$lib/components/icons";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import EditCompanyDialog from "$lib/components/clients/EditCompanyDialog.svelte";
+  import BulkImportClientsDialog from "$lib/components/clients/BulkImportClientsDialog.svelte";
   import type { MergeResult } from "$lib/components/projects/MergeClientsDialog.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { newProjectSearch } from "$lib/projects/clientList";
@@ -171,6 +172,9 @@
     openCompany(created.key);
   }
 
+  let bulkImportOpen = $state(false);
+  let bulkImportButton = $state<HTMLButtonElement | null>(null);
+
   let editOpen = $state(false);
   /**
    * A rename's new key while the page moves there: the old key stops being
@@ -302,6 +306,16 @@
     >Edit company</button>
   {/if}
   {#if companyKey === null}
+    {#if canManage}
+      <button
+        bind:this={bulkImportButton}
+        type="button"
+        data-import-companies
+        aria-haspopup="dialog"
+        onclick={() => (bulkImportOpen = true)}
+        class="inline-flex h-[2.375rem] max-sm:hidden shrink-0 items-center rounded-[0.5625rem] px-3 text-sm leading-[calc(9/7)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+      >Import companies</button>
+    {/if}
     <div role="search" class="relative w-[18.75rem] min-w-0 max-w-[45vw]">
       <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
       <input
@@ -398,6 +412,10 @@
 
 {#if canCreate}
   <NewClientDialog bind:open={newCompanyOpen} canAddIndustry={role === "admin"} onCreated={onCompanyCreated} />
+{/if}
+
+{#if canManage}
+  <BulkImportClientsDialog bind:open={bulkImportOpen} returnFocus={() => bulkImportButton} />
 {/if}
 
 {#if canManage && company}

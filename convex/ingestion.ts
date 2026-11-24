@@ -122,6 +122,7 @@ import {
   approveRefusalValidator,
   batchResultValidator,
   checkReasonValidator,
+  documentClientNameValidator,
   editableLabelValidator,
   importCategoryCountsValidator,
   importCountsValidator,
@@ -142,7 +143,7 @@ import {
   liveCompanyProjects,
   mergedClientForKey,
 } from "./lib/clients";
-import { projectIndustry } from "./clients";
+import { CLIENT_DIRECTORY_BOUND, projectIndustry } from "./clients";
 import {
   buildImportBrainCopy,
   domainStem,
@@ -155,6 +156,11 @@ import {
 import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
+import {
+  cleanDocumentClientNames,
+  clientNamesFromSectionC,
+  type DocumentClientName,
+} from "../shared/pdSectionC";
 import { industrySlug } from "../shared/industries";
 import { clientNamesLookAlike } from "../shared/clientNames";
 import { brainCheckWriterRank, writerWeight } from "../shared/writerWeight";
@@ -634,6 +640,8 @@ const sheetRowFields = {
   clientInitials: v.optional(v.string()),
   financialInitials: v.optional(v.string()),
   initialsGroups: v.optional(v.array(v.string())),
+  coWriterInitials: v.optional(v.array(v.string())),
+  extraClientInitials: v.optional(v.array(v.string())),
   // 2026-11-17: the writer who reviewed the PD, its label as it is now
   // (withWriterLabels), whether it has a login, and where it came from
   // ("initials", "pick" or "person", as writerNameSource).
@@ -696,6 +704,8 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     clientInitials: item.clientInitials,
     financialInitials: item.financialInitials,
     initialsGroups: item.initialsGroups,
+    coWriterInitials: item.coWriterInitials,
+    extraClientInitials: item.extraClientInitials,
     reviewerId: item.reviewerId,
     reviewerSource: item.reviewerSource,
     craReviewed: item.craReviewed === true && item.category === "final_pd" ? true : undefined,
@@ -1077,7 +1087,7 @@ export const sheetCompanies = query({
         activeClientsCache = await ctx.db
           .query("clients")
           .withIndex("by_status_and_nameKey", (q) => q.eq("status", "active"))
-          .take(500);
+          .take(CLIENT_DIRECTORY_BOUND);
       }
       return activeClientsCache;
     };
@@ -1275,6 +1285,7 @@ export const sheetFile = query({
       reviewedAt: v.optional(v.number()),
       hasText: v.boolean(),
       hasOriginal: v.boolean(),
+      documentClientNames: v.optional(v.array(documentClientNameValidator)),
     })
   ),
   handler: async (ctx, args) => {
@@ -1299,6 +1310,7 @@ export const sheetFile = query({
       reviewedAt: item.reviewedAt,
       hasText: hasReadText(item),
       hasOriginal: item.storageId !== undefined,
+      documentClientNames: item.documentClientNames,
     });
   },
 });
@@ -4060,6 +4072,8 @@ export const setFileReviewers = mutation({
   },
 });
 
+const MAX_EXTRA_INITIALS = 5;
+
 function cleanSlotInitials(value: string | null | undefined, current: string | undefined): string | undefined {
   if (value === undefined) return current;
   if (value === null) return undefined;
@@ -4068,12 +4082,41 @@ function cleanSlotInitials(value: string | null | undefined, current: string | u
   return cleaned || undefined;
 }
 
+function cleanExtraInitialsList(
+  values: readonly string[] | null | undefined,
+  current: readonly string[] | undefined,
+  primary: string | undefined
+): string[] | undefined {
+  const source = values === undefined ? current : values === null ? undefined : values;
+  if (!source || source.length === 0) return undefined;
+  const result: string[] = [];
+  const seen = new Set<string>(primary ? [primary] : []);
+  for (const raw of source) {
+    const cleaned = savedInitials(raw);
+    if (cleaned === null) domainError("INVALID_INPUT", INITIALS_RULE);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    result.push(cleaned);
+    if (result.length > MAX_EXTRA_INITIALS) {
+      domainError("INVALID_INPUT", `Use up to ${MAX_EXTRA_INITIALS} additional initials per role.`);
+    }
+  }
+  return result.length > 0 ? result : undefined;
+}
+
+function sameStringArray(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  if (!a && !b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+}
+
 /**
  * Reassigns the 4 positional initial slots (writer, reviewer, client,
- * financial) and optional reviewerInProgress flag on a single staged PD file.
- * Admin only. Preserves manual slot choices across future re-reads via
- * "initialsSlots" in editedLabels, and re-resolves writer/reviewer whenever
- * their initials slot changes.
+ * financial), optional coWriterInitials / extraClientInitials, and optional
+ * reviewerInProgress flag on a single staged PD file. Admin only. Preserves
+ * manual slot choices across future re-reads via "initialsSlots" in
+ * editedLabels, and re-resolves writer/reviewer whenever their primary
+ * initials slot changes.
  */
 export const reassignFileInitials = mutation({
   args: {
@@ -4082,6 +4125,8 @@ export const reassignFileInitials = mutation({
     reviewerInitials: v.optional(v.union(v.string(), v.null())),
     clientInitials: v.optional(v.union(v.string(), v.null())),
     financialInitials: v.optional(v.union(v.string(), v.null())),
+    coWriterInitials: v.optional(v.union(v.array(v.string()), v.null())),
+    extraClientInitials: v.optional(v.union(v.array(v.string()), v.null())),
     reviewerInProgress: v.optional(v.boolean()),
   },
   returns: v.object({ changed: v.boolean() }),
@@ -4099,6 +4144,8 @@ export const reassignFileInitials = mutation({
     const nextReviewer = cleanSlotInitials(args.reviewerInitials, item.reviewerInitials);
     const nextClient = cleanSlotInitials(args.clientInitials, item.clientInitials);
     const nextFinancial = cleanSlotInitials(args.financialInitials, item.financialInitials);
+    const nextCoWriters = cleanExtraInitialsList(args.coWriterInitials, item.coWriterInitials, nextWriter);
+    const nextExtraClients = cleanExtraInitialsList(args.extraClientInitials, item.extraClientInitials, nextClient);
     const nextInProgress =
       nextReviewer === undefined
         ? undefined
@@ -4110,9 +4157,21 @@ export const reassignFileInitials = mutation({
 
     const writerChanged = nextWriter !== item.writerInitials;
     const reviewerChanged = nextReviewer !== item.reviewerInitials;
-    const presentSlots = [nextWriter, nextReviewer, nextClient, nextFinancial].filter(
-      (value): value is string => Boolean(value)
-    );
+    const slotsChanged =
+      writerChanged ||
+      reviewerChanged ||
+      nextClient !== item.clientInitials ||
+      nextFinancial !== item.financialInitials ||
+      !sameStringArray(nextCoWriters, item.coWriterInitials) ||
+      !sameStringArray(nextExtraClients, item.extraClientInitials);
+    const presentSlots = [
+      nextWriter,
+      ...(nextCoWriters ?? []),
+      nextReviewer,
+      nextClient,
+      ...(nextExtraClients ?? []),
+      nextFinancial,
+    ].filter((value): value is string => Boolean(value));
 
     const baseEdited = writerChanged
       ? (item.editedLabels ?? []).filter((label) => label !== "writerName")
@@ -4123,7 +4182,13 @@ export const reassignFileInitials = mutation({
       reviewerInProgress: nextInProgress,
       clientInitials: nextClient,
       financialInitials: nextFinancial,
-      initialsGroups: presentSlots.length >= 3 ? presentSlots : undefined,
+      coWriterInitials: nextCoWriters,
+      extraClientInitials: nextExtraClients,
+      initialsGroups: slotsChanged
+        ? presentSlots.length >= 3
+          ? presentSlots
+          : undefined
+        : item.initialsGroups,
       editedLabels: mergeEditedLabels(baseEdited, ["initialsSlots"]),
     };
     if (writerChanged) {
@@ -4923,8 +4988,123 @@ export const readDocumentWriterNames = internalAction({
         itemId: args.itemId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return { recorded: 0 };
+    return { recorded: 0 };
     }
+  },
+});
+
+/** True when a PD file with extracted text has not yet had CRA Section C client contacts parsed. */
+function needsDocumentClientNames(item: Doc<"ingestionItems">): boolean {
+  return (
+    item.documentClientNames === undefined &&
+    hasReadText(item) &&
+    (item.category === "final_pd" || item.category === "draft" || item.category === "review_copy")
+  );
+}
+
+/** One page of 100 rows on `tab` whose PD text has not yet been parsed for Section C contacts. */
+export const documentClientNamesPage = internalQuery({
+  args: { tab: writerBackfillTabValidator, cursor: v.union(v.string(), v.null()) },
+  returns: namesBackfillPageValidator,
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
+      .paginate({ cursor: args.cursor, numItems: NAMES_BACKFILL_ROWS });
+    const items = await Promise.all(
+      page.page.filter(needsDocumentClientNames).map((item) => namesBackfillItem(ctx, item))
+    );
+    return { items, isDone: page.isDone, continueCursor: page.continueCursor };
+  },
+});
+
+/** Stores Section C client contacts for up to 25 backfilled rows (skips rows already populated or whose text changed). */
+export const recordDocumentClientNames = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        itemId: v.id("ingestionItems"),
+        textStorageId: v.union(v.id("_storage"), v.null()),
+        contacts: v.array(documentClientNameValidator),
+      })
+    ),
+  },
+  returns: v.object({ recorded: v.number() }),
+  handler: async (ctx, args) => {
+    let recorded = 0;
+    for (const entry of args.entries.slice(0, NAMES_BACKFILL_READS)) {
+      const item = await ctx.db.get(entry.itemId);
+      if (!item || item.documentClientNames !== undefined || (item.textStorageId ?? null) !== entry.textStorageId) {
+        continue;
+      }
+      await ctx.db.patch(item._id, {
+        documentClientNames: cleanDocumentClientNames(entry.contacts),
+      });
+      recorded += 1;
+    }
+    return { recorded };
+  },
+});
+
+async function readClientNames(
+  ctx: ActionCtx,
+  items: ReadonlyArray<Infer<typeof namesBackfillItemValidator>>
+): Promise<Array<{ itemId: Id<"ingestionItems">; textStorageId: Id<"_storage"> | null; contacts: DocumentClientName[] }>> {
+  const entries = [];
+  for (const item of items) {
+    let contacts: DocumentClientName[] = [];
+    try {
+      const blob = item.textStorageId ? await ctx.storage.get(item.textStorageId) : null;
+      contacts = clientNamesFromSectionC(blob ? await blob.text() : (item.preview ?? ""));
+    } catch (error) {
+      console.warn("Could not read a file's text for Section C contacts", {
+        itemId: item.itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    entries.push({ itemId: item.itemId, textStorageId: item.textStorageId, contacts });
+  }
+  return entries;
+}
+
+/**
+ * Zero-LLM backfill of CRA Schedule 60 Section C client contact names across
+ * previously extracted PD rows (review, deleted, approved), 100 rows per run,
+ * reading at most 25 stored text blobs per run and scheduling the next page.
+ */
+export const backfillDocumentClientNames = internalAction({
+  args: { tab: v.optional(writerBackfillTabValidator), cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ recorded: v.number(), done: v.boolean() }),
+  handler: async (ctx, args): Promise<{ recorded: number; done: boolean }> => {
+    const tab = args.tab ?? "review";
+    const cursor = args.cursor ?? null;
+    const page: Infer<typeof namesBackfillPageValidator> = await ctx.runQuery(
+      internal.ingestion.documentClientNamesPage,
+      { tab, cursor }
+    );
+    const entries = await readClientNames(ctx, page.items.slice(0, NAMES_BACKFILL_READS));
+    let recorded = 0;
+    let saved = true;
+    if (entries.length > 0) {
+      try {
+        recorded = (await ctx.runMutation(internal.ingestion.recordDocumentClientNames, { entries })).recorded;
+      } catch (error) {
+        saved = false;
+        console.warn("Could not store Section C contacts for a page of files", {
+          tab,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    const again = page.items.length > NAMES_BACKFILL_READS && saved;
+    const next = again || !page.isDone ? tab : WRITER_BACKFILL_TABS[WRITER_BACKFILL_TABS.indexOf(tab) + 1];
+    if (next !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentClientNames, {
+        tab: next,
+        cursor: again ? cursor : page.isDone ? null : page.continueCursor,
+      });
+    }
+    return { recorded, done: next === undefined };
   },
 });
 
@@ -5447,6 +5627,7 @@ async function upsertDiscovered(
     textLength: undefined,
     textStorageId: undefined,
     documentWriterNames: undefined,
+    documentClientNames: undefined,
     extractNote: undefined,
     error: undefined,
     deletedFromStatus: undefined,
@@ -5660,6 +5841,9 @@ export const markItemProcessed = internalMutation({
     // 2026-11-16 (writers from initials): the names after a writer cue in
     // the full text (shared/writerNameFromText.ts), [] when there are none.
     documentWriterNames: v.optional(v.array(v.string())),
+    // 2026-11-24: client-side technical contacts from CRA Schedule 60 Section C
+    // (shared/pdSectionC.ts), [] when none were found.
+    documentClientNames: v.optional(v.array(documentClientNameValidator)),
     // 2026-11-17: whether the extraction cut the text at the import's limit.
     textCut: v.optional(v.boolean()),
   },
@@ -5709,6 +5893,8 @@ export const markItemProcessed = internalMutation({
       // draft or review copy names its writer (settleWithWriter).
       documentWriterNames:
         args.documentWriterNames === undefined ? undefined : cleanDocumentWriterNames(args.documentWriterNames),
+      documentClientNames:
+        args.documentClientNames === undefined ? undefined : cleanDocumentClientNames(args.documentClientNames),
       // No text (pdf/legacy .doc) still lands in review so the admin can see
       // the file exists and chase a readable copy; it just can't be approved.
       status: "pending_review",

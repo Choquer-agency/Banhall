@@ -11,6 +11,7 @@ import {
   writersOfUser,
 } from "./lib/teamRoster";
 import { writerStaffRoleValidator } from "./lib/ingestionSheetValidators";
+import { canManageWriterWeights } from "../shared/writerWeight";
 
 /**
  * Round 2 Team page (C1, C2; decisions 47 and 54). Members are read by
@@ -59,9 +60,9 @@ export const listMembers = query({
       // custom weight is set) and total imported PD count across own + linked.
       staffRole: v.union(writerStaffRoleValidator, v.null()),
       pdCount: v.number(),
-      // 2026-11-18 (second): the person's writer weight an Admin set on
-      // Team (0 to 1), or null when they use the role/global default.
-      // Admin-only (roles.manage): omitted for Managers and other roles.
+      // 2026-11-18 (second): the person's writer weight (0 to 1), or null
+      // when they use the role/global default. Owner/Developer Admin only:
+      // omitted for plain Admins, Managers, and other roles.
       weight: v.optional(v.union(v.number(), v.null())),
     }),
   ),
@@ -74,7 +75,7 @@ export const listMembers = query({
     ) {
       return [];
     }
-    const canSeeWeight = hasCapability(viewer.role, "roles.manage");
+    const canSeeWeight = canManageWriterWeights(viewer);
     const users = await ctx.db.query("users").take(MEMBER_LIMIT);
     const members = users.filter(
       (user) => user.isAnonymous !== true && user.role !== undefined,

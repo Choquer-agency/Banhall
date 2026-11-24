@@ -49,7 +49,9 @@ async function setup() {
   const t = convexTest(schema, modules);
   t.registerComponent("embedPool", workpoolSchema, workpoolModules);
   const ids = await t.run(async (ctx) => ({
-    adminId: await ctx.db.insert("users", { authId: "walk-admin", role: "admin", firstName: "Jordan", lastName: "Ellis", initials: "JE" }),
+    adminId: await ctx.db.insert("users", { authId: "walk-admin", role: "admin", isOwner: true, firstName: "Jordan", lastName: "Ellis", initials: "JE" }),
+    devAdminId: await ctx.db.insert("users", { authId: "walk-dev", role: "admin", isDeveloper: true, firstName: "Casey", lastName: "Cho", initials: "CC" }),
+    plainAdminId: await ctx.db.insert("users", { authId: "walk-plain-admin", role: "admin", firstName: "Alex", lastName: "Mercer", initials: "AM" }),
     managerId: await ctx.db.insert("users", { authId: "walk-manager", role: "manager", firstName: "Morgan", lastName: "Reid", initials: "MR" }),
     writerId: await ctx.db.insert("users", { authId: "walk-writer", role: "writer", firstName: "Tracy", lastName: "Lindqvist", initials: "TL" }),
     reviewerId: await ctx.db.insert("users", { authId: "walk-reviewer", role: "writer", firstName: "Priya", lastName: "Nair", initials: "PN" }),
@@ -58,6 +60,8 @@ async function setup() {
     t,
     ...ids,
     admin: t.withIdentity({ subject: "walk-admin" }),
+    devAdmin: t.withIdentity({ subject: "walk-dev" }),
+    plainAdmin: t.withIdentity({ subject: "walk-plain-admin" }),
     manager: t.withIdentity({ subject: "walk-manager" }),
     writer: t.withIdentity({ subject: "walk-writer" }),
   };
@@ -166,10 +170,10 @@ describe("2026-11-23 walkthrough improvements", () => {
     expect(receiptRow.category).not.toBe("final_pd");
   });
 
-  it("hides writer weights from Managers while showing them to Admins on both Team tables", async () => {
-    const { t, admin, manager, writerId } = await setup();
+  it("restricts writer weights to Owner and Developer Admins on Team and Brain while hiding them from plain Admins and Managers", async () => {
+    const { t, admin, devAdmin, plainAdmin, manager, writerId } = await setup();
     await admin.mutation(api.users.setWriterWeight, { userId: writerId, weight: 0.9 });
-    const created = await admin.mutation(api.users.createPastWriter, {
+    const created = await devAdmin.mutation(api.users.createPastWriter, {
       name: "Sam Okafor",
       initials: "SO",
       staffRole: "technical_manager",
@@ -177,23 +181,72 @@ describe("2026-11-23 walkthrough improvements", () => {
       weight: 0.85,
     });
 
-    const adminMembers = await admin.query(api.team.listMembers, {});
-    const managerMembers = await manager.query(api.team.listMembers, {});
-    expect(adminMembers.find((m) => m._id === writerId)?.weight).toBe(0.9);
-    for (const member of managerMembers) {
-      expect("weight" in member).toBe(false);
-    }
-
-    const adminPast = await admin.query(api.users.listPastWriters, {});
-    const managerPast = await manager.query(api.users.listPastWriters, {});
-    expect(adminPast.find((w) => w._id === created.writerId)).toMatchObject({
-      weight: 0.85,
-      staffRole: "technical_manager",
+    // Plain Admin cannot set weights directly or via createPastWriter, but can still create a past writer without weight.
+    await expect(
+      plainAdmin.mutation(api.users.setWriterWeight, { userId: writerId, weight: 0.5 })
+    ).rejects.toThrow();
+    await expect(
+      plainAdmin.mutation(api.users.createPastWriter, {
+        name: "Blocked Weighted",
+        initials: "BW",
+        weight: 0.6,
+      })
+    ).rejects.toThrow();
+    const unweighted = await plainAdmin.mutation(api.users.createPastWriter, {
+      name: "Robin Brooks",
+      initials: "RB",
+      staffRole: "technical_writer",
       isActive: true,
     });
-    for (const row of managerPast) {
-      expect("weight" in row).toBe(false);
+    expect(unweighted.label).toBe("Robin Brooks");
+
+    // Owner and Developer both receive weight on Team; plain Admin and Manager do not.
+    for (const allowed of [admin, devAdmin]) {
+      const members = await allowed.query(api.team.listMembers, {});
+      expect(members.find((m) => m._id === writerId)?.weight).toBe(0.9);
+      const past = await allowed.query(api.users.listPastWriters, {});
+      expect(past.find((w) => w._id === created.writerId)).toMatchObject({
+        weight: 0.85,
+        staffRole: "technical_manager",
+        isActive: true,
+      });
     }
+    for (const restricted of [plainAdmin, manager]) {
+      const members = await restricted.query(api.team.listMembers, {});
+      for (const member of members) expect("weight" in member).toBe(false);
+      const past = await restricted.query(api.users.listPastWriters, {});
+      for (const row of past) expect("weight" in row).toBe(false);
+    }
+
+    // Brain scoring visibility & reweightSource follow the same Owner/Developer rule.
+    const pdId = await stageFile(
+      t,
+      "Cedarline Systems/2025 - Mar 31/To be submitted/02 CedarlineSystems 2025-03-31 T1.SO.PN ColdChain.docx"
+    );
+    const sourceId = await addToBrainForTest(t, admin, pdId);
+    await devAdmin.mutation(api.brain.reweightSource, { sourceId, writerTier: 0.92 });
+    await expect(
+      plainAdmin.mutation(api.brain.reweightSource, { sourceId, writerTier: 0.3 })
+    ).rejects.toThrow();
+
+    const ownerSources = await admin.query(api.brain.listBrainSources, {
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    const plainAdminSources = await plainAdmin.query(api.brain.listBrainSources, {
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(ownerSources.page.find((s) => s._id === sourceId)?.writerTier).toBe(0.92);
+    expect("writerTier" in (plainAdminSources.page.find((s) => s._id === sourceId) ?? {})).toBe(false);
+
+    const ownerSource = await admin.query(api.brain.getBrainSource, { sourceId });
+    const plainAdminSource = await plainAdmin.query(api.brain.getBrainSource, { sourceId });
+    expect(ownerSource?.writerTier).toBe(0.92);
+    expect("writerTier" in (plainAdminSource ?? {})).toBe(false);
+
+    const ownerAudit = await admin.query(api.brain.listBrainAudit, {});
+    const plainAdminAudit = await plainAdmin.query(api.brain.listBrainAudit, {});
+    expect(ownerAudit?.some((a) => a.action === "reweight")).toBe(true);
+    expect(plainAdminAudit?.some((a) => a.action === "reweight")).toBe(false);
   });
 
   it("applies role-based default weights with custom override precedence, re-tiers Brain copies, and auto-matches pre-entered staff", async () => {
@@ -379,5 +432,148 @@ describe("2026-11-23 walkthrough improvements", () => {
     const bandsAfter = await listBands();
     expect(bandsAfter.find((b) => b.companyKey === "acme robotics")).toBeUndefined();
     expect(bandsAfter.find((b) => b.companyKey === "acme robotics inc.")?.total).toBe(2);
+  });
+
+  it("supports 5-6 filename initials groups, coWriterInitials, and extraClientInitials preserved across re-sync", async () => {
+    const { t, admin } = await setup();
+    const path =
+      "Cedarline Systems/2025 - Mar 31/To be submitted/05 CedarlineSystems 2025-03-31 T1.TL.PN.BM.JT.FR SensorArray.docx";
+    const id = await stageFile(t, path);
+
+    const initial = await admin.query(api.ingestion.sheetFile, { id });
+    expect(initial?.initialsGroups).toEqual(["TL", "PN", "BM", "JT", "FR"]);
+    expect(initial?.writerInitials).toBe("TL");
+    expect(initial?.reviewerInitials).toBe("PN");
+    expect(initial?.clientInitials).toBe("BM");
+    expect(initial?.financialInitials).toBe("JT");
+
+    // Admin assigns co-writer AL, splits clients BM + JT, and puts FR into financial.
+    await admin.mutation(api.ingestion.reassignFileInitials, {
+      id,
+      writerInitials: "TL",
+      reviewerInitials: "PN",
+      clientInitials: "BM",
+      financialInitials: "FR",
+      coWriterInitials: ["AL", "TL", "al"], // deduped & excludes primary TL
+      extraClientInitials: ["JT", "BM"], // deduped & excludes primary BM
+    });
+
+    const updated = await admin.query(api.ingestion.sheetFile, { id });
+    expect(updated).toMatchObject({
+      writerInitials: "TL",
+      writerName: "Tracy Lindqvist",
+      reviewerInitials: "PN",
+      reviewerName: "Priya Nair",
+      clientInitials: "BM",
+      financialInitials: "FR",
+      coWriterInitials: ["AL"],
+      extraClientInitials: ["JT"],
+      initialsGroups: ["TL", "AL", "PN", "BM", "JT", "FR"],
+    });
+
+    // Re-syncing the same path preserves coWriterInitials, extraClientInitials, and initialsGroups.
+    const meta = classify(
+      "Cedarline Systems/2025 - Mar 31/To be submitted",
+      "05 CedarlineSystems 2025-03-31 T1.TL.PN.BM.JT.FR SensorArray.docx"
+    );
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      driveItemId: `drive-${path}`,
+      path,
+      name: "05 CedarlineSystems 2025-03-31 T1.TL.PN.BM.JT.FR SensorArray.docx",
+      clientName: meta.clientName,
+      fiscalYearLabel: meta.fiscalYearLabel,
+      fiscalYear: meta.fiscalYear,
+      docKind: meta.docKind,
+      size: 4096,
+      lastModifiedAt: 1_700_000_002_000,
+      contentHash: `bytes-${path}`,
+      pairGroupKey: meta.pairGroupKey,
+    });
+    const afterSync = await admin.query(api.ingestion.sheetFile, { id });
+    expect(afterSync?.coWriterInitials).toEqual(["AL"]);
+    expect(afterSync?.extraClientInitials).toEqual(["JT"]);
+    expect(afterSync?.initialsGroups).toEqual(["TL", "AL", "PN", "BM", "JT", "FR"]);
+  });
+
+  it("extracts, backfills, resets, and PII-scrubs CRA Section C client contact names", async () => {
+    const { t, admin } = await setup();
+    const sectionCText = [
+      "Field of science or technology: 2.02.09",
+      "Technical narrative discussing work with Samira Haddad and Bill Mercer on thermal drift.",
+      "Section C - Additional project information",
+      "254",
+      "Name",
+      "Dr. Samira Haddad, Ph.D.",
+      "260",
+      "Names",
+      "261",
+      "Qualifications/experience",
+      'William "Bill" Mercer',
+      "VP Engineering, 15 years industrial controls experience",
+      "265",
+      "Was any work performed outside Canada? No",
+    ].join("\n");
+    const path =
+      "Cedarline Systems/2025 - Mar 31/To be submitted/06 CedarlineSystems 2025-03-31 T1.TL.PN.SH ColdChain.docx";
+    const id = await stageFile(t, path, sectionCText);
+
+    // Backfill populates documentClientNames on pre-existing PD rows (zero LLM).
+    const backfill = await t.action(internal.ingestion.backfillDocumentClientNames, {});
+    expect(backfill.recorded).toBe(1);
+
+    const fileAfterBackfill = await admin.query(api.ingestion.sheetFile, { id });
+    expect(fileAfterBackfill?.documentClientNames).toEqual([
+      { name: "Samira Haddad", source: "section_c" },
+      { name: 'William "Bill" Mercer', source: "section_c" },
+    ]);
+
+    // Previewing Brain copy scrubs Section C contacts (including nickname form).
+    await admin.mutation(api.ingestion.setNewCompanyIndustry, {
+      companyKey: "cedarline systems",
+      industry: "manufacturing",
+    });
+    await admin.mutation(api.ingestion.approveFiles, { ids: [id] });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const preview = await admin.action(api.ingestion.previewBrainCopy, { itemId: id, alsoRemove: [] });
+    expect(preview.ok).toBe(true);
+    if (preview.ok) {
+      expect(preview.content).not.toContain("Samira");
+      expect(preview.content).not.toContain("Haddad");
+      expect(preview.content).not.toContain("Mercer");
+      expect(preview.content).not.toContain("Bill");
+    }
+
+    // Content change on a staged file resets documentClientNames.
+    const path2 =
+      "Cedarline Systems/2025 - Mar 31/To be submitted/07 CedarlineSystems 2025-03-31 T1.TL.PN.SH ResetCase.docx";
+    const id2 = await stageFile(t, path2, sectionCText);
+    await t.mutation(internal.ingestion.recordDocumentClientNames, {
+      entries: [
+        {
+          itemId: id2,
+          textStorageId: (await t.run((ctx) => ctx.db.get(id2)))!.textStorageId ?? null,
+          contacts: [{ name: "Samira Haddad", source: "section_c" }],
+        },
+      ],
+    });
+    expect((await t.run((ctx) => ctx.db.get(id2)))?.documentClientNames).toHaveLength(1);
+    const meta2 = classify(
+      "Cedarline Systems/2025 - Mar 31/To be submitted",
+      "07 CedarlineSystems 2025-03-31 T1.TL.PN.SH ResetCase.docx"
+    );
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      driveItemId: `drive-${path2}`,
+      path: path2,
+      name: "07 CedarlineSystems 2025-03-31 T1.TL.PN.SH ResetCase.docx",
+      clientName: meta2.clientName,
+      fiscalYearLabel: meta2.fiscalYearLabel,
+      fiscalYear: meta2.fiscalYear,
+      docKind: meta2.docKind,
+      size: 4096,
+      lastModifiedAt: 1_700_000_003_000,
+      contentHash: "new-bytes-hash",
+      pairGroupKey: meta2.pairGroupKey,
+    });
+    expect((await t.run((ctx) => ctx.db.get(id2)))?.documentClientNames).toBeUndefined();
   });
 });

@@ -2249,3 +2249,170 @@ describe("deleteClient (T2-4)", () => {
     expect(await s.t.run((ctx) => ctx.db.get(targetId))).toBeNull();
   });
 });
+
+describe("bulk import companies (previewBulkImportClients & bulkCreateClients)", () => {
+  it("gates preview and bulk create to Managers and Admins only", async () => {
+    const s = await setup();
+    await expect(
+      s.writer.query(api.clients.previewBulkImportClients, { names: ["Maple Robotics"] })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(
+      s.writer.mutation(api.clients.bulkCreateClients, { names: ["Maple Robotics"] })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(
+      s.roleless.query(api.clients.previewBulkImportClients, { names: ["Maple Robotics"] })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    await expect(
+      s.t.mutation(api.clients.bulkCreateClients, { names: ["Maple Robotics"] })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHENTICATED" } });
+
+    const managerPreview = await s.manager.query(api.clients.previewBulkImportClients, {
+      names: ["Maple Robotics"],
+    });
+    expect(managerPreview.counts.new).toBe(1);
+    const managerCreated = await s.manager.mutation(api.clients.bulkCreateClients, {
+      names: ["Maple Robotics"],
+    });
+    expect(managerCreated.createdCount).toBe(1);
+  });
+
+  it("classifies new, similar, exists, merged (multi-hop), duplicate, and invalid rows", async () => {
+    const s = await setup();
+    const zenithId = await insertClient(s, "Zenith Robotics Inc.");
+    await insertCompany(s, "Birch Foods", 1);
+    // Two-hop merge chain: Old Acme -> Mid Acme -> Zenith Robotics Inc.
+    await s.t.run(async (ctx) => {
+      const midId = await ctx.db.insert("clients", {
+        name: "Mid Acme",
+        nameKey: "mid acme",
+        status: "merged",
+        mergedIntoClientId: zenithId,
+        mergedAt: Date.UTC(2026, 9, 10),
+        createdBy: s.adminId,
+        createdAt: 1,
+        updatedAt: Date.UTC(2026, 9, 10),
+      });
+      await ctx.db.insert("clients", {
+        name: "Old Acme",
+        nameKey: "old acme",
+        status: "merged",
+        mergedIntoClientId: midId,
+        mergedAt: Date.UTC(2026, 9, 12),
+        createdBy: s.adminId,
+        createdAt: 2,
+        updatedAt: Date.UTC(2026, 9, 12),
+      });
+    });
+
+    const preview = await s.admin.query(api.clients.previewBulkImportClients, {
+      names: [
+        "Zenith Robotics Inc.",
+        "Birch Foods",
+        "Old Acme",
+        "Zenith Robotics",
+        "Northwind Labs",
+        "northwind labs",
+        "---",
+      ],
+    });
+    expect(preview.truncated).toBe(false);
+    expect(preview.counts).toEqual({
+      total: 7,
+      new: 1,
+      similar: 1,
+      exists: 2,
+      merged: 1,
+      duplicate: 1,
+      invalid: 1,
+    });
+    expect(preview.rows.map((r) => [r.name, r.status])).toEqual([
+      ["Zenith Robotics Inc.", "exists"],
+      ["Birch Foods", "exists"],
+      ["Old Acme", "merged"],
+      ["Zenith Robotics", "similar"],
+      ["Northwind Labs", "new"],
+      ["northwind labs", "duplicate"],
+      ["---", "invalid"],
+    ]);
+    expect(preview.rows[2]?.mergedInto).toBe("Zenith Robotics Inc.");
+    expect(preview.rows[3]?.similarMatches).toContain("Zenith Robotics Inc.");
+  });
+
+  it("creates companies idempotently with nameHistoryComplete, links straggler projects, and enforces limits", async () => {
+    const s = await setup();
+    const keptId = await insertClient(s, "Existing Co");
+    await insertCompany(s, "Projection Only Co", 1);
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("clients", {
+        name: "Merged Legacy",
+        nameKey: "merged legacy",
+        status: "merged",
+        mergedIntoClientId: keptId,
+        mergedAt: Date.UTC(2026, 9, 5),
+        createdBy: s.adminId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    // Straggler unlinked project on a key without a clients or dashboardCompanies row.
+    const stragglerProjectId = await insertProject(s, {
+      clientName: "Straggler Bio",
+      title: "Unlinked project",
+    });
+
+    const first = await s.admin.mutation(api.clients.bulkCreateClients, {
+      names: [
+        "Straggler Bio",
+        "Fresh Signal Corp",
+        "fresh signal corp",
+        "Existing Co",
+        "Projection Only Co",
+        "Merged Legacy",
+        "   ",
+        "!!!",
+      ],
+    });
+    expect(first).toMatchObject({
+      createdCount: 2,
+      skippedExists: 2,
+      skippedMerged: 1,
+      skippedDuplicate: 1,
+      skippedInvalid: 2,
+    });
+    const stragglerClient = first.created.find((c) => c.key === "straggler bio")!;
+    expect(await getClient(s, stragglerClient.clientId)).toMatchObject({
+      name: "Straggler Bio",
+      nameKey: "straggler bio",
+      status: "active",
+      nameHistoryComplete: true,
+    });
+    expect(await getProject(s, stragglerProjectId)).toMatchObject({
+      clientId: stragglerClient.clientId,
+    });
+
+    // Second run with the same list is completely idempotent.
+    const second = await s.admin.mutation(api.clients.bulkCreateClients, {
+      names: ["Straggler Bio", "Fresh Signal Corp"],
+    });
+    expect(second).toMatchObject({
+      createdCount: 0,
+      skippedExists: 2,
+      skippedMerged: 0,
+      skippedDuplicate: 0,
+      skippedInvalid: 0,
+    });
+
+    // Rejects batches over 100 in bulkCreateClients and over 500 in previewBulkImportClients.
+    await expect(
+      s.admin.mutation(api.clients.bulkCreateClients, {
+        names: Array.from({ length: 101 }, (_, i) => `Company ${i}`),
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    await expect(
+      s.admin.query(api.clients.previewBulkImportClients, {
+        names: Array.from({ length: 501 }, (_, i) => `Company ${i}`),
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+  });
+});
+

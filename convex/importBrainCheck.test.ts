@@ -43,7 +43,7 @@ async function setup() {
   const t = convexTest(schema, modules);
   t.registerComponent("embedPool", workpoolSchema, workpoolModules);
   const ids = await t.run(async (ctx) => ({
-    adminId: await ctx.db.insert("users", { authId: "check-admin", role: "admin", firstName: "Jordan", lastName: "Ellis" }),
+    adminId: await ctx.db.insert("users", { authId: "check-admin", role: "admin", isOwner: true, firstName: "Jordan", lastName: "Ellis" }),
     tracyId: await ctx.db.insert("users", { authId: "check-tracy", role: "writer", firstName: "Tracy", lastName: "Lindqvist", initials: "TL" }),
     managerId: await ctx.db.insert("users", { authId: "check-manager", role: "manager", firstName: "Lee" }),
   }));
