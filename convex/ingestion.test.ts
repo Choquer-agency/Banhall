@@ -405,3 +405,64 @@ describe("backfillIngestionLabels", () => {
     });
   });
 });
+
+describe("getUploaderConfig", () => {
+  const validKey = "a".repeat(64);
+  const siteUrl = "https://example-deployment.convex.site";
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns the trimmed upload URL and ingest key for an active admin", async () => {
+    const f = await setup();
+    vi.stubEnv("INGEST_API_KEY", `  ${validKey}  `);
+    vi.stubEnv("CONVEX_SITE_URL", `${siteUrl}/`);
+
+    await expect(f.admin.action(api.ingestion.getUploaderConfig, {})).resolves.toEqual({
+      url: siteUrl,
+      key: validKey,
+    });
+  });
+
+  it("refuses unauthenticated callers, non-admins, and anonymous admins", async () => {
+    const f = await setup();
+    vi.stubEnv("INGEST_API_KEY", validKey);
+    vi.stubEnv("CONVEX_SITE_URL", siteUrl);
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        authId: "anon-admin",
+        role: "admin",
+        isAnonymous: true,
+        firstName: "Anon",
+      });
+    });
+    const anonAdmin = f.t.withIdentity({ subject: "anon-admin" });
+
+    await expect(f.t.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow("Not authenticated");
+    await expect(f.writer.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow("Admin only");
+    await expect(anonAdmin.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow("Not authenticated");
+  });
+
+  it("refuses cleanly when INGEST_API_KEY is missing or shorter than 32 chars", async () => {
+    const f = await setup();
+    vi.stubEnv("CONVEX_SITE_URL", siteUrl);
+
+    vi.stubEnv("INGEST_API_KEY", "");
+    await expect(f.admin.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow(/INGEST_API_KEY/);
+
+    vi.stubEnv("INGEST_API_KEY", "short-key");
+    await expect(f.admin.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow(/INGEST_API_KEY/);
+  });
+
+  it("refuses cleanly when CONVEX_SITE_URL is missing or not https", async () => {
+    const f = await setup();
+    vi.stubEnv("INGEST_API_KEY", validKey);
+
+    vi.stubEnv("CONVEX_SITE_URL", "");
+    await expect(f.admin.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow(/upload address/i);
+
+    vi.stubEnv("CONVEX_SITE_URL", "http://insecure.example.com");
+    await expect(f.admin.action(api.ingestion.getUploaderConfig, {})).rejects.toThrow(/upload address/i);
+  });
+});

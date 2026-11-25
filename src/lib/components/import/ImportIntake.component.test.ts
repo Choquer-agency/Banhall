@@ -625,18 +625,80 @@ describe("Files 1: dropping files on the Import page", () => {
     await expect.poll(() => text(spoken)).toBe("2 files added. All read.");
   });
 
-  it("says what the uploader is for and how to get it, without a download that does not exist", async () => {
-    await mountFiles1(1440);
-    await userEvent.click(page.getByRole("button", { name: "Get the uploader" }));
-    const dialog = page.getByRole("dialog", { name: "Get the uploader" });
-    await expect.element(dialog).toBeVisible();
-    const steps = all("[data-import-uploader-steps] li").map((node) => text(node));
-    expect(steps[0]).toBe("Ask the Banhall team for the uploader kit. It comes as a zip file.");
-    expect(steps).toHaveLength(4);
-    expect(one('[data-testid="import-uploader-dialog"] a[download]')).toBeNull();
-    await page.screenshot({ path: `${CAPTURES}/uploader-dialog-1440.png` });
-    await userEvent.click(page.getByRole("button", { name: "Done" }));
-    await expect.element(dialog).not.toBeInTheDocument();
+  it("explains the uploader, downloads a configured zip, and shows inline errors when unconfigured", async () => {
+    const savedBlobs: Blob[] = [];
+    const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      savedBlobs.push(blob as Blob);
+      return "blob:uploader-test";
+    });
+    const revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const originalDispatchEvent = HTMLAnchorElement.prototype.dispatchEvent;
+    const anchorDispatchSpy = vi.spyOn(HTMLAnchorElement.prototype, "dispatchEvent").mockImplementation(function (
+      this: HTMLAnchorElement,
+      event: Event,
+    ) {
+      if (this.download) return true;
+      return originalDispatchEvent.call(this, event);
+    });
+
+    try {
+      await mountFiles1(1440);
+      await userEvent.click(page.getByRole("button", { name: "Get the uploader" }));
+      const dialog = page.getByRole("dialog", { name: "Get the uploader" });
+      await expect.element(dialog).toBeVisible();
+      const steps = all("[data-import-uploader-steps] li").map((node) => text(node));
+      expect(steps[0]).toBe("Download the uploader zip below. It is already set up for this workspace.");
+      expect(steps).toHaveLength(4);
+      await expect.element(page.getByRole("button", { name: "Download uploader" })).toBeVisible();
+
+      // Missing server config surfaces inline in the dialog.
+      __setMutationHandler("ingestion:getUploaderConfig", () => {
+        throw { data: { code: "PROVIDER_NOT_CONFIGURED", message: "The uploader key is not configured on this deployment yet." } };
+      });
+      await userEvent.click(page.getByRole("button", { name: "Download uploader" }));
+      await expect.poll(() => text(one("[data-import-uploader-error]"))).toBe(
+        "The uploader key is not configured on this deployment yet.",
+      );
+      expect(savedBlobs).toHaveLength(0);
+
+      // Configured deployment builds and downloads banhall-uploader.zip.
+      const testKey = "a".repeat(64);
+      __setMutationHandler("ingestion:getUploaderConfig", () => ({
+        url: "https://example.convex.site",
+        key: testKey,
+      }));
+      await userEvent.click(page.getByRole("button", { name: "Download uploader" }));
+      await expect.poll(() => savedBlobs.length).toBe(1);
+      expect(one("[data-import-uploader-error]")).toBeNull();
+      expect(__mutationCalls("ingestion:getUploaderConfig")).toHaveLength(2);
+
+      const { default: JSZip } = await import("jszip");
+      const zip = await JSZip.loadAsync(await savedBlobs[0]!.arrayBuffer());
+      expect(Object.keys(zip.files).sort()).toEqual([
+        "README.txt",
+        "Run-Uploader.bat",
+        "Run-Uploader.command",
+        "banhall-uploader.ps1",
+        "banhall-uploader.sh",
+        "uploader-config.json",
+        "uploader-lib.ps1",
+      ]);
+      expect(zip.file("Run-Uploader.command")!.unixPermissions).toBe(0o100755);
+      expect(zip.file("banhall-uploader.sh")!.unixPermissions).toBe(0o100755);
+      expect(JSON.parse(await zip.file("uploader-config.json")!.async("string"))).toEqual({
+        url: "https://example.convex.site",
+        key: testKey,
+        root: "",
+      });
+
+      await page.screenshot({ path: `${CAPTURES}/uploader-dialog-1440.png` });
+      await userEvent.click(page.getByRole("button", { name: "Done" }));
+      await expect.element(dialog).not.toBeInTheDocument();
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      revokeObjectUrlSpy.mockRestore();
+      anchorDispatchSpy.mockRestore();
+    }
   });
 });
 
