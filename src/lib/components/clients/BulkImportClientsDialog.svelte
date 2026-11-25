@@ -9,6 +9,7 @@
   import { useMutation, useQuery } from "convex-svelte";
   import { toast } from "svelte-sonner";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import FormDialog from "$lib/components/ui/FormDialog.svelte";
   import { formCancel, formError, formLabel, formPrimary } from "$lib/components/ui/formDialog";
   import { userErrorMessage } from "$lib/errors";
@@ -427,29 +428,30 @@
             {@const selectable = row.status === "new" || row.status === "similar"}
             {@const checked = selectable && selectedIndices.has(row.index)}
             {@const detail = rowDetail(row)}
-            <label
+            <div
               data-bulk-import-row={row.status}
-              class={`flex items-start gap-2.5 px-3 py-2 text-sm ${selectable ? "cursor-pointer hover:bg-primary-wash/40" : "opacity-75"}`}
+              class={`px-3 py-2 text-sm ${selectable ? "hover:bg-primary-wash/40" : "opacity-75"}`}
             >
-              <input
-                type="checkbox"
-                class="mt-0.5 size-4 shrink-0 rounded border-line accent-primary-selected"
-                disabled={!selectable || busy}
+              <Checkbox
                 {checked}
-                onchange={() => toggleRow(row.index)}
-              />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="truncate font-medium text-ink">{row.name || "(blank line)"}</span>
-                  <span class={`shrink-0 rounded px-1.5 py-0.5 text-[0.6875rem] leading-tight font-medium ${statusPillClass(row.status)}`}>
-                    {statusLabel(row.status)}
-                  </span>
-                </div>
-                {#if detail}
-                  <p class="mt-0.5 text-xs leading-[1.4] text-ink-muted">{detail}</p>
-                {/if}
-              </div>
-            </label>
+                disabled={!selectable || busy}
+                onCheckedChange={() => toggleRow(row.index)}
+              >
+                {#snippet label()}
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <span class="truncate font-medium text-ink">{row.name || "(blank line)"}</span>
+                      <span class={`shrink-0 rounded px-1.5 py-0.5 text-[0.6875rem] leading-tight font-medium ${statusPillClass(row.status)}`}>
+                        {statusLabel(row.status)}
+                      </span>
+                    </div>
+                    {#if detail}
+                      <p class="mt-0.5 text-xs leading-[1.4] text-ink-muted">{detail}</p>
+                    {/if}
+                  </div>
+                {/snippet}
+              </Checkbox>
+            </div>
           {/each}
         </div>
       {/if}

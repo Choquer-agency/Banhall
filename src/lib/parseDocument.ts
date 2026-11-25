@@ -68,7 +68,7 @@ export interface ParseOptions {
 import { capContent, MAX_CONTENT_CHARS } from "./documentContent";
 import { parseSpreadsheet } from "./spreadsheetClient";
 import type { SpreadsheetProgress } from "./spreadsheetProtocol";
-import { locatePageOffsets } from "../../shared/documentContent";
+import { joinPdfTextItems, locatePageOffsets } from "../../shared/documentContent";
 import { emailToText, emlToText, fmtPerson, MAX_MBOX_MESSAGES, splitMbox } from "../../shared/emailText";
 export { capContent } from "./documentContent";
 export { locatePageOffsets } from "../../shared/documentContent";
@@ -168,9 +168,9 @@ export async function parseFileToText(file: File, options: ParseOptions = {}): P
         try {
           const page = await withDeadline(pdf.getPage(i), deadline);
           const content = await withDeadline(page.getTextContent(), deadline);
-          const strings = content.items
-            .map((item) => ("str" in item ? item.str : ""))
-            .join(" ");
+          const strings = joinPdfTextItems(
+            content.items as readonly { str?: string; hasEOL?: boolean; transform?: readonly number[] }[]
+          );
           text += strings + "\n\n";
           pages.push(strings);
           onProgress?.({ kind: "pages", done: i, total: pageCount });

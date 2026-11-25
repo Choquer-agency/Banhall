@@ -71,7 +71,7 @@ import {
   requireRole,
   requireWeightManager,
 } from "./lib/auth";
-import { canManageWriterWeights } from "../shared/writerWeight";
+import { canManageWriterWeights, DEFAULT_WRITER_WEIGHT } from "../shared/writerWeight";
 import { domainError } from "./lib/contracts";
 import { sha256HexSync } from "./lib/sha256Sync";
 import { turnOffWithdrawnPublishedSet, withdrawFeedback, withdrawSourceFeedback } from "./lib/learningWithdrawal";
@@ -128,12 +128,17 @@ async function scheduleUnlearnAll(
 // failure evidence, never a servable entry).
 // Every change is written to brainAuditLog so the admin can see and revert it.
 
-/** Admin-only guard (the Brain is sacred — only the admin curates it). */
-async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
+/** Admin-only guard returning the full user record (so callers can check weight permissions). */
+async function assertAdminUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
   const user = await getCurrentUserOrNull(ctx);
   if (!user || user.isAnonymous === true) throw new Error("Not authenticated");
   if (user.role !== "admin") throw new Error("Admin only");
-  return user._id;
+  return user;
+}
+
+/** Admin-only guard (the Brain is sacred - only the admin curates it). */
+async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
+  return (await assertAdminUser(ctx))._id;
 }
 
 /** Non-throwing variant for dashboard queries: null → render "sign in" state. */
@@ -214,6 +219,11 @@ type ImportSourceArgs = {
    * Every other caller still refuses any revoked match.
    */
   supersedeSentBack?: boolean;
+  /**
+   * When true, approving a matching pending source leaves its existing
+   * writerTier intact instead of overwriting it with args.writerTier.
+   */
+  preservePendingWriterTier?: boolean;
 };
 
 /** What the refusal calls the thing being imported, from its doc type. */
@@ -398,7 +408,9 @@ export async function importSource(
       // same patch, so the counts and the embed's filters follow it.
       patch.status = "approved";
       patch.industry = args.industry;
-      patch.writerTier = args.writerTier;
+      if (!args.preservePendingWriterTier) {
+        patch.writerTier = args.writerTier;
+      }
       // A blank writer clears the nomination's, so the source and its card
       // show what the approver chose.
       patch.writerName = args.writerName;
@@ -479,12 +491,22 @@ export function sourceIdOrRefuse(result: ImportSourceResult): Id<"brainSources">
  * Add a curated gold PD (or transcript/CRA letter) to The Brain. For the
  * hand-picked ~10 (BNH-10 Phase 0) pass approve=true to ingest immediately;
  * for the bulk 500 (BNH-17) insert as pending and let the admin approve.
+ * Only workspace owners and developers (canManageWriterWeights) can supply a
+ * custom writerTier; plain Admins get the server default on insert and preserve
+ * any pending source's existing weight on approval.
  */
 export const importPdPair = mutation({
   args: importArgs,
   handler: async (ctx, args) => {
-    const admin = await assertAdmin(ctx);
-    return sourceIdOrRefuse(await importSource(ctx, args, admin));
+    const actor = await assertAdminUser(ctx);
+    const canManage = canManageWriterWeights(actor);
+    if (canManage && !Number.isFinite(args.writerTier)) {
+      throw new Error("Weight must be a number from 0 to 1.");
+    }
+    const nextArgs: ImportSourceArgs = canManage
+      ? { ...args, writerTier: Math.max(0, Math.min(1, args.writerTier)) }
+      : { ...args, writerTier: DEFAULT_WRITER_WEIGHT, preservePendingWriterTier: true };
+    return sourceIdOrRefuse(await importSource(ctx, nextArgs, actor._id));
   },
 });
 

@@ -27,13 +27,25 @@ describe("AddPastWriterDialog writer weight visibility", () => {
 
     await expect.poll(() => one('[data-testid="past-writer-dialog"]')).not.toBeNull();
     expect(one("[data-past-writer-weight-input]")).toBeNull();
-    const selectText = text(one("[data-past-writer-staff-role-select]"));
-    expect(selectText).not.toContain("default weight");
-    expect(selectText).toContain("Technical Writer");
+    const roleInput = one("#past-writer-staff-role") as HTMLInputElement;
+    expect(roleInput).not.toBeNull();
+    expect(one("[data-past-writer-staff-role-select] select")).toBeNull();
+
+    // Open SelectInput dropdown and confirm weights are hidden for non-weight managers.
+    await userEvent.click(roleInput);
+    await expect.poll(() => document.querySelectorAll('[role="option"]').length).toBeGreaterThan(1);
+    const optionsText = [...document.querySelectorAll('[role="option"]')].map((el) => text(el)).join(" | ");
+    expect(optionsText).not.toContain("default weight");
+    expect(optionsText).toContain("Technical Writer");
+
+    const techWriterOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+      (el) => text(el) === "Technical Writer"
+    );
+    expect(techWriterOption).not.toBeUndefined();
+    await userEvent.click(techWriterOption!);
 
     await userEvent.fill(one("[data-past-writer-name-input]")!, "Jordan Ellis");
     await userEvent.fill(one("[data-past-writer-initials-input]")!, "je");
-    await userEvent.selectOptions(one("[data-past-writer-staff-role-select]")!, "technical_writer");
     await userEvent.click(one('[data-past-writer-status="former"]')!);
     await userEvent.click(one("[data-past-writer-save]")!);
 
@@ -61,7 +73,12 @@ describe("AddPastWriterDialog writer weight visibility", () => {
     });
 
     await expect.poll(() => one("[data-past-writer-weight-input]")).not.toBeNull();
-    expect(text(one("[data-past-writer-staff-role-select]"))).toContain("default weight");
+    const roleInput = one("#past-writer-staff-role") as HTMLInputElement;
+    await userEvent.click(roleInput);
+    await expect.poll(() => document.querySelectorAll('[role="option"]').length).toBeGreaterThan(1);
+    const optionsText = [...document.querySelectorAll('[role="option"]')].map((el) => text(el)).join(" | ");
+    expect(optionsText).toContain("default weight");
+    await userEvent.keyboard("{Escape}");
 
     await userEvent.fill(one("[data-past-writer-name-input]")!, "Nadia Patel");
     await userEvent.fill(one("[data-past-writer-initials-input]")!, "np");

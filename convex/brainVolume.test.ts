@@ -862,4 +862,49 @@ describe("re-embedding at importance 1", () => {
     expect(await t.run(async (ctx) => (await ctx.db.get(fresh))?.writerTier)).toBe(0.2);
     enqueue.mockRestore();
   });
+
+  test("importPdPair ignores caller-supplied writerTier from plain Admins on insert and pending approval, while Owners can set it", async () => {
+    const { t, admin, plainAdmin } = await setup();
+
+    // Plain Admin inserts a new source trying to force weight 1.0 -> server uses default 0.7.
+    const createdByPlain = await plainAdmin.mutation(api.brain.importPdPair, {
+      title: "Plain Admin PD",
+      industry: "software",
+      writerTier: 1.0,
+      docType: "pd",
+      content: "Plain admin insert text",
+    });
+    expect(await t.run((ctx) => ctx.db.get(createdByPlain))).toMatchObject({
+      status: "pending",
+      writerTier: 0.7,
+    });
+
+    // Owner inserts a pending source at weight 0.95.
+    const ownedPending = await admin.mutation(api.brain.importPdPair, {
+      title: "Owner Pending PD",
+      industry: "software",
+      writerTier: 0.95,
+      docType: "pd",
+      content: "Owner pending text",
+    });
+    expect(await t.run((ctx) => ctx.db.get(ownedPending))).toMatchObject({
+      status: "pending",
+      writerTier: 0.95,
+    });
+
+    // Plain Admin approves that matching pending source trying to drop weight to 0.1 -> preserves 0.95.
+    const matched = await plainAdmin.mutation(api.brain.importPdPair, {
+      title: "Owner Pending PD",
+      industry: "software",
+      writerTier: 0.1,
+      docType: "pd",
+      content: "Owner pending text",
+      approve: true,
+    });
+    expect(matched).toBe(ownedPending);
+    expect(await t.run((ctx) => ctx.db.get(ownedPending))).toMatchObject({
+      status: "approved",
+      writerTier: 0.95,
+    });
+  });
 });

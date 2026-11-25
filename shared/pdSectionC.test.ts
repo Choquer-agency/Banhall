@@ -103,6 +103,16 @@ Klara Novak\tPrincipal Chemist, PhD
     ]);
   });
 
+  it("extracts contacts from single-line space-joined PDF page text", () => {
+    const pdfPageText =
+      "Section B - Project Descriptions 242 Thermal drift study. Section C - Additional project information 253 Employee directly involved 254 Name Dr. Samira Haddad, Ph.D. 255 Other employee 256 Name Ben Mercer 260 Names 261 Qualifications/experience Klara Novak - Principal Chemist 265 Was any work performed outside Canada? No";
+    expect(clientNamesFromSectionC(pdfPageText)).toEqual([
+      { name: "Samira Haddad", source: "section_c" },
+      { name: "Ben Mercer", source: "section_c" },
+      { name: "Klara Novak", source: "section_c" },
+    ]);
+  });
+
   it("ignores blank template placeholders and non-PD text", () => {
     const blankTemplate = `
 Section C

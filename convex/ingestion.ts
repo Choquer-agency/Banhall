@@ -4127,6 +4127,7 @@ export const reassignFileInitials = mutation({
     financialInitials: v.optional(v.union(v.string(), v.null())),
     coWriterInitials: v.optional(v.union(v.array(v.string()), v.null())),
     extraClientInitials: v.optional(v.union(v.array(v.string()), v.null())),
+    dropUnassignedInitials: v.optional(v.array(v.string())),
     reviewerInProgress: v.optional(v.boolean()),
   },
   returns: v.object({ changed: v.boolean() }),
@@ -4173,6 +4174,40 @@ export const reassignFileInitials = mutation({
       nextFinancial,
     ].filter((value): value is string => Boolean(value));
 
+    const previousSlotSet = new Set(
+      [
+        item.writerInitials,
+        ...(item.coWriterInitials ?? []),
+        item.reviewerInitials,
+        item.clientInitials,
+        ...(item.extraClientInitials ?? []),
+        item.financialInitials,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toUpperCase())
+    );
+    const nextSlotSet = new Set(presentSlots.map((value) => value.toUpperCase()));
+    const droppedSet = new Set<string>();
+    for (const raw of args.dropUnassignedInitials ?? []) {
+      const cleaned = savedInitials(raw);
+      if (cleaned === null) domainError("INVALID_INPUT", INITIALS_RULE);
+      if (cleaned) droppedSet.add(cleaned.toUpperCase());
+    }
+    const preservedUnassigned: string[] = [];
+    const seenUnassigned = new Set<string>();
+    for (const group of item.initialsGroups ?? []) {
+      const key = group.toUpperCase();
+      if (previousSlotSet.has(key) || nextSlotSet.has(key) || droppedSet.has(key) || seenUnassigned.has(key)) {
+        continue;
+      }
+      seenUnassigned.add(key);
+      preservedUnassigned.push(group);
+    }
+    const combinedGroups = [...presentSlots, ...preservedUnassigned];
+    const nextInitialsGroups =
+      combinedGroups.length >= 3 || preservedUnassigned.length > 0 ? combinedGroups : undefined;
+    const groupsChanged = slotsChanged || droppedSet.size > 0;
+
     const baseEdited = writerChanged
       ? (item.editedLabels ?? []).filter((label) => label !== "writerName")
       : item.editedLabels;
@@ -4184,11 +4219,7 @@ export const reassignFileInitials = mutation({
       financialInitials: nextFinancial,
       coWriterInitials: nextCoWriters,
       extraClientInitials: nextExtraClients,
-      initialsGroups: slotsChanged
-        ? presentSlots.length >= 3
-          ? presentSlots
-          : undefined
-        : item.initialsGroups,
+      initialsGroups: groupsChanged ? nextInitialsGroups : item.initialsGroups,
       editedLabels: mergeEditedLabels(baseEdited, ["initialsSlots"]),
     };
     if (writerChanged) {
@@ -5052,17 +5083,16 @@ async function readClientNames(
 ): Promise<Array<{ itemId: Id<"ingestionItems">; textStorageId: Id<"_storage"> | null; contacts: DocumentClientName[] }>> {
   const entries = [];
   for (const item of items) {
-    let contacts: DocumentClientName[] = [];
     try {
       const blob = item.textStorageId ? await ctx.storage.get(item.textStorageId) : null;
-      contacts = clientNamesFromSectionC(blob ? await blob.text() : (item.preview ?? ""));
+      const contacts = clientNamesFromSectionC(blob ? await blob.text() : (item.preview ?? ""));
+      entries.push({ itemId: item.itemId, textStorageId: item.textStorageId, contacts });
     } catch (error) {
       console.warn("Could not read a file's text for Section C contacts", {
         itemId: item.itemId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    entries.push({ itemId: item.itemId, textStorageId: item.textStorageId, contacts });
   }
   return entries;
 }
@@ -5096,7 +5126,7 @@ export const backfillDocumentClientNames = internalAction({
         });
       }
     }
-    const again = page.items.length > NAMES_BACKFILL_READS && saved;
+    const again = page.items.length > NAMES_BACKFILL_READS && saved && recorded > 0;
     const next = again || !page.isDone ? tab : WRITER_BACKFILL_TABS[WRITER_BACKFILL_TABS.indexOf(tab) + 1];
     if (next !== undefined) {
       await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentClientNames, {

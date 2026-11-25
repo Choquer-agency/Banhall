@@ -86,13 +86,13 @@ describe("BulkImportClientsDialog", () => {
     await expect.poll(() => all("[data-bulk-import-row]").length).toBe(4);
 
     // "new" is checked by default; "similar" is unchecked by default; "exists" and "merged" are disabled.
-    const newBox = one('[data-bulk-import-row="new"] input[type="checkbox"]') as HTMLInputElement;
-    const similarBox = one('[data-bulk-import-row="similar"] input[type="checkbox"]') as HTMLInputElement;
-    const existsBox = one('[data-bulk-import-row="exists"] input[type="checkbox"]') as HTMLInputElement;
-    const mergedBox = one('[data-bulk-import-row="merged"] input[type="checkbox"]') as HTMLInputElement;
+    const newBox = one('[data-bulk-import-row="new"] [role="checkbox"]') as HTMLButtonElement;
+    const similarBox = one('[data-bulk-import-row="similar"] [role="checkbox"]') as HTMLButtonElement;
+    const existsBox = one('[data-bulk-import-row="exists"] [role="checkbox"]') as HTMLButtonElement;
+    const mergedBox = one('[data-bulk-import-row="merged"] [role="checkbox"]') as HTMLButtonElement;
 
-    expect(newBox.checked).toBe(true);
-    expect(similarBox.checked).toBe(false);
+    expect(newBox.getAttribute("aria-checked")).toBe("true");
+    expect(similarBox.getAttribute("aria-checked")).toBe("false");
     expect(existsBox.disabled).toBe(true);
     expect(mergedBox.disabled).toBe(true);
     expect(text(one("[data-bulk-import-selected-count]"))).toBe("1 company selected to add");

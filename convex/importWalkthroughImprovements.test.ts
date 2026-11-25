@@ -576,4 +576,80 @@ describe("2026-11-23 walkthrough improvements", () => {
     });
     expect((await t.run((ctx) => ctx.db.get(id2)))?.documentClientNames).toBeUndefined();
   });
+
+  it("preserves unassigned 5th/6th filename groups when editing another slot until assigned or explicitly dropped", async () => {
+    const { t, admin } = await setup();
+    const path =
+      "Cedarline Systems/2025 - Mar 31/To be submitted/08 CedarlineSystems 2025-03-31 T1.TL.PN.BM.JT.FR KeepExtra.docx";
+    const id = await stageFile(t, path);
+
+    // Initial parse puts TL, PN, BM, JT in the 4 slots and leaves FR unassigned in initialsGroups.
+    expect((await admin.query(api.ingestion.sheetFile, { id }))?.initialsGroups).toEqual([
+      "TL",
+      "PN",
+      "BM",
+      "JT",
+      "FR",
+    ]);
+
+    // Editing only clientInitials preserves the unassigned FR group.
+    await admin.mutation(api.ingestion.reassignFileInitials, {
+      id,
+      clientInitials: "XX",
+    });
+    expect((await admin.query(api.ingestion.sheetFile, { id }))?.initialsGroups).toEqual([
+      "TL",
+      "PN",
+      "XX",
+      "JT",
+      "FR",
+    ]);
+
+    // Explicitly dropping FR removes it from initialsGroups.
+    await admin.mutation(api.ingestion.reassignFileInitials, {
+      id,
+      dropUnassignedInitials: ["FR"],
+    });
+    expect((await admin.query(api.ingestion.sheetFile, { id }))?.initialsGroups).toEqual([
+      "TL",
+      "PN",
+      "XX",
+      "JT",
+    ]);
+  });
+
+  it("leaves failed storage reads unpopulated during Section C backfill so a later run retries and succeeds", async () => {
+    const { t, admin } = await setup();
+    const sectionCText = [
+      "Section C - Additional project information",
+      "254",
+      "Name",
+      "Samira Haddad",
+      "265",
+      "No",
+    ].join("\n");
+    const path =
+      "Cedarline Systems/2025 - Mar 31/To be submitted/09 CedarlineSystems 2025-03-31 T1.TL.PN.SH RetryRead.docx";
+    const id = await stageFile(t, path, sectionCText);
+
+    const originalText = Blob.prototype.text;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const textSpy = vi.spyOn(Blob.prototype, "text").mockRejectedValueOnce(new Error("transient storage failure"));
+    try {
+      const firstRun = await t.action(internal.ingestion.backfillDocumentClientNames, {});
+      expect(firstRun.recorded).toBe(0);
+      expect((await t.run((ctx) => ctx.db.get(id)))?.documentClientNames).toBeUndefined();
+    } finally {
+      textSpy.mockImplementation(originalText);
+      textSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    // Retrying now reads the stored blob cleanly and populates Section C contacts.
+    const secondRun = await t.action(internal.ingestion.backfillDocumentClientNames, {});
+    expect(secondRun.recorded).toBe(1);
+    expect((await admin.query(api.ingestion.sheetFile, { id }))?.documentClientNames).toEqual([
+      { name: "Samira Haddad", source: "section_c" },
+    ]);
+  });
 });

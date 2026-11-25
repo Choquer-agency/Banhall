@@ -97,4 +97,35 @@ describe("ImportInitialsSlots", () => {
     );
     expect(one("[data-import-initials-financial-hint]")).toBeNull();
   });
+
+  it("shows unassigned extra filename groups and lets an admin explicitly remove one", async () => {
+    __setMutationHandler("ingestion:reassignFileInitials", () => ({ ok: true }));
+
+    await render(ImportInitialsSlots, {
+      fileId: "item-3" as Id<"ingestionItems">,
+      writerInitials: "TL",
+      reviewerInitials: "PN",
+      clientInitials: "BM",
+      financialInitials: "JT",
+      initialsGroups: ["TL", "PN", "BM", "JT", "FR"],
+    });
+
+    expect(text(one("[data-import-initials-unassigned]"))).toContain("FR");
+    await userEvent.click(one('[data-import-initials-drop-unassigned="FR"]')!);
+    await expect.poll(() => one("[data-import-initials-unassigned]")).toBeNull();
+
+    await userEvent.click(one("[data-import-initials-save]")!);
+    await expect.poll(() => __mutationCalls("ingestion:reassignFileInitials").length).toBe(1);
+    expect(__mutationCalls("ingestion:reassignFileInitials")[0]).toEqual({
+      id: "item-3",
+      writerInitials: "TL",
+      reviewerInitials: "PN",
+      clientInitials: "BM",
+      financialInitials: "JT",
+      coWriterInitials: null,
+      extraClientInitials: null,
+      dropUnassignedInitials: ["FR"],
+      reviewerInProgress: false,
+    });
+  });
 });

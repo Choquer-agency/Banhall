@@ -46,3 +46,37 @@ export function locatePageOffsets(content: string, pages: readonly string[]): nu
   }
   return offsets;
 }
+
+/**
+ * Joins pdf.js page text items while preserving line boundaries indicated by
+ * `hasEOL` or baseline Y-coordinate changes. Keeps single-line pages identical
+ * to space-joining so existing page-offset and search behavior stays intact.
+ */
+export function joinPdfTextItems(
+  items: readonly { str?: string; hasEOL?: boolean; transform?: readonly number[] }[]
+): string {
+  const lines: string[] = [];
+  let current: string[] = [];
+  let lastY: number | null = null;
+  for (const item of items) {
+    const str = typeof item.str === "string" ? item.str : "";
+    const y = Array.isArray(item.transform) && typeof item.transform[5] === "number" ? item.transform[5] : null;
+    if (str && lastY !== null && y !== null && Math.abs(y - lastY) > 2 && current.length > 0) {
+      lines.push(current.join(" ").trim());
+      current = [];
+    }
+    if (str) {
+      current.push(str);
+      if (y !== null) lastY = y;
+    }
+    if (item.hasEOL) {
+      if (current.length > 0) {
+        lines.push(current.join(" ").trim());
+        current = [];
+      }
+      lastY = null;
+    }
+  }
+  if (current.length > 0) lines.push(current.join(" ").trim());
+  return lines.filter(Boolean).join("\n");
+}

@@ -350,14 +350,30 @@ export function parseSectionCPersonName(raw: string): string | null {
   return formatted.length <= MAX_NAME_LENGTH ? formatted : null;
 }
 
-const SECTION_C_ANCHOR = /(?:^|\n)[ \t]*(?:section\s+c\b|253\b|254\b|260\b)/i;
+const SECTION_C_LINE_ANCHOR = /(?:^|\n)[ \t]*(?:section\s+c\b|253\b|254\b|260\b)/i;
+const SECTION_C_INLINE_ANCHOR = /\bsection\s+c\b/i;
+const SECTION_C_INLINE_FIELD_ANCHOR =
+  /\b(?:253\s+employee\b|254\s+name\b|260\s+(?:names?\b|\/\s*261\b|list\s+the\s+key\b))/i;
+const INLINE_CRA_LINE_BREAK =
+  /([^\n/])[ \t]+(?=(?:25[3-9]|26[015-9]|27\d|28\d|29\d)(?:\s|$)|(?:section\s+d|part\s+3)\b)/gi;
 const LINE_254_OR_256 = /^25[46](?:\b|(?=\s))/;
 const LINE_260 = /^260(?:\s*\/\s*261)?(?:\b|(?=\s))/;
 const ANY_CRA_LINE_NUMBER = /^(?:2[456789]\d|3\d\d)(?:\b|(?=\s))/;
 const SECTION_C_STOP = /^(?:26[5-9]|27\d|28\d|29\d|section\s+d\b|part\s+3\b|line\s+26[5-9]\b)/i;
 const TABLE_HEADER_LINE =
   /^(?:26[01]\b|names?\b|qualifications?\b|education\b|experience\b|title\b|role\b|list\s+the\s+key\s+individuals\b|indicate\s+their\b)/i;
+const INLINE_TABLE_HEADER_PREFIX =
+  /^(?:26[01](?:\s*\/\s*261)?\s*)?(?:list\s+the\s+key\s+individuals[^\n]*?(?:qualifications\s*\/\s*experience|experience)|qualifications\s*\/\s*experience|names?)\s*:?\s*/i;
 const LABEL_ONLY_LINE = /^(?:name|names|employee|other\s+employee|external\s+consultant|firm)\s*:?$/i;
+
+function findSectionCStart(normalized: string): number {
+  const lineMatch = SECTION_C_LINE_ANCHOR.exec(normalized);
+  if (lineMatch) return lineMatch.index;
+  const inlineSection = SECTION_C_INLINE_ANCHOR.exec(normalized);
+  if (inlineSection) return inlineSection.index;
+  const inlineField = SECTION_C_INLINE_FIELD_ANCHOR.exec(normalized);
+  return inlineField ? inlineField.index : -1;
+}
 
 function splitInlineNames(raw: string): string[] {
   // A single 254/256 cell occasionally lists two names separated by " and ", " & ", or "/".
@@ -383,11 +399,15 @@ function splitInlineNames(raw: string): string[] {
 export function clientNamesFromSectionC(text: string): DocumentClientName[] {
   if (!text) return [];
   const normalized = text.replace(/\r\n?/g, "\n").replace(/\u00a0/g, " ");
-  const anchor = SECTION_C_ANCHOR.exec(normalized);
-  if (!anchor) return [];
+  const start = findSectionCStart(normalized);
+  if (start < 0) return [];
 
-  const windowText = normalized.slice(anchor.index, anchor.index + MAX_SECTION_C_WINDOW);
-  const rawLines = windowText.split("\n");
+  const windowText = normalized.slice(start, start + MAX_SECTION_C_WINDOW);
+  // PDF pages extracted as a single space-joined line place CRA line numbers
+  // inline; split before Section C line markers so the line parser reads both
+  // multi-line and single-line PDF layouts uniformly.
+  const expanded = windowText.replace(INLINE_CRA_LINE_BREAK, "$1\n");
+  const rawLines = expanded.split("\n");
   const lines: string[] = [];
   for (const rawLine of rawLines) {
     const trimmed = rawLine.trim();
@@ -445,7 +465,14 @@ export function clientNamesFromSectionC(text: string): DocumentClientName[] {
           break;
         }
         scanned += 1;
-        if (TABLE_HEADER_LINE.test(row)) continue;
+        if (TABLE_HEADER_LINE.test(row)) {
+          const remainder = row.replace(INLINE_TABLE_HEADER_PREFIX, "").trim();
+          if (remainder && !TABLE_HEADER_LINE.test(remainder)) {
+            const firstCol = remainder.includes("\t") ? (remainder.split("\t")[0] ?? "") : remainder;
+            addCandidate(firstCol);
+          }
+          continue;
+        }
         // Tab-separated table rows ("Samira Haddad\tCTO, 12 years...") take the first column.
         const firstCol = row.includes("\t") ? (row.split("\t")[0] ?? "") : row;
         addCandidate(firstCol);

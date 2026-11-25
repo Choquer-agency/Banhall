@@ -5,6 +5,7 @@
   // creating) an optional custom weight.
   import TeamDialog from "./TeamDialog.svelte";
   import Input from "$lib/components/ui/Input.svelte";
+  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
   import {
     INITIALS_RULE,
@@ -52,7 +53,8 @@
 
   let name = $state("");
   let initials = $state("");
-  let staffRole = $state<WriterStaffRole | "">("");
+  // Typed as string (not WriterStaffRole | "") so bind:value works with SelectInput.
+  let staffRole = $state("");
   let isActive = $state(true);
   let weightText = $state("");
   let saving = $state(false);
@@ -70,7 +72,24 @@
     }
   });
 
-  const selectedStaffRole = $derived<WriterStaffRole | null>(staffRole === "" ? null : staffRole);
+  const selectedStaffRole = $derived<WriterStaffRole | null>(
+    WRITER_STAFF_ROLES.find((role) => role === staffRole) ?? null
+  );
+  const staffRoleItems = $derived([
+    {
+      value: "",
+      label: canSetWeight ? "Not set (default weight 0.7)" : "Not set",
+    },
+    ...WRITER_STAFF_ROLES.map((role) => {
+      const w = WRITER_STAFF_ROLE_DEFAULT_WEIGHTS[role];
+      return {
+        value: role,
+        label: canSetWeight
+          ? `${WRITER_STAFF_ROLE_LABELS[role]} (${w !== null ? `default weight ${writerWeightText(w)}` : "unweighted"})`
+          : WRITER_STAFF_ROLE_LABELS[role],
+      };
+    }),
+  ]);
   const roleDefaultText = $derived(writerWeightText(defaultWeightForStaffRole(selectedStaffRole)));
   const title = $derived(mode === "create" ? "Add person without login" : "Edit initials and status");
   const description = $derived(
@@ -168,26 +187,17 @@
       <p class="text-xs leading-[calc(4/3)] text-ink-muted">1 to 4 letters, matched against PD filenames during Import.</p>
     </div>
 
-    <div class="flex flex-col gap-1.5">
+    <div class="flex flex-col gap-1.5" data-past-writer-staff-role-select>
       <label for="past-writer-staff-role" class="text-xs leading-[calc(4/3)] font-medium text-ink-secondary">PD staff role</label>
-      <select
+      <SelectInput
         id="past-writer-staff-role"
-        data-past-writer-staff-role-select
         bind:value={staffRole}
-        class="field-control h-9 w-full rounded-lg px-3 text-sm text-ink"
-      >
-        <option value="">{canSetWeight ? "Not set (default weight 0.7)" : "Not set"}</option>
-        {#each WRITER_STAFF_ROLES as role (role)}
-          {@const w = WRITER_STAFF_ROLE_DEFAULT_WEIGHTS[role]}
-          <option value={role}>
-            {#if canSetWeight}
-              {WRITER_STAFF_ROLE_LABELS[role]} ({w !== null ? `default weight ${writerWeightText(w)}` : "unweighted"})
-            {:else}
-              {WRITER_STAFF_ROLE_LABELS[role]}
-            {/if}
-          </option>
-        {/each}
-      </select>
+        items={staffRoleItems}
+        ariaLabel="PD staff role"
+        placeholder={canSetWeight ? "Not set (default weight 0.7)" : "Not set"}
+        size="md"
+        disabled={saving}
+      />
     </div>
 
     <fieldset class="flex flex-col gap-1.5">
