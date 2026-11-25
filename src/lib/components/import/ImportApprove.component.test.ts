@@ -608,13 +608,13 @@ describe("the file view", () => {
     const label = (name: string) => text(one(`[data-import-file-panel-label="${name}"]`));
     expect(label("Company")).toBe("Cedarline Systems");
     expect(label("Kind")).toBe("Final PD");
-    expect(label("Where")).toBe("To review");
     expect(label("Version")).toBe("T2");
     expect(label("Writer")).toBe("Dana Whitlock");
-    expect(label("Reviewer initials")).toBe("PN");
-    expect(label("Path")).toBe(FILE.path);
-    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(page1.length);
-    expect(text(one("[data-import-file-panel-text-note]"))).toBe(`Showing ${page1.length.toLocaleString("en-US")} of ${(page1.length + 8).toLocaleString("en-US")} characters.`);
+    expect(label("Path")).toBe("Cedarline Systems / 2025 - Mar 31 / Submitted");
+    await expect.poll(() => text(one("[data-import-file-panel-text-note]"))).toBe(
+      `Showing ${page1.length.toLocaleString("en-US")} of ${(page1.length + 8).toLocaleString("en-US")} characters.`
+    );
+    expect(text(one("[data-import-file-panel-text]"))).toContain("Route planning engine.");
     expect(__mutationCalls("ingestion:sheetFileText")).toEqual([{ id: "pd1", start: 0 }]);
     await userEvent.click(page.getByRole("button", { name: "Show more" }));
     await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.endsWith("The end.")).toBe(true);
@@ -641,21 +641,21 @@ describe("the file view", () => {
     await mount();
     await openCedarline();
     await userEvent.click(one('[data-import-file-open="pd1"]')!);
-    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(size);
+    await expect.poll(() => text(one("[data-import-file-panel-text-note]"))).toContain(`Showing ${size.toLocaleString("en-US")}`);
     await userEvent.click(page.getByRole("button", { name: "Show more" }));
-    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(size * 2);
+    await expect.poll(() => text(one("[data-import-file-panel-text-note]"))).toContain(`Showing ${(size * 2).toLocaleString("en-US")}`);
     await userEvent.click(page.getByRole("button", { name: "Show more" }));
     await expect.poll(() => releaseThird !== null).toBe(true);
     // Closed while the third page loads, then the same file opened again.
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => one("[data-import-file-panel]")).toBeNull();
     await userEvent.click(one('[data-import-file-open="pd1"]')!);
-    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(size);
+    await expect.poll(() => text(one("[data-import-file-panel-text-note]"))).toContain(`Showing ${size.toLocaleString("en-US")}`);
     releaseThird!();
     await new Promise((settle) => setTimeout(settle, 50));
     const shown = one("[data-import-file-panel-text]")?.textContent ?? "";
-    expect(shown.length).toBe(size);
     expect(shown.includes("C")).toBe(false);
+    expect(text(one("[data-import-file-panel-text-note]"))).toContain(`Showing ${size.toLocaleString("en-US")}`);
     // Show more goes on from where the text ends: the second page.
     await userEvent.click(page.getByRole("button", { name: "Show more" }));
     expect(__mutationCalls("ingestion:sheetFileText").at(-1)).toEqual({ id: "pd1", start: size });
@@ -770,21 +770,45 @@ describe("captures (2026-11-17, Approve on Import)", () => {
         path: "Cedarline Systems/2025 - Mar 31/Submitted/01 Cedarline 2025-03-31 T2.DW.PN Route planning engine.docx",
         docKind: "pd",
         addedAt: Date.UTC(2026, 10, 12),
-        addedVia: "onedrive_sync",
+        addedVia: "folder_upload",
         lastModifiedAt: 1,
+        size: 217_088,
         hasText: true,
         hasOriginal: true,
+        originalUrl: "https://files.test/pd1.docx",
+        scienceCode: undefined,
+        checkReasons: ["no_science_code"],
         reviewerInitials: "PN",
         name: "01 Cedarline 2025-03-31 T2.DW.PN Route planning engine.docx",
       });
-      __setMutationHandler("ingestion:sheetFileText", () => ({
-        text: "Project description\n\nCedarline Systems set out to plan delivery routes that adapt to freezer loads.\n\nLine 242: The team did not know whether...\n".repeat(20),
-        start: 0,
-        end: 20_000,
-        total: 48_210,
-        source: "full",
-        cutAtImport: false,
-      }));
+      __setMutationHandler("ingestion:sheetFileText", () => {
+        const body = [
+          "Project start: Apr 2, 2024",
+          "Project end: Still going",
+          "Sites: Two Cedarline depots",
+          "Field of science or technology code: to be added",
+          "",
+          "Uncertainty",
+          "Freezer truck loads shift temperature nonlinearly across 400 urban stops, and dispatchers needed route recalculations in under 30 seconds when a unit failed mid-route. Existing commercial routing engines could not re-solve thermal and time-window constraints within that latency budget.",
+          "",
+          "Work done",
+          "We captured 18,000 route telemetry runs across two depots and built a two-stage heuristic solver with incremental thermal decay estimates. We tested three constraint-relaxation strategies on peak summer loads and benchmarked each against historical dispatch logs.",
+          "",
+          "Advancement",
+          "Incremental thermal pruning reduced median re-plan time from 140 seconds to 19 seconds while keeping 98.4% of frozen loads within safe bounds. Multi-depot handoffs during cascading failures remain open for next year.",
+          "",
+          "Records kept",
+          "Weekly benchmark sheets, solver test logs, and the anonymized depot telemetry set saved in the project folder.",
+        ].join("\n");
+        return {
+          text: body,
+          start: 0,
+          end: body.length,
+          total: body.length,
+          source: "full",
+          cutAtImport: false,
+        };
+      });
       await userEvent.click(one('[data-import-file-open="pd1"]')!);
       await expect.poll(() => one("[data-import-file-panel-text]")).not.toBeNull();
       // After the dialog's fade (300ms, layout.css).

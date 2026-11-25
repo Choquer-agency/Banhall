@@ -276,7 +276,8 @@ describe("Import page redesign interactions", () => {
     await userEvent.click(one('[data-import-file-panel-view="original"]')!);
     await expect.poll(() => one("[data-import-file-panel-original-pdf]")?.getAttribute("src")).toBe("https://files.test/pd1.pdf");
 
-    // Inline CRA toggle works inside the preview pane
+    // Inline CRA toggle works inside the collapsed More details disclosure
+    await userEvent.click(one("[data-import-file-panel-more-details]")!);
     await userEvent.click(one("[data-import-panel-cra-toggle]")!);
     await expect.poll(() => __mutationCalls("ingestion:setCraReviewed")).toEqual([{ ids: ["pd1"], reviewed: true }]);
 
@@ -285,7 +286,8 @@ describe("Import page redesign interactions", () => {
     await userEvent.click(one("[data-import-file-panel-approve]")!);
     await expect.poll(() => __mutationCalls("ingestion:approveFiles")).toEqual([{ ids: ["pd1"] }]);
     await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("1 of 2");
-    await expect.poll(() => text(one("[data-import-file-panel-checks]"))).toContain("Needs a science code");
+    await expect.poll(() => text(one("[data-import-file-panel-checks]"))).toContain("The document has no code.");
+    await expect.poll(() => text(one("[data-import-file-panel-callout]"))).toContain("Field of science or technology code:");
 
     // Next and previous pager buttons navigate between remaining files
     await userEvent.click(one("[data-import-file-panel-next]")!);

@@ -47,7 +47,7 @@ const CHECK_WORDS: Record<CheckReason, string> = {
 
 /** What a file still needs before it can be approved, one line each. */
 export function checkLines(reasons: readonly CheckReason[]): string[] {
-  return [...new Set(reasons)].map((reason) => CHECK_WORDS[reason]);
+  return [...new Set(reasons)].map((reason) => CHECK_WORDS[reason]).filter((line): line is string => Boolean(line));
 }
 
 /** Where a file is: its tab, or that it is still being read. */

@@ -1,18 +1,18 @@
 <!--
-  The file preview panel (Paper Files 7 and Files 8): a 1000px split-pane view
-  opened from any file's name or row menu.
+  The file preview panel (Paper Files 7 and Files 8, node 5Z7U-0): a 1000px
+  split-pane view opened from any file's name or row menu.
   - Header: PD number muted + title, "{Company} - {Category}" subtitle,
     "{i} of {N}" with < > prev/next navigation, and close button.
   - Left document pane (bg-gray-50): "What AI read" | "Original" segmented
     switch, short caption, right-aligned Download link, and a Ledger Paper
-    document sheet showing extracted text (paged 20k chars at a time via
-    sheetFileText) or the rendered original file (.docx via Mammoth, .pdf
+    document sheet showing cleaned structured text (paged 20k chars at a time
+    via sheetFileText) or the rendered original file (.docx via Mammoth, .pdf
     iframe, .xlsx/.csv tables, or image).
-  - Right Labels & Details pane (360px): editable pickers on To review
-    (Company, Category, Fiscal year end, Version, Writer, Reviewer, Science
-    code with an amber highlight strip when missing, PD number, CRA reviewed),
-    initials slot editing, Approved details on Approved, and provenance below a
-    hairline (Added, Folder, Size).
+  - Right Labels pane (360px): clean Paper layout with Company, Category,
+    Fiscal year end, Version, Writer, Science code (full-bleed amber highlight
+    strip when missing), Approved details on Approved, and Provenance below a
+    hairline (Added, Folder, Size) with a collapsed "More details" disclosure
+    for PD number, Reviewer, and CRA reviewed.
   - Footer: Delete + helper note on left, primary Approve and next on right
     (or Put back on Deleted).
 -->
@@ -40,14 +40,13 @@
   import ScienceCodeList from "$lib/components/project/details/ScienceCodeList.svelte";
   import { companiesPath } from "$lib/companies/companies";
   import { userErrorMessage } from "$lib/errors";
-  import { approveRefusalFor, categoryTakes } from "../../../../shared/importSheetRules";
-  import { matchClientInitials } from "../../../../shared/pdSectionC";
+  import { approveRefusalFor } from "../../../../shared/importSheetRules";
+  import { documentSheetSubtitle, formatAiReadDocument, formatFolderPath } from "./aiReadFormat";
   import { BRAIN_STATE_TEXT, NOT_ON_COMPANY_PAGE } from "./importApprove";
   import { CRA_REVIEWED } from "./importApproved";
   import { deleteFiles, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles } from "./importActions";
   import ImportApprovedDetails from "./ImportApprovedDetails.svelte";
   import ImportCompanyList from "./ImportCompanyList.svelte";
-  import ImportInitialsSlots from "./ImportInitialsSlots.svelte";
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import ImportPickerPopover from "./ImportPickerPopover.svelte";
   import ImportVersionPicker from "./ImportVersionPicker.svelte";
@@ -68,8 +67,8 @@
     type BatchResult,
     type MovePatch,
   } from "./importEdit";
-  import { CATEGORY_NAMES, checkLines, fileStateText, FILE_VIEW_MAX_CHARS, textNote } from "./importFileView";
-  import { fileCells, isBeingRead, yearEndDate, type SheetFileRow, type SheetTab } from "./importFormat";
+  import { CATEGORY_NAMES, checkLines, FILE_VIEW_MAX_CHARS, textNote } from "./importFileView";
+  import { fileCells, yearEndDate, type SheetFileRow, type SheetTab } from "./importFormat";
   import {
     detectFileKind,
     fileTypeLabel,
@@ -133,6 +132,7 @@
 
   // ─── Document view mode (What AI read | Original) ───────────────────────
   let viewMode = $state<"ai" | "original">("ai");
+  let moreDetailsOpen = $state(false);
 
   type LoadedText = { text: string; total: number; source: "full" | "preview" | "none"; cutAtImport: boolean };
   let loaded = $state<LoadedText | null>(null);
@@ -182,6 +182,7 @@
       generation += 1;
       originalGeneration += 1;
       viewMode = "ai";
+      moreDetailsOpen = false;
       loaded = null;
       loading = false;
       textError = null;
@@ -227,7 +228,7 @@
     untrack(() => void loadOriginal(targetId, url, kind));
   });
 
-  // ─── Derived state & abilities ──────────────────────────────────────────
+  // ─── Derived state & formatted AI document ──────────────────────────────
   const shown = $derived(loaded?.text.length ?? 0);
   const canShowMore = $derived(Boolean(loaded && shown < loaded.total && shown < FILE_VIEW_MAX_CHARS));
   const note = $derived(loaded ? textNote({ shown, total: loaded.total, source: loaded.source, cutAtImport: loaded.cutAtImport }) : null);
@@ -237,8 +238,12 @@
   const isReview = $derived(file?.sheetTab === "review");
   const isDeleted = $derived(file?.sheetTab === "deleted");
   const checks = $derived(file && isReview ? checkLines(file.checkReasons) : []);
-  const canEditInitials = $derived(
-    Boolean(file && isReview && !isBeingRead(file.status) && categoryTakes("writerName", file.category))
+  const writerMissingInline = $derived(Boolean(!approved && can?.writer && cells?.writer?.tone === "amber"));
+  const codeMissingInline = $derived(Boolean(!approved && can?.scienceCode && cells?.scienceCode?.kind === "missing"));
+  const extraChecks = $derived(
+    checks.filter(
+      (line) => !(writerMissingInline && line === "Needs a writer") && !(codeMissingInline && line === "Needs a science code")
+    )
   );
   const canApprove = $derived(Boolean(file && isReview && approveRefusalFor(file) === null));
   const subtitle = $derived.by(() => {
@@ -247,6 +252,23 @@
     const category = CATEGORY_NAMES[file.category];
     return company ? `${company} - ${category}` : category;
   });
+
+  const documentTitle = $derived(file?.pdTitle?.trim() || cells?.title || "File");
+  const documentSubtitle = $derived(file ? documentSheetSubtitle(file.category, file.clientName) : "");
+  const formattedAiRead = $derived(
+    loaded && loaded.text ? formatAiReadDocument(loaded.text, { documentTitle }) : { blocks: [], hasScienceCodeField: false }
+  );
+  const showMissingCodeCallout = $derived(
+    Boolean(isReview && cells?.scienceCode?.kind === "missing" && !formattedAiRead.hasScienceCodeField)
+  );
+  const hasSecondaryFields = $derived(
+    Boolean(
+      !approved &&
+        file &&
+        can &&
+        (can.pdNumber || file.pdNumber || can.reviewer || file.reviewerName || (file.category === "final_pd" && (can.craReviewed || file.craReviewed)))
+    )
+  );
 
   // ─── Inline label editing (To review) ───────────────────────────────────
   let acting = $state(false);
@@ -372,27 +394,12 @@
     }
   }
 
-  // ─── Supplementary read-only labels ─────────────────────────────────────
-  const clientInitialsFormatted = $derived.by(() => {
-    if (!file) return null;
-    const allCodes = [file.clientInitials, ...(file.extraClientInitials ?? [])].filter(
-      (code): code is string => Boolean(code)
-    );
-    if (allCodes.length === 0) return null;
-    return allCodes
-      .map((code) => {
-        const hit = matchClientInitials(file.documentClientNames, code, { companyName: file.clientName });
-        return hit ? `${code} - ${hit.name}` : code;
-      })
-      .join(", ");
-  });
-
-  const addedText = $derived.by(() => {
-    if (!file) return "";
-    const date = new Date(file.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    return file.addedVia === "folder_upload" ? `With the uploader, ${date}` : `By OneDrive sync, ${date}`;
-  });
-
+  // ─── Provenance formatting (Paper Files 7) ──────────────────────────────
+  const addedPrimary = $derived(file ? (file.addedVia === "folder_upload" ? "With the uploader" : "By OneDrive sync") : "");
+  const addedDate = $derived(
+    file ? new Date(file.addedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
+  );
+  const folderDisplay = $derived(file ? formatFolderPath(file.path) : "");
   const sizeAndType = $derived.by(() => {
     if (!file) return "";
     const size = formatFileSize(file.size);
@@ -420,16 +427,16 @@
       class="fixed inset-y-0 right-0 z-[106] flex w-full max-w-[62.5rem] flex-col border-l border-line bg-surface shadow-dialog outline-none"
     >
       <!-- Header: PD number + title, "{Company} - {Category}" subtitle, {i} of {N} < >, Close -->
-      <header class="flex shrink-0 items-center justify-between gap-4 border-b border-line-soft px-6 py-3.5">
+      <header class="flex shrink-0 items-center justify-between gap-4 border-b border-line-soft px-6 py-4">
         <div class="flex min-w-0 flex-1 flex-col gap-0.5">
           <Dialog.Title
-            class="flex min-w-0 items-baseline gap-2.5 text-[1rem] leading-[1.35] font-medium text-ink"
+            class="flex min-w-0 items-baseline gap-2.5 text-[1.0625rem] leading-[1.35] font-medium text-ink"
             data-import-file-panel-title
           >
             {#if cells?.prefix}<span class="shrink-0 font-normal text-ink-muted">{cells.prefix}</span>{/if}
             <span class="min-w-0 truncate">{cells?.title ?? "File"}</span>
           </Dialog.Title>
-          <Dialog.Description class={`${SHEET_SMALL} truncate text-ink-muted`}>{subtitle}</Dialog.Description>
+          <Dialog.Description class="truncate text-[0.8125rem] leading-[1.35] text-ink-muted">{subtitle}</Dialog.Description>
         </div>
 
         <div class="flex shrink-0 items-center gap-2">
@@ -481,7 +488,7 @@
         {:else if file && cells && can}
           <!-- Left document pane -->
           <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-gray-50" aria-label="Document preview">
-            <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 px-6 py-3">
+            <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 px-6 py-3.5">
               <div class="flex min-w-0 items-center gap-3">
                 <div
                   role="tablist"
@@ -494,7 +501,7 @@
                     aria-selected={viewMode === "ai"}
                     data-import-file-panel-view="ai"
                     onclick={() => (viewMode = "ai")}
-                    class={`rounded-md px-2.5 py-1 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
+                    class={`rounded-md px-3 py-1 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
                       viewMode === "ai"
                         ? "bg-primary font-medium text-on-primary"
                         : "text-ink-secondary hover:text-ink"
@@ -506,7 +513,7 @@
                     aria-selected={viewMode === "original"}
                     data-import-file-panel-view="original"
                     onclick={() => (viewMode = "original")}
-                    class={`rounded-md px-2.5 py-1 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
+                    class={`rounded-md px-3 py-1 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
                       viewMode === "original"
                         ? "bg-primary font-medium text-on-primary"
                         : "text-ink-secondary hover:text-ink"
@@ -525,36 +532,90 @@
                   target="_blank"
                   rel="noopener noreferrer"
                   data-import-file-panel-download
-                  class="inline-flex items-center gap-1 rounded-sm text-xs leading-[calc(4/3)] font-medium text-primary-selected transition-colors duration-150 ease-out hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
-                >
-                  <DownloadSimpleIcon size="0.8125rem" aria-hidden="true" />
-                  <span>Download</span>
-                </a>
+                  class="rounded-sm text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected transition-colors duration-150 ease-out hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+                >Download</a>
               {/if}
             </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
               {#if viewMode === "ai"}
-                <div class="mx-auto w-full max-w-[38rem] rounded-xl border border-line-soft bg-surface px-7 py-6 shadow-xs">
+                <article class="mx-auto w-full max-w-[39rem] rounded-xl border border-line-soft bg-surface px-10 py-9 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
                   {#if textError}
                     <p role="alert" class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{textError}</p>
                   {:else if !loaded}
-                    <div role="status" aria-label="Loading the text" class="flex flex-col gap-2.5">
-                      {#each [0, 1, 2, 3, 4] as index (index)}
-                        <span class={`h-3 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none ${index === 4 ? "w-2/3" : "w-full"}`}></span>
-                      {/each}
+                    <div role="status" aria-label="Loading the text" class="flex flex-col gap-3">
+                      <span class="h-5 w-1/2 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none"></span>
+                      <span class="h-3 w-1/3 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none"></span>
+                      <div class="mt-4 flex flex-col gap-2.5">
+                        {#each [0, 1, 2, 3] as index (index)}
+                          <span class={`h-3 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none ${index === 3 ? "w-2/3" : "w-full"}`}></span>
+                        {/each}
+                      </div>
                     </div>
                   {:else if loaded.source === "none" || loaded.total === 0}
                     <p data-import-file-panel-no-text class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
                       No text could be read from this file.
                     </p>
                   {:else}
-                    <div
-                      data-import-file-panel-text
-                      class="text-[0.8125rem] leading-[1.6] whitespace-pre-wrap break-words text-ink-secondary"
-                    >{loaded.text}</div>
+                    <header class="mb-6">
+                      <h3 class="text-[1.125rem] leading-[1.35] font-medium text-ink">{documentTitle}</h3>
+                      <p class="mt-1 text-[0.8125rem] leading-[1.45] text-ink-muted">{documentSubtitle}</p>
+                    </header>
+
+                    <div data-import-file-panel-text class="min-w-0 break-words">
+                      {#if showMissingCodeCallout && formattedAiRead.blocks[0]?.kind !== "metadata"}
+                        <div
+                          data-import-file-panel-callout
+                          class="mb-5 rounded-lg bg-warning-surface/70 px-3.5 py-2 text-[0.8125rem] leading-[1.45]"
+                        >
+                          <span class="font-medium text-ink">Field of science or technology code:</span>
+                          <span class="ml-1 text-warning-ink">to be added</span>
+                        </div>
+                      {/if}
+
+                      {#each formattedAiRead.blocks as block, idx (idx)}
+                        {#if block.kind === "metadata"}
+                          <dl class="mt-5 flex flex-col gap-2 text-[0.8125rem] leading-[1.45] first:mt-0">
+                            {#each block.rows as row, rowIdx (rowIdx)}
+                              <div class="grid grid-cols-[8.75rem_minmax(0,1fr)] items-baseline gap-x-4">
+                                <dt class="text-ink-muted">{row.label}</dt>
+                                <dd class="min-w-0 text-ink-secondary">{row.value}</dd>
+                              </div>
+                            {/each}
+                          </dl>
+                          {#if showMissingCodeCallout && idx === 0}
+                            <div
+                              data-import-file-panel-callout
+                              class="mt-4 rounded-lg bg-warning-surface/70 px-3.5 py-2 text-[0.8125rem] leading-[1.45]"
+                            >
+                              <span class="font-medium text-ink">Field of science or technology code:</span>
+                              <span class="ml-1 text-warning-ink">to be added</span>
+                            </div>
+                          {/if}
+                        {:else if block.kind === "callout"}
+                          <div
+                            data-import-file-panel-callout
+                            class="mt-4 rounded-lg bg-warning-surface/70 px-3.5 py-2 text-[0.8125rem] leading-[1.45] first:mt-0"
+                          >
+                            <span class="font-medium text-ink">{block.label}:</span>
+                            <span class="ml-1 text-warning-ink">{block.value}</span>
+                          </div>
+                        {:else if block.kind === "heading"}
+                          <h4 class="mt-6 text-[0.8125rem] leading-[1.45] font-medium text-ink first:mt-0">{block.text}</h4>
+                        {:else if block.kind === "list"}
+                          <ul class="mt-2 flex list-disc flex-col gap-1.5 pl-4 text-[0.8125rem] leading-[1.6] text-ink-secondary first:mt-0">
+                            {#each block.items as item, itemIdx (itemIdx)}
+                              <li>{item}</li>
+                            {/each}
+                          </ul>
+                        {:else}
+                          <p class="mt-2 text-[0.8125rem] leading-[1.65] text-ink-secondary first:mt-0">{block.text}</p>
+                        {/if}
+                      {/each}
+                    </div>
+
                     {#if note}
-                      <p data-import-file-panel-text-note class={`mt-4 border-t border-line-soft pt-3 ${SHEET_SMALL} text-ink-muted`}>{note}</p>
+                      <p data-import-file-panel-text-note class={`mt-6 border-t border-line-soft pt-3 ${SHEET_SMALL} text-ink-muted`}>{note}</p>
                     {/if}
                     {#if canShowMore && id}
                       <button
@@ -566,9 +627,9 @@
                       >{loading ? "Loading..." : "Show more"}</button>
                     {/if}
                   {/if}
-                </div>
+                </article>
               {:else if !file.originalUrl}
-                <div class="mx-auto flex w-full max-w-[38rem] flex-col items-start gap-2 rounded-xl border border-line-soft bg-surface px-7 py-6 shadow-xs">
+                <div class="mx-auto flex w-full max-w-[39rem] flex-col items-start gap-2 rounded-sm border border-line-soft bg-surface px-10 py-9 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
                   <p data-import-file-panel-no-original class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
                     The original file is not stored here.
                   </p>
@@ -578,10 +639,10 @@
                   src={file.originalUrl}
                   title={file.name}
                   data-import-file-panel-original-pdf
-                  class="h-[44rem] w-full rounded-xl border border-line-soft bg-surface shadow-xs"
+                  class="h-[44rem] w-full rounded-sm border border-line-soft bg-surface shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
                 ></iframe>
               {:else if fileKind === "image"}
-                <div class="mx-auto flex w-full max-w-[38rem] justify-center rounded-xl border border-line-soft bg-surface p-5 shadow-xs">
+                <div class="mx-auto flex w-full max-w-[39rem] justify-center rounded-sm border border-line-soft bg-surface p-6 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
                   <img
                     src={file.originalUrl}
                     alt={file.name}
@@ -590,7 +651,7 @@
                   />
                 </div>
               {:else if fileKind === "docx" || fileKind === "spreadsheet" || fileKind === "text"}
-                <div class="mx-auto w-full max-w-[38rem] rounded-xl border border-line-soft bg-surface px-7 py-6 shadow-xs">
+                <div class="mx-auto w-full max-w-[39rem] rounded-sm border border-line-soft bg-surface px-10 py-9 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
                   {#if original.status === "loading" || original.status === "idle"}
                     <div role="status" aria-label="Loading the original file" class="flex flex-col gap-2.5">
                       {#each [0, 1, 2, 3, 4] as index (index)}
@@ -647,7 +708,7 @@
                   {/if}
                 </div>
               {:else}
-                <div class="mx-auto flex w-full max-w-[38rem] flex-col items-start gap-3 rounded-xl border border-line-soft bg-surface px-7 py-6 shadow-xs">
+                <div class="mx-auto flex w-full max-w-[39rem] flex-col items-start gap-3 rounded-sm border border-line-soft bg-surface px-10 py-9 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
                   <div class="flex items-center gap-2 text-ink-secondary">
                     <FileTextIcon size="1rem" aria-hidden="true" />
                     <span class="text-[0.8125rem] leading-[calc(18/13)]">
@@ -669,29 +730,29 @@
             </div>
           </section>
 
-          <!-- Right Labels & Details pane -->
+          <!-- Right Labels pane (Paper Files 7 & Files 8, node 5Z7U-0) -->
           <aside
-            class="flex w-full shrink-0 flex-col overflow-y-auto border-t border-line-soft bg-surface px-5 py-4 md:w-[22.5rem] md:border-t-0 md:border-l"
+            class="flex w-full shrink-0 flex-col overflow-y-auto border-t border-line-soft bg-surface px-6 py-5 md:w-[22.5rem] md:border-t-0 md:border-l"
             aria-label="File labels and details"
           >
-            <div class="mb-3 flex items-center justify-between gap-2">
-              <span class={`${SHEET_SMALL} text-ink-muted`}>Labels</span>
-              <span class={`inline-flex items-center gap-1.5 ${SHEET_SMALL} text-ink-muted`}>
+            <div class="mb-5 flex items-center justify-between gap-2">
+              <span class="text-[0.8125rem] leading-[1.35] text-ink-muted">Labels</span>
+              <span class="inline-flex items-center gap-1.5 text-[0.8125rem] leading-[1.35] text-ink-muted">
                 <AuroraMark size={13} />
                 <span>Filled in by AI</span>
               </span>
             </div>
 
-            {#if checks.length > 0}
+            {#if extraChecks.length > 0}
               <ul
                 data-import-file-panel-checks
-                class={`mb-3 flex flex-col gap-1 rounded-lg bg-warning-surface px-3 py-2 text-xs leading-[calc(4/3)] ${AMBER}`}
+                class={`mb-4 flex flex-col gap-1 rounded-lg bg-warning-surface px-3 py-2 text-xs leading-[calc(4/3)] ${AMBER}`}
               >
-                {#each checks as line (line)}<li>{line}</li>{/each}
+                {#each extraChecks as line (line)}<li>{line}</li>{/each}
               </ul>
             {/if}
 
-            <dl data-import-file-panel-labels class="flex flex-col gap-2">
+            <dl data-import-file-panel-labels class="flex flex-col gap-3">
               <!-- Company -->
               <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
                 <dt class={`${SHEET_SMALL} text-ink-muted`}>Company</dt>
@@ -781,12 +842,12 @@
                         {/snippet}
                       </DatePicker>
                       {#if cells.fiscalYear}
-                        <div class={`${SHEET_SMALL} text-ink-muted`}>Fiscal year {cells.fiscalYear.text}</div>
+                        <div class={`${SHEET_SMALL} mt-0.5 text-ink-muted`}>Fiscal year {cells.fiscalYear.text}</div>
                       {/if}
                     {:else if file.fiscalYearEnd !== undefined}
                       <span class="text-ink-secondary">{yearEndDate(file.fiscalYearEnd)}</span>
                       {#if cells.fiscalYear}
-                        <div class={`${SHEET_SMALL} text-ink-muted`}>Fiscal year {cells.fiscalYear.text}</div>
+                        <div class={`${SHEET_SMALL} mt-0.5 text-ink-muted`}>Fiscal year {cells.fiscalYear.text}</div>
                       {/if}
                     {/if}
                   </dd>
@@ -814,50 +875,21 @@
                 </div>
               {/if}
 
-              <!-- PD number -->
-              {#if can.pdNumber || file.pdNumber}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>PD number</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="PD number">
-                    {#if can.pdNumber}
-                      <ImportPickerPopover label="PD number" align="end">
-                        {#snippet trigger({ props })}
-                          <button {...props} type="button" data-import-panel-pd-number-edit class={PANEL_PICKER}>
-                            <span class="truncate">{file.pdNumber ? `PD ${file.pdNumber}` : "Set PD number"}</span>
-                            <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0 text-ink-muted" />
-                          </button>
-                        {/snippet}
-                        {#snippet content({ close })}
-                          <ImportPdNumberList
-                            current={file.pdNumber ?? null}
-                            onPick={(pdNumber) => {
-                              close();
-                              void change({ pdNumber });
-                            }}
-                          />
-                        {/snippet}
-                      </ImportPickerPopover>
-                    {:else if file.pdNumber}
-                      <span class="text-ink-secondary">{file.pdNumber}</span>
-                    {/if}
-                  </dd>
-                </div>
-              {/if}
-
               <!-- Writer (omitted on Approved where ImportApprovedDetails edits it) -->
               {#if !approved && (can.writer || cells.writer)}
-                {@const writerMissing = cells.writer?.tone === "amber"}
                 <div
-                  class={`grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3 ${
-                    writerMissing && can.writer ? "-mx-5 border-l-2 border-warning-ink bg-warning-surface/70 px-5 py-2" : ""
+                  class={`grid grid-cols-[6.75rem_minmax(0,1fr)] gap-x-3 ${
+                    writerMissingInline
+                      ? "-mx-3 items-start rounded-r-md border-l-2 border-warning-ink bg-warning-surface/55 px-3 py-3"
+                      : "items-center"
                   }`}
                 >
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>Writer</dt>
+                  <dt class={`${SHEET_SMALL} ${writerMissingInline ? "pt-1" : ""} text-ink-muted`}>Writer</dt>
                   <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="Writer">
                     {#if can.writer}
                       <ImportPickerPopover label="Writer" align="end">
                         {#snippet trigger({ props })}
-                          {#if writerMissing}
+                          {#if writerMissingInline}
                             <button {...props} type="button" data-import-panel-writer-edit class={PICK_CONTROL}>
                               <span class="truncate">{CHOOSE_WRITER}</span>
                               <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
@@ -879,41 +911,11 @@
                           />
                         {/snippet}
                       </ImportPickerPopover>
+                      {#if writerMissingInline}
+                        <p data-import-file-panel-checks class={`mt-2 ${SHEET_SMALL} text-ink-secondary`}>Needs a writer</p>
+                      {/if}
                     {:else if cells.writer}
-                      <span class="text-ink-secondary">{writerMissing ? "No writer yet" : cells.writer.text}</span>
-                    {/if}
-                  </dd>
-                </div>
-              {/if}
-
-              <!-- Reviewer (omitted on Approved where ImportApprovedDetails edits it) -->
-              {#if !approved && (can.reviewer || file.reviewerName)}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>Reviewer</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="Reviewer">
-                    {#if can.reviewer}
-                      <ImportPickerPopover label="Reviewer" align="end">
-                        {#snippet trigger({ props })}
-                          <button {...props} type="button" data-import-panel-reviewer-edit class={PANEL_PICKER}>
-                            <span class={`truncate ${cells.reviewer && !cells.reviewer.missing ? "text-ink" : "text-ink-muted"}`}>
-                              {cells.reviewer && !cells.reviewer.missing ? cells.reviewer.text : CHOOSE_REVIEWER}
-                            </span>
-                            <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0 text-ink-muted" />
-                          </button>
-                        {/snippet}
-                        {#snippet content({ close })}
-                          <ImportWriterList
-                            role="reviewer"
-                            currentWriterId={file.reviewerId ?? null}
-                            onPick={(picked) => {
-                              close();
-                              pickReviewer(picked);
-                            }}
-                          />
-                        {/snippet}
-                      </ImportPickerPopover>
-                    {:else if file.reviewerName}
-                      <span class="text-ink-secondary">{file.reviewerName}</span>
+                      <span class="text-ink-secondary">{cells.writer.tone === "amber" ? "No writer yet" : cells.writer.text}</span>
                     {/if}
                   </dd>
                 </div>
@@ -921,18 +923,19 @@
 
               <!-- Science code (omitted on Approved where ImportApprovedDetails edits it) -->
               {#if !approved && (can.scienceCode || cells.scienceCode)}
-                {@const codeMissing = cells.scienceCode?.kind === "missing"}
                 <div
-                  class={`grid grid-cols-[6.75rem_minmax(0,1fr)] items-start gap-x-3 ${
-                    codeMissing && can.scienceCode ? "-mx-5 border-l-2 border-warning-ink bg-warning-surface/70 px-5 py-2.5" : ""
+                  class={`grid grid-cols-[6.75rem_minmax(0,1fr)] gap-x-3 ${
+                    codeMissingInline
+                      ? "-mx-3 items-start rounded-r-md border-l-2 border-warning-ink bg-warning-surface/55 px-3 py-3"
+                      : "items-center"
                   }`}
                 >
-                  <dt class={`${SHEET_SMALL} pt-1 text-ink-muted`}>Science code</dt>
+                  <dt class={`${SHEET_SMALL} ${codeMissingInline ? "pt-1" : ""} text-ink-muted`}>Science code</dt>
                   <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="Science code">
                     {#if can.scienceCode}
                       <ImportPickerPopover label="Science code" align="end" width="w-[22rem]">
                         {#snippet trigger({ props })}
-                          {#if codeMissing}
+                          {#if codeMissingInline}
                             <button {...props} type="button" data-import-panel-code-edit class={PICK_CONTROL}>
                               <span class="truncate">Pick a code</span>
                               <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
@@ -943,6 +946,11 @@
                                 <AuroraMark size={13} label="Filled in by AI" />
                               {/if}
                               <span class="truncate">{[cells.scienceCode.code, cells.scienceCode.title].filter(Boolean).join(" ")}</span>
+                              <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0 text-ink-muted" />
+                            </button>
+                          {:else}
+                            <button {...props} type="button" data-import-panel-code-edit class={PANEL_PICKER}>
+                              <span class="truncate text-ink-muted">Pick a code</span>
                               <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0 text-ink-muted" />
                             </button>
                           {/if}
@@ -959,85 +967,16 @@
                           />
                         {/snippet}
                       </ImportPickerPopover>
-                      {#if codeMissing}
-                        <p class={`mt-1.5 ${SHEET_SMALL} text-ink-secondary`}>The document has no code.</p>
+                      {#if codeMissingInline}
+                        <p data-import-file-panel-checks class={`mt-2 ${SHEET_SMALL} text-ink-secondary`}>
+                          The document has no code.
+                        </p>
                       {/if}
                     {:else if cells.scienceCode?.kind === "code"}
                       <span class="text-ink-secondary">{[cells.scienceCode.code, cells.scienceCode.title].filter(Boolean).join(" ")}</span>
                     {:else if cells.scienceCode?.kind === "missing"}
                       <span class={AMBER}>{cells.scienceCode.text}</span>
                     {/if}
-                  </dd>
-                </div>
-              {/if}
-
-              <!-- CRA reviewed -->
-              {#if !approved && file.category === "final_pd" && (can.craReviewed || file.craReviewed)}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>CRA</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="CRA">
-                    {#if can.craReviewed}
-                      <button
-                        type="button"
-                        aria-pressed={cells.craReviewed}
-                        data-import-panel-cra-toggle
-                        onclick={toggleCra}
-                        class={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
-                          cells.craReviewed
-                            ? "border-primary-selected bg-primary-wash text-primary-selected"
-                            : "border-line bg-surface text-ink-secondary hover:bg-gray-50 hover:text-ink"
-                        }`}
-                      >
-                        <SealCheckIcon size="0.8125rem" aria-hidden="true" />
-                        <span>{CRA_REVIEWED}</span>
-                      </button>
-                    {:else if file.craReviewed}
-                      <span class="text-ink-secondary">{CRA_REVIEWED}</span>
-                    {/if}
-                  </dd>
-                </div>
-              {/if}
-
-              <!-- Quiet read-only metadata -->
-              <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
-                <dt class={`${SHEET_SMALL} text-ink-muted`}>Status</dt>
-                <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-import-file-panel-label="Where">
-                  {fileStateText(file)}
-                </dd>
-              </div>
-
-              {#if file.coWriterInitials && file.coWriterInitials.length > 0}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>Co-writers</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-import-file-panel-label="Co-writers">
-                    {file.coWriterInitials.join(", ")}
-                  </dd>
-                </div>
-              {/if}
-
-              {#if file.reviewerInitials}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>Reviewer initials</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-import-file-panel-label="Reviewer initials">
-                    {file.reviewerInProgress ? `${file.reviewerInitials} (in progress)` : file.reviewerInitials}
-                  </dd>
-                </div>
-              {/if}
-
-              {#if clientInitialsFormatted}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>Client initials</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] break-words text-ink-secondary" data-import-file-panel-label="Client initials">
-                    {clientInitialsFormatted}
-                  </dd>
-                </div>
-              {/if}
-
-              {#if file.financialInitials}
-                <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
-                  <dt class={`${SHEET_SMALL} text-ink-muted`}>Financial initials</dt>
-                  <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-import-file-panel-label="Financial initials">
-                    {file.financialInitials}
                   </dd>
                 </div>
               {/if}
@@ -1067,37 +1006,28 @@
               {/if}
             </dl>
 
-            {#if canEditInitials}
-              <ImportInitialsSlots
-                fileId={file._id}
-                writerInitials={file.writerInitials}
-                reviewerInitials={file.reviewerInitials}
-                clientInitials={file.clientInitials}
-                financialInitials={file.financialInitials}
-                coWriterInitials={file.coWriterInitials}
-                extraClientInitials={file.extraClientInitials}
-                initialsGroups={file.initialsGroups}
-                reviewerInProgress={file.reviewerInProgress}
-                documentClientNames={file.documentClientNames}
-                companyName={file.clientName}
-              />
-            {/if}
-
             {#if approved}
               <ImportApprovedDetails {file} onSentBack={onClose} />
             {/if}
 
             <!-- Provenance section (Added, Folder, Size) -->
-            <div class="mt-4 border-t border-line-soft pt-4">
-              <dl class="flex flex-col gap-2.5">
+            <div class="mt-6 border-t border-line-soft pt-5">
+              <dl class="flex flex-col gap-3.5">
                 <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
                   <dt class={`${SHEET_SMALL} text-ink-muted`}>Added</dt>
-                  <dd class={`${SHEET_SMALL} text-ink-secondary`} data-import-file-panel-label="Added">{addedText}</dd>
+                  <dd class={`${SHEET_SMALL} flex flex-col gap-0.5 text-ink-secondary`} data-import-file-panel-label="Added">
+                    <span>{addedPrimary}</span>
+                    <span class="text-ink-muted">{addedDate}</span>
+                  </dd>
                 </div>
                 <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
                   <dt class={`${SHEET_SMALL} text-ink-muted`}>Folder</dt>
-                  <dd class="min-w-0 font-mono text-[0.75rem] leading-[1.45] break-all text-ink-secondary" data-import-file-panel-label="Path">
-                    {file.path}
+                  <dd
+                    title={file.path}
+                    class="min-w-0 font-mono text-[0.75rem] leading-[1.5] break-words text-ink-secondary"
+                    data-import-file-panel-label="Path"
+                  >
+                    {folderDisplay}
                   </dd>
                 </div>
                 <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-baseline gap-x-3">
@@ -1106,6 +1036,117 @@
                 </div>
               </dl>
             </div>
+
+            <!-- Quiet collapsed disclosure for secondary fields (PD number, Reviewer, CRA reviewed) -->
+            {#if hasSecondaryFields}
+              <div class="mt-5">
+                <button
+                  type="button"
+                  aria-expanded={moreDetailsOpen}
+                  data-import-file-panel-more-details
+                  onclick={() => (moreDetailsOpen = !moreDetailsOpen)}
+                  class="inline-flex items-center gap-1 rounded-sm text-xs leading-[calc(4/3)] text-ink-muted transition-colors duration-150 ease-out hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+                >
+                  <span>More details</span>
+                  <CaretDownIcon
+                    size={PICK_CARET_SIZE}
+                    aria-hidden="true"
+                    class={`transition-transform duration-150 ease-out motion-reduce:transition-none ${moreDetailsOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+
+                {#if moreDetailsOpen}
+                  <dl class="mt-3 flex flex-col gap-2.5">
+                    {#if can.pdNumber || file.pdNumber}
+                      <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
+                        <dt class={`${SHEET_SMALL} text-ink-muted`}>PD number</dt>
+                        <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="PD number">
+                          {#if can.pdNumber}
+                            <ImportPickerPopover label="PD number" align="end">
+                              {#snippet trigger({ props })}
+                                <button {...props} type="button" data-import-panel-pd-number-edit class={PANEL_PICKER}>
+                                  <span class="truncate">{file.pdNumber ? `PD ${file.pdNumber}` : "Set PD number"}</span>
+                                  <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0 text-ink-muted" />
+                                </button>
+                              {/snippet}
+                              {#snippet content({ close })}
+                                <ImportPdNumberList
+                                  current={file.pdNumber ?? null}
+                                  onPick={(pdNumber) => {
+                                    close();
+                                    void change({ pdNumber });
+                                  }}
+                                />
+                              {/snippet}
+                            </ImportPickerPopover>
+                          {:else if file.pdNumber}
+                            <span class="text-ink-secondary">PD {file.pdNumber}</span>
+                          {/if}
+                        </dd>
+                      </div>
+                    {/if}
+
+                    {#if can.reviewer || file.reviewerName}
+                      <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
+                        <dt class={`${SHEET_SMALL} text-ink-muted`}>Reviewer</dt>
+                        <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="Reviewer">
+                          {#if can.reviewer}
+                            <ImportPickerPopover label="Reviewer" align="end">
+                              {#snippet trigger({ props })}
+                                <button {...props} type="button" data-import-panel-reviewer-edit class={PANEL_PICKER}>
+                                  <span class={`truncate ${cells.reviewer && !cells.reviewer.missing ? "text-ink" : "text-ink-muted"}`}>
+                                    {cells.reviewer && !cells.reviewer.missing ? cells.reviewer.text : CHOOSE_REVIEWER}
+                                  </span>
+                                  <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0 text-ink-muted" />
+                                </button>
+                              {/snippet}
+                              {#snippet content({ close })}
+                                <ImportWriterList
+                                  role="reviewer"
+                                  currentWriterId={file.reviewerId ?? null}
+                                  onPick={(picked) => {
+                                    close();
+                                    pickReviewer(picked);
+                                  }}
+                                />
+                              {/snippet}
+                            </ImportPickerPopover>
+                          {:else if file.reviewerName}
+                            <span class="text-ink-secondary">{file.reviewerName}</span>
+                          {/if}
+                        </dd>
+                      </div>
+                    {/if}
+
+                    {#if file.category === "final_pd" && (can.craReviewed || file.craReviewed)}
+                      <div class="grid grid-cols-[6.75rem_minmax(0,1fr)] items-center gap-x-3">
+                        <dt class={`${SHEET_SMALL} text-ink-muted`}>CRA</dt>
+                        <dd class="min-w-0 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-import-file-panel-label="CRA">
+                          {#if can.craReviewed}
+                            <button
+                              type="button"
+                              aria-pressed={cells.craReviewed}
+                              data-import-panel-cra-toggle
+                              onclick={toggleCra}
+                              class={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
+                                cells.craReviewed
+                                  ? "border-primary-selected bg-primary-wash text-primary-selected"
+                                  : "border-line bg-surface text-ink-secondary hover:bg-gray-50 hover:text-ink"
+                              }`}
+                            >
+                              <SealCheckIcon size="0.8125rem" aria-hidden="true" />
+                              <span>{CRA_REVIEWED}</span>
+                            </button>
+                          {:else if file.craReviewed}
+                            <span class="text-ink-secondary">{CRA_REVIEWED}</span>
+                          {/if}
+                        </dd>
+                      </div>
+                    {/if}
+                  </dl>
+                {/if}
+              </div>
+            {/if}
           </aside>
         {:else}
           <div role="status" aria-label="Loading the file" class="flex flex-1 flex-col gap-2.5 p-6">
@@ -1118,7 +1159,7 @@
 
       <!-- Footer -->
       {#if file && can}
-        <footer class="flex shrink-0 items-center justify-between gap-4 border-t border-line-soft bg-surface px-6 py-3">
+        <footer class="flex shrink-0 items-center justify-between gap-4 border-t border-line-soft bg-surface px-6 py-3.5">
           {#if isReview}
             <div class="flex min-w-0 items-center gap-3">
               <button
@@ -1126,7 +1167,7 @@
                 data-import-file-panel-delete
                 disabled={!can.remove || acting}
                 onclick={() => void handleDelete()}
-                class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface px-3 text-xs leading-[calc(4/3)] font-medium text-ink transition-colors duration-150 ease-out hover:border-danger-ink-muted/40 hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-45 motion-reduce:transition-none pointer-coarse:min-h-11"
+                class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface px-3.5 text-xs leading-[calc(4/3)] font-medium text-ink transition-colors duration-150 ease-out hover:border-danger-ink-muted/40 hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-45 motion-reduce:transition-none pointer-coarse:min-h-11"
               >Delete</button>
               <span class={`hidden truncate ${SHEET_SMALL} text-ink-muted sm:inline`}>
                 Moves it to Deleted. Nothing changes on any computer.
