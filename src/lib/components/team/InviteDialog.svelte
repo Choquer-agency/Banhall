@@ -2,6 +2,9 @@
   // C3 Invite people. No email provider (decision 50): sending creates the
   // invites and shows each link to copy. Names are not asked for (decision
   // 51) and the board's Note field is not built (no email to carry it).
+  // 2026-11-17: the same dialog invites one past writer (`forPerson`, from
+  // Team, Past writers): its title names them, it takes one address, and
+  // accepting the invite links their past PDs to the new account.
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import TeamDialog from "./TeamDialog.svelte";
   import InviteEmailChips from "./InviteEmailChips.svelte";
@@ -23,11 +26,14 @@
     open = $bindable(false),
     canInviteAdmin,
     origin = typeof window === "undefined" ? "" : window.location.origin,
+    forPerson = null,
     onSend,
   }: {
     open?: boolean;
     canInviteAdmin: boolean;
     origin?: string;
+    /** A past writer's name or initials: invite this one person (2026-11-17). */
+    forPerson?: string | null;
     onSend: (emails: string[], role: Role) => Promise<CreateResult[]>;
   } = $props();
 
@@ -46,7 +52,8 @@
 
   const options = $derived(ROLE_OPTIONS.filter((option) => canInviteAdmin || !option.adminOnly));
   const validCount = $derived(chips.filter((chip) => chip.valid).length);
-  const tooMany = $derived(chips.length > MAX_INVITE_EMAILS);
+  const maxEmails = $derived(forPerson ? 1 : MAX_INVITE_EMAILS);
+  const tooMany = $derived(chips.length > maxEmails);
   const createdCount = $derived(results?.filter((row) => row.status === "created").length ?? 0);
 
   // Every open starts clean.
@@ -95,21 +102,27 @@
     ? createdCount === 1
       ? "1 invite ready"
       : `${createdCount} invites ready`
-    : "Invite people"}
+    : forPerson
+      ? `Invite ${forPerson}`
+      : "Invite people"}
   description={results
     ? "Copy each link and send it to the person. Each link works for 7 days."
-    : "Add work emails and pick a role. Each person gets a link to join Banhall."}
+    : forPerson
+      ? `Add their work email and pick a role. When they join, their past PDs show under their account.`
+      : "Add work emails and pick a role. Each person gets a link to join Banhall."}
 >
   {#if results}
     <div class="px-7 pb-5 pt-[1.125rem]">
-      <InviteResults rows={results} {role} />
+      <InviteResults rows={results} {role} forPastWriter={Boolean(forPerson)} />
     </div>
   {:else}
     <div class="flex flex-col gap-1.5 px-7 pt-[1.125rem]">
-      <label for="invite-emails" class="text-xs font-medium leading-[calc(4/3)] text-ink-secondary">Email addresses</label>
-      <InviteEmailChips bind:this={chipInput} bind:chips disabled={sending} />
+      <label for="invite-emails" class="text-xs font-medium leading-[calc(4/3)] text-ink-secondary">{forPerson ? "Email address" : "Email addresses"}</label>
+      <InviteEmailChips bind:this={chipInput} bind:chips disabled={sending} max={forPerson ? 1 : undefined} />
       {#if tooMany}
-        <p class="text-xs text-danger-ink-muted">Invite at most {MAX_INVITE_EMAILS} people at a time.</p>
+        <p data-invite-too-many class="text-xs text-danger-ink-muted">
+          {forPerson ? `Add one email address for ${forPerson}.` : `Invite at most ${MAX_INVITE_EMAILS} people at a time.`}
+        </p>
       {/if}
     </div>
     <!-- C3: the Role label 16px under the email box and 8px above the
@@ -149,7 +162,7 @@
           disabled={sending || validCount === 0 || tooMany}
           onclick={send}
           class="h-9 shrink-0 rounded-lg bg-fir px-4 text-sm leading-[calc(10/7)] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-        >{sending ? "Sending..." : sendLabel(validCount)}</button>
+        >{sending ? "Sending..." : forPerson ? "Send invite" : sendLabel(validCount)}</button>
       {/if}
     </div>
   {/snippet}

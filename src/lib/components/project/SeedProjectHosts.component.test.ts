@@ -1377,7 +1377,8 @@ describe("Seed project hosts", () => {
     // F2: no status pill and no More dots in the desktop top bar.
     const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
     expect(header.textContent).not.toContain("AI generating");
-    expect(getComputedStyle(header.querySelector("[data-top-bar-more]")!).display).toBe("none");
+    const desktopMore = header.querySelector("[data-top-bar-more]");
+    expect(desktopMore === null || getComputedStyle(desktopMore).display === "none").toBe(true);
     cancel.click();
     await expect.element(browserPage.getByText("Cancel this generation?", { exact: true })).toBeVisible();
   });
@@ -1430,9 +1431,18 @@ describe("Seed project hosts", () => {
     expect(hidden(document.querySelector("[data-top-bar-cancel-generation]"))).toBe(true);
     await expect.element(browserPage.getByText("You can leave. We will notify you when ideas are ready.", { exact: true })).toBeVisible();
     expect(getComputedStyle(header.querySelector("h1")!).fontSize).toBe("16px");
-    // H4: the More dots at the far right, with the project tools that need no report.
+    // Consultants (writers) do not have financial.read, so with no report yet the More menu stays hidden.
+    expect(hidden(header.querySelector("[data-top-bar-more]"))).toBe(true);
+    // H4: for roles with financial.read, the More dots show the project tools that need no report.
+    __setQueryData("users:getCurrentUser", {
+      _id: "manager-1",
+      role: "manager",
+      firstName: "Morgan",
+      lastName: "Manager",
+      email: "manager@example.test",
+    });
+    await expect.poll(() => hidden(header.querySelector("[data-top-bar-more]"))).toBe(false);
     const phoneMore = header.querySelector<HTMLElement>("[data-top-bar-more]")!;
-    expect(hidden(phoneMore)).toBe(false);
     phoneMore.click();
     await expect.poll(() => Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"))).toEqual(["financial"]);
   });

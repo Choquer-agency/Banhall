@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -37,6 +38,7 @@ const REPORT_DOC = reportDoc(PARAGRAPH);
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const writerId = await ctx.db.insert("users", {
@@ -310,5 +312,64 @@ describe("acceptEdit checkpoints the pre-accept content", () => {
     ).toBe("INVALID_INPUT");
 
     await expectNothingChanged(f, f.remarkCommentId, before);
+  });
+
+  it("includes internal writer author names in listCommenters for internal viewers", async () => {
+    const f = await setup();
+    await f.writer.mutation(api.comments.addComment, {
+      projectId: f.projectId,
+      reportId: f.reportId,
+      commenterId: f.writerId,
+      highlightFrom: 0,
+      highlightTo: 8,
+      highlightText: "The team",
+      body: "Checking alloy metrics.",
+    });
+    const commenters = await f.writer.query(api.comments.listCommenters, {
+      projectId: f.projectId,
+    });
+    expect(commenters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: f.writerId, name: "Wren" }),
+        expect.objectContaining({ name: "Casey Client" }),
+      ])
+    );
+  });
+
+  it("notifies the project owner when a client posts a comment via the share link", async () => {
+    const f = await setup();
+    const { shareToken, clientCommenterId } = await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.projectId, {
+        shareToken: "live-share-token",
+        sharedReportId: f.reportId,
+      });
+      const commenter = await ctx.db
+        .query("commenters")
+        .withIndex("by_projectId", (q) => q.eq("projectId", f.projectId))
+        .first();
+      return { shareToken: "live-share-token", clientCommenterId: commenter!._id };
+    });
+
+    await f.t.mutation(api.comments.addComment, {
+      projectId: f.projectId,
+      reportId: f.reportId,
+      commenterId: clientCommenterId,
+      highlightFrom: 0,
+      highlightTo: 8,
+      highlightText: "The team",
+      body: "Please clarify the test temperature.",
+      shareToken,
+    });
+
+    const notes = await f.writer.query(api.notifications.listRecent, {});
+    expect(notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "client_comment",
+          projectId: f.projectId,
+          title: "New client comment on Alloy fatigue PD",
+        }),
+      ])
+    );
   });
 });

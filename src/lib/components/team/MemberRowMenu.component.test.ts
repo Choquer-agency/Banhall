@@ -11,6 +11,8 @@ function props(overrides: Record<string, unknown> = {}) {
     isSelf: false,
     onChangeRole: vi.fn(),
     onSetPassword: vi.fn(),
+    onEditInitials: vi.fn(),
+    onUnlinkWriter: null as null | (() => void),
     ...overrides,
   };
 }
@@ -51,5 +53,43 @@ describe("MemberRowMenu", () => {
     await render(MemberRowMenu, props({ isSelf: true }));
     await open();
     expect(document.querySelector('[data-menu-item="password"]')).toBeNull();
+  });
+
+  it("edits the initials, and unlinks a past writer only when one is linked (2026-11-16)", async () => {
+    const p = props();
+    await render(MemberRowMenu, p);
+    await open();
+    expect(document.querySelector('[data-menu-item="unlink-writer"]')).toBeNull();
+    await page.getByRole("menuitem", { name: "Edit initials" }).click();
+    expect(p.onEditInitials).toHaveBeenCalledOnce();
+
+    document.body.innerHTML = "";
+    const unlink = vi.fn();
+    await render(MemberRowMenu, props({ linkedWriterLabel: "DW", onUnlinkWriter: unlink }));
+    await open();
+    await page.getByRole("menuitem", { name: "Unlink past writer DW" }).click();
+    expect(unlink).toHaveBeenCalledOnce();
+  });
+
+  it("hides PD role default weights when the viewer cannot set weights", async () => {
+    const onChangeStaffRole = vi.fn();
+    await render(MemberRowMenu, props({ onChangeStaffRole, onSetWeight: null }));
+    await open();
+    await page.getByRole("menuitem", { name: "PD role" }).hover();
+    await expect.poll(() => document.querySelectorAll("[data-staff-role-choice]").length).toBe(4);
+    const plainAdminText = document.querySelector('[data-staff-role-choice="technical_manager"]')?.textContent ?? "";
+    expect(plainAdminText).toContain("Technical Manager");
+    expect(plainAdminText).not.toContain("0.8");
+    expect(document.querySelector('[data-staff-role-choice="financial"]')?.textContent ?? "").not.toContain("No weight");
+  });
+
+  it("shows PD role default weights when the viewer can set weights", async () => {
+    const onChangeStaffRole = vi.fn();
+    await render(MemberRowMenu, props({ onChangeStaffRole, onSetWeight: vi.fn() }));
+    await open();
+    await page.getByRole("menuitem", { name: "PD role" }).hover();
+    await expect.poll(() => document.querySelectorAll("[data-staff-role-choice]").length).toBe(4);
+    expect(document.querySelector('[data-staff-role-choice="technical_manager"]')?.textContent ?? "").toContain("0.8");
+    expect(document.querySelector('[data-staff-role-choice="financial"]')?.textContent ?? "").toContain("No weight");
   });
 });

@@ -50,7 +50,7 @@ Counts by severity across the four reviews: **P0: 4, P1: 9, P2: 12, P3/low: 10.*
 - `brainProvenance` has one writer (`brainRetrieval.ts:148-153`) and zero readers.
 - Generations do not record `promptVersion` or which `learningDigests` were active (`pipeline.ts:445`, `iterative.ts:138`); digests record `sourceCount` and cutoff only, no signal ids.
 - Tests cover recovery mutations, structured output, qaChecks, turnParts. Untested: `pipeline.ts`/`iterative.ts`/`postQa.ts` orchestration, `completeCandidateRun` fan-in, `approveSectionDraft` with ghost, `selectReportCandidate`, `reviews.ts`, `comments.acceptEdit`, `restoreSnapshot`, `markProposalApplied`, any Brain retrieval usefulness.
-- Voyage rerank falls back on 429 regularly (3 rpm, no payment method) and the fallback rate is invisible.
+- Voyage rerank falls back on 429 regularly (3 rpm, no payment method) and the fallback rate is invisible. (As of 2026-11-17 a card is on file, owner confirmed, so the 3 rpm free-tier cap no longer applies; the fallback rate is still invisible.)
 
 ### T5. Domain contract gaps
 

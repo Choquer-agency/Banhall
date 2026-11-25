@@ -268,16 +268,52 @@ export const reviewResearch = internalAction({
         "Return the required JSON object. The answer should be concise and useful to a report writer; do not expose internal chain-of-thought.",
       ].join("\n\n");
       const placeholders = avoidTokenCollisions(sessionMap, [prompt]);
-      const result = await callOpenRouterResearch(ctx, {
+      const maskedPrompt = pseudonymize(prompt, placeholders);
+      let result = await callOpenRouterResearch(ctx, {
         provider: "reviewer",
         model: RESEARCH_MODELS.reviewer,
         system: REVIEWER_SYSTEM,
-        prompt: pseudonymize(prompt, placeholders),
+        prompt: maskedPrompt,
         sessionId: context.session._id,
         projectId: context.project._id,
         userId: context.user._id,
       });
-      const reviewed = restorePlaceholdersDeep(parseReviewerResult(result.text), placeholders);
+      let parsedReview: ReturnType<typeof parseReviewerResult>;
+      try {
+        parsedReview = parseReviewerResult(result.text);
+      } catch (parseError) {
+        const reason = parseError instanceof Error ? parseError.message : "Invalid JSON";
+        const repairResult = await callOpenRouterResearch(ctx, {
+          provider: "reviewer",
+          model: RESEARCH_MODELS.reviewer,
+          system: REVIEWER_SYSTEM,
+          prompt: [
+            maskedPrompt,
+            "## Repair required",
+            `Your previous response could not be parsed (${reason}). Return ONLY one valid JSON object matching the required schema, with no markdown fences or extra commentary.`,
+          ].join("\n\n"),
+          sessionId: context.session._id,
+          projectId: context.project._id,
+          userId: context.user._id,
+        });
+        parsedReview = parseReviewerResult(repairResult.text);
+        result = {
+          ...repairResult,
+          usage: {
+            inputTokens: result.usage.inputTokens + repairResult.usage.inputTokens,
+            outputTokens: result.usage.outputTokens + repairResult.usage.outputTokens,
+            cacheReadInputTokens:
+              result.usage.cacheReadInputTokens + repairResult.usage.cacheReadInputTokens,
+            webSearchRequests:
+              result.usage.webSearchRequests + repairResult.usage.webSearchRequests,
+            costUsd:
+              result.usage.costUsd !== undefined || repairResult.usage.costUsd !== undefined
+                ? (result.usage.costUsd ?? 0) + (repairResult.usage.costUsd ?? 0)
+                : undefined,
+          },
+        };
+      }
+      const reviewed = restorePlaceholdersDeep(parsedReview, placeholders);
       const claims = reviewed.claims.map((claim) => {
         // Brain passages teach voice and structure; they are never evidence for
         // a factual claim. Enforce that boundary after model output as well as

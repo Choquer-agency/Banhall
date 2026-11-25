@@ -15,13 +15,18 @@ import {
   vWorkflowId,
   type WorkflowId,
 } from "@convex-dev/workflow";
-import { requireInternalProjectAccess, getInternalProjectAccessOrNull } from "./lib/auth";
+import {
+  requireInternalActor,
+  requireInternalProjectAccess,
+  getInternalProjectAccessOrNull,
+} from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
 import { bannedTermsIn } from "../shared/bannedWords";
+import { holdsListLines, LIST_NOT_ALLOWED_MESSAGE } from "../shared/ruleOverride";
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { listProjectTranscripts } from "./lib/transcripts";
@@ -308,7 +313,17 @@ export const getSessionDetails = query({
         support: claim.support,
         sourceIds: claim.sourceIds,
       })),
-      proposal,
+      proposal: proposal
+        ? (() => {
+            const { appliedChange, appliedChangeId, ...rest } = proposal;
+            return {
+              ...rest,
+              undoable:
+                proposal.state === "applied" &&
+                (appliedChangeId !== undefined || appliedChange !== undefined),
+            };
+          })()
+        : null,
       // The feed only distinguishes search paths from the reviewer — provider
       // identity ("gpt"/"perplexity") is ops detail and stays server-side.
       runs: runs.map((run) => ({
@@ -371,9 +386,22 @@ export const cancelResearch = mutation({
   args: { sessionId: v.id("researchSessions") },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    await requireInternalActor(ctx);
     const session = await ctx.db.get(args.sessionId);
     if (!session) return null;
-    await requireInternalProjectAccess(ctx, session.projectId);
+    const { project, user } = await requireInternalProjectAccess(ctx, session.projectId);
+    const canCancel =
+      session.requestedBy === user._id ||
+      project.ownerId === user._id ||
+      project.createdBy === user._id ||
+      user.role === "manager" ||
+      user.role === "admin";
+    if (!canCancel) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only the person who started this research, the project owner, or a manager can cancel it"
+      );
+    }
     if (!ACTIVE_STATUSES.has(session.status)) return null;
     if (session.workflowId) {
       await cancel(ctx, components.researchWorkflow, session.workflowId as WorkflowId);
@@ -818,11 +846,13 @@ export const saveReviewResult = internalMutation({
       console.error("writer profile fetch failed for research scrub", err);
     }
     // 2026-11-03 (owner, option C): a banned word the selection already holds stays.
-    const proposedText = scrubBannedWordsUnlessWaived(
+    const scrubbedProposedText = scrubBannedWordsUnlessWaived(
       args.proposedText,
       bannedWordsWaived,
       bannedTermsIn(session.selectedText)
     ).trim();
+    const listRejected = Boolean(scrubbedProposedText && holdsListLines(scrubbedProposedText));
+    const proposedText = listRejected ? "" : scrubbedProposedText;
     let proposalId = session.proposalId;
     if (proposedText && proposedText !== session.selectedText.trim()) {
       if (proposalId) {
@@ -845,6 +875,9 @@ export const saveReviewResult = internalMutation({
         });
       }
     }
+    const warnings = listRejected
+      ? [...args.warnings, `Suggested rewrite omitted: ${LIST_NOT_ALLOWED_MESSAGE}`]
+      : args.warnings;
     await ctx.db.patch(session._id, {
       status: "completed",
       answer: args.answer.slice(0, 16_000),
@@ -853,8 +886,8 @@ export const saveReviewResult = internalMutation({
       confidence: args.confidence,
       // Dedupe: the UI keys its warning list by text, and a duplicate string
       // (reviewer output + our appended cross-provider note) would crash the
-      // keyed each — the exact each_key_duplicate class from the Jul 10 alert.
-      warnings: Array.from(new Set(args.warnings))
+      // keyed each - the exact each_key_duplicate class from the Jul 10 alert.
+      warnings: Array.from(new Set(warnings))
         .slice(0, 10)
         .map((warning) => warning.slice(0, 1_000)),
       ...(proposalId ? { proposalId } : {}),

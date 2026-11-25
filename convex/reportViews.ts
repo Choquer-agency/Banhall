@@ -1,13 +1,15 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { reportWithBody } from "./lib/reportBodies";
 import { v } from "convex/values";
 import {
   getInternalProjectAccessOrNull,
   getProjectAccess,
-  requireCurrentUser,
+  requireInternalActor,
   requireInternalProjectAccess,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { limitProjectAction } from "./lib/aiRateLimits";
 
 export const logClientView = mutation({
   args: {
@@ -24,22 +26,35 @@ export const logClientView = mutation({
     if (!viewerName || viewerName.length > 100) {
       domainError("INVALID_INPUT", "Enter a reviewer name under 100 characters");
     }
+    await limitProjectAction(ctx, "clientViewPerProject", args.projectId);
     const reportId = access.project.sharedReportId;
-    if (!reportId) {
+    const snapshotId = access.project.sharedReportSnapshotId;
+    if (!reportId || !snapshotId) {
       domainError("REPORT_NOT_PUBLISHED", "This report is not published for review");
     }
-    const report = await ctx.db.get(reportId);
-    if (!report || report.projectId !== args.projectId) {
+    const [report, snapshot] = await Promise.all([
+      ctx.db.get(reportId),
+      ctx.db.get(snapshotId),
+    ]);
+    if (
+      !report ||
+      report.projectId !== args.projectId ||
+      !snapshot ||
+      snapshot.reportId !== report._id ||
+      snapshot.projectId !== args.projectId
+    ) {
       domainError("REPORT_NOT_PUBLISHED", "This report is not published for review");
     }
-    const currentReport = await reportWithBody(ctx, report);
     const viewedAt = Date.now();
     await ctx.db.insert("reportViews", {
       projectId: args.projectId,
       reportId: report._id,
       reportVersion: report.version,
-      revisionNumber: currentReport.revisionNumber ?? 0,
-      contentHash: currentReport.contentHash,
+      revisionNumber:
+        access.project.sharedReportRevisionNumber ??
+        snapshot.sourceRevisionNumber ??
+        0,
+      contentHash: snapshot.contentHash ?? report.contentHash,
       viewerName,
       viewerType: "client",
       viewedAt,
@@ -138,7 +153,7 @@ export const getViewSummary = query({
 export const getLastViewedMap = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
+    await requireInternalActor(ctx);
     const projects = await ctx.db.query("projects").take(500);
     const result: Record<string, number> = {};
     for (const project of projects) {
@@ -150,5 +165,25 @@ export const getLastViewedMap = query({
       if (last) result[project._id] = last.viewedAt;
     }
     return result;
+  },
+});
+
+const REPORT_VIEWS_RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+const REPORT_VIEWS_PRUNE_BATCH = 200;
+
+export const pruneOldReportViews = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - REPORT_VIEWS_RETENTION_MS;
+    const old = await ctx.db
+      .query("reportViews")
+      .withIndex("by_viewedAt", (q) => q.lt("viewedAt", cutoff))
+      .take(REPORT_VIEWS_PRUNE_BATCH);
+    for (const row of old) await ctx.db.delete(row._id);
+    if (old.length === REPORT_VIEWS_PRUNE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.reportViews.pruneOldReportViews, {});
+    }
+    return old.length;
   },
 });

@@ -27,8 +27,12 @@ import { readCompanyFileTextOrNull } from "./companyFileText";
 import { companyIdentityNames } from "./clients";
 import { quotableFileText } from "../../shared/wordMarkdown";
 import { countedRows, type ReadCounter } from "./readMeter";
+import { getDocumentSize, type Value } from "convex/values";
+import { COMPANY_HISTORY_CATEGORIES, HAND_COMPANY_FILE_CATEGORIES, isCompanyHistoryCategory, pdNumberKey } from "./companyEvidence";
+import { evidenceWords, foldForSearch } from "../../shared/evidenceChoice";
 import { DOCUMENT_HEADROOM } from "./readBudget";
 import { SEED_DECISION_READ_BYTES, SEED_DECISION_RESERVED_BYTES } from "./seedDecisionState";
+import { isPreviousYearDocument } from "../../shared/previousYear";
 
 /**
  * The text a draft freezes from a file's text: Word Markdown without its
@@ -44,15 +48,45 @@ export const FROZEN_DOCUMENT_CHARS = 200_000;
 /** Document rows a run looks at, in index order, before filtering. */
 export const FROZEN_DOCUMENT_ROWS = 50;
 /**
- * Company files (2026-10-26, Phase C): at most this many, newest first,
- * after the project's own files; their text together at most
- * FROZEN_COMPANY_CHARS; and none once every frozen row together would pass
- * FROZEN_TOTAL_BYTES (UTF-8), so a project's own evidence never loses room
- * and the Seed reads stay within their budget. Since the F5 stress run
- * (2026-10-27) a project's own files stop at that total too (`frozenTotal`).
+ * Company files (2026-10-26, Phase C): at most this many, after the
+ * project's own files; their text together at most FROZEN_COMPANY_CHARS;
+ * and none once every frozen row together would pass FROZEN_TOTAL_BYTES
+ * (UTF-8), so a project's own evidence never loses room and the Seed reads
+ * stay within their budget. Since the F5 stress run (2026-10-27) a
+ * project's own files stop at that total too (`frozenTotal`).
+ *
+ * 2026-11-17 (company history): which ones is `draftCompanyFiles`. These
+ * two caps hold the files added by hand, exactly as before; imported
+ * history comes on top, in its own places and within its own cap.
  */
 export const FROZEN_COMPANY_FILES = 12;
 export const FROZEN_COMPANY_CHARS = 600_000;
+/**
+ * 2026-11-17: imported history (the pinned final PDs now, relevance
+ * excerpts with evidence layer step 2) is at most 60,000 characters of a
+ * draft, the research's ceiling, on top of the hand-added files and within
+ * what they leave of FROZEN_COMPANY_CHARS.
+ */
+export const COMPANY_HISTORY_CHARS = 60_000;
+/**
+ * 2026-11-17: the pinned final PDs, of the two fiscal years before the
+ * project's (newest first), at most two a year and four in all, in places
+ * of their own, sharing at most 32,000 characters of the history cap (a
+ * shorter one leaves its share to the others).
+ */
+export const PINNED_FINAL_PD_YEARS = 2;
+export const PINNED_FINAL_PDS_PER_YEAR = 2;
+export const PINNED_FINAL_PDS = PINNED_FINAL_PD_YEARS * PINNED_FINAL_PDS_PER_YEAR;
+export const PINNED_FINAL_PD_CHARS = 32_000;
+/**
+ * 2026-11-18 (third): last year's final PD that counts as the project's
+ * previous-year report (`previousYearPdOf`) takes its share of the pinned
+ * characters first, up to this many; the other pinned PDs share what is
+ * left.
+ */
+export const PREVIOUS_YEAR_PD_CHARS = 16_000;
+/** Final PD rows of one fiscal year a draft looks at, newest first, before choosing two. */
+const FINAL_PD_ROWS_PER_YEAR = 20;
 /**
  * What a Seed attempt reads besides the frozen text, within the same budget:
  * the draft's decisions, its Brief and entries, digests and fact packs.
@@ -70,7 +104,7 @@ export const SEED_DECISION_STATE_ALLOWANCE_BYTES = 1024 * 1024;
  */
 export const FROZEN_TOTAL_BYTES =
   SEED_DECISION_READ_BYTES - SEED_DECISION_RESERVED_BYTES - DOCUMENT_HEADROOM - SEED_DECISION_STATE_ALLOWANCE_BYTES;
-/** Company file rows a run looks at, newest first, before filtering. */
+/** Company file rows a run looks at, newest first, before filtering (per hand-added category since 2026-11-17). */
 const COMPANY_FILE_ROWS = 50;
 
 /**
@@ -99,9 +133,11 @@ export function frozenTotal(frozenSoFar: readonly string[]): { fits(content: str
 }
 /**
  * The most rows one generation freezes: a transcript, its digest and its
- * fact pack each, the files, the Storyline, and the company files.
+ * fact pack each, the files, the Storyline, the company files added by
+ * hand, and (2026-11-17) the pinned final PDs.
  */
-export const MAX_FROZEN_SOURCE_ROWS = 3 * MAX_TRANSCRIPTS_PER_PROJECT + FROZEN_DOCUMENT_ROWS + 1 + FROZEN_COMPANY_FILES;
+export const MAX_FROZEN_SOURCE_ROWS =
+  3 * MAX_TRANSCRIPTS_PER_PROJECT + FROZEN_DOCUMENT_ROWS + 1 + FROZEN_COMPANY_FILES + PINNED_FINAL_PDS;
 
 export type ExcludedSourceIds = {
   documentIds: Id<"projectDocuments">[];
@@ -117,8 +153,12 @@ export type FrozenEvidence = {
   frozenTranscripts: Array<{ row: Doc<"transcripts">; content: string }>;
   /** `truncated`: the file's text is longer than the part frozen. */
   frozenDocuments: Array<{ document: Doc<"projectDocuments">; content: string; truncated: boolean }>;
-  /** The project's company's files (Phase C), after the project's own; empty without a company. */
-  frozenCompanyFiles: Array<{ file: Doc<"companyFiles">; content: string; truncated: boolean }>;
+  /**
+   * The project's company's files (Phase C), after the project's own; empty
+   * without a company. `previousYear` (2026-11-18, third): last year's final
+   * PD that counts as the project's previous-year report.
+   */
+  frozenCompanyFiles: Array<{ file: Doc<"companyFiles">; content: string; truncated: boolean; previousYear?: boolean }>;
   /**
    * 2026-10-28 (third): the company files the run could read and the writer
    * left in, but that did not fit in the frozen total, newest first.
@@ -192,7 +232,8 @@ export async function selectFrozenEvidence(
     projectId,
     excluded,
     [...frozenTranscripts.map((item) => item.content), ...frozenDocuments.map((item) => item.content)],
-    meter
+    meter,
+    hasOwnPreviousYearReport(documents)
   );
   return {
     projectTranscripts,
@@ -206,40 +247,544 @@ export async function selectFrozenEvidence(
 }
 
 /**
- * The company files a draft can read, from its company's files newest first
- * (Phase C): those with text, at most FROZEN_COMPANY_FILES, each read up to
+ * The hand-added company files a draft can read, from those newest first
+ * (Phase C): those with text, at most `places`, each read up to
  * FROZEN_DOCUMENT_CHARS and the last cut so all together stay within
- * FROZEN_COMPANY_CHARS. Decided before any is left out, so the start dialog
- * lists exactly these, and leaving one out never brings in another.
+ * `room`, as before. Imported history
+ * (`isCompanyHistoryCategory`) never comes in this way. Decided before any
+ * is left out, so the start dialog lists exactly these, and leaving one
+ * out never brings in another.
  */
-export function eligibleCompanyFiles<T extends Pick<Doc<"companyFiles">, "hasText" | "textLength">>(
-  newestFirst: readonly T[]
+export function eligibleCompanyFiles<T extends Pick<Doc<"companyFiles">, "hasText" | "textLength" | "category">>(
+  newestFirst: readonly T[],
+  room: number = FROZEN_COMPANY_CHARS,
+  places: number = FROZEN_COMPANY_FILES
 ): Array<{ file: T; limit: number }> {
   const eligible: Array<{ file: T; limit: number }> = [];
   let chars = 0;
   for (const file of newestFirst) {
-    if (eligible.length >= FROZEN_COMPANY_FILES || chars >= FROZEN_COMPANY_CHARS) break;
-    if (!file.hasText) continue;
-    const limit = Math.min(FROZEN_DOCUMENT_CHARS, FROZEN_COMPANY_CHARS - chars, file.textLength);
+    if (eligible.length >= places || chars >= room) break;
+    if (!file.hasText || isCompanyHistoryCategory(file.category)) continue;
+    const limit = Math.min(FROZEN_DOCUMENT_CHARS, room - chars, file.textLength);
     eligible.push({ file, limit });
     chars += limit;
   }
   return eligible;
 }
 
-/** A company's files that are not archived, newest first, as many as a draft looks at. */
-export async function companyFilesNewestFirst(ctx: Ctx, clientId: Id<"clients">): Promise<Doc<"companyFiles">[]> {
-  return await ctx.db
-    .query("companyFiles")
-    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId).eq("archived", undefined))
-    .order("desc")
-    .take(COMPANY_FILE_ROWS);
+/**
+ * What a draft's company files are chosen for (2026-11-17): its project's
+ * fiscal year, PD number and titles. A draft with no fiscal year pins no
+ * final PD.
+ */
+export type CompanyDraftSubject = {
+  fiscalYear: number | null;
+  projectNumber?: string;
+  titles: readonly string[];
+  /**
+   * 2026-11-18 (third, review): the company's names (the project's client
+   * name, the company's name and former names). Their words never link a
+   * PD to the project (`previousYearTitleWords`); pinning ignores them.
+   */
+  companyNames?: readonly string[];
+};
+
+export const NO_COMPANY_DRAFT_SUBJECT: CompanyDraftSubject = { fiscalYear: null, titles: [] };
+
+export function companyDraftSubject(
+  project: Pick<Doc<"projects">, "fiscalYearEnd" | "projectNumber" | "title" | "sredTitle" | "clientName"> | null,
+  /** The project's company, when the caller holds it: its name and former names join the project's client name. */
+  client?: Pick<Doc<"clients">, "name" | "formerNames"> | null
+): CompanyDraftSubject {
+  if (!project) return NO_COMPANY_DRAFT_SUBJECT;
+  const companyNames = [project.clientName, client?.name ?? "", ...(client?.formerNames ?? [])].filter((name) => name.trim() !== "");
+  return {
+    fiscalYear: dashboardFiscalYear(project.fiscalYearEnd),
+    ...(project.projectNumber?.trim() ? { projectNumber: project.projectNumber } : {}),
+    titles: [project.title, project.sredTitle ?? ""].filter((title) => title.trim() !== ""),
+    ...(companyNames.length > 0 ? { companyNames } : {}),
+  };
+}
+
+type FinalPdFacts = Pick<
+  Doc<"companyFiles">,
+  "_id" | "_creationTime" | "archived" | "hasText" | "textLength" | "category" | "fiscalYear" | "pdNumber" | "fileName" | "labels"
+>;
+
+/** How many words a file's name or label title shares with the project's titles (the pin rule's word test). */
+function sharedTitleWords(file: Pick<FinalPdFacts, "fileName" | "labels">, subject: CompanyDraftSubject): number {
+  const titleWords = new Set(subject.titles.flatMap((title) => evidenceWords(foldForSearch(title))));
+  const words = new Set(evidenceWords(foldForSearch(`${file.fileName} ${file.labels?.title ?? ""}`)));
+  let shared = 0;
+  for (const word of words) if (titleWords.has(word)) shared += 1;
+  return shared;
+}
+
+/**
+ * The final PDs a draft pins from one fiscal year's rows: not archived,
+ * with text, filed under that year, at most PINNED_FINAL_PDS_PER_YEAR.
+ * When the year has more, those whose PD number matches the project's come
+ * first, then those whose name or label title shares more words with the
+ * project's titles, then the newest added, then by id, so the same rows
+ * always give the same choice.
+ */
+export function pinnedFinalPdsOfYear<T extends FinalPdFacts>(rows: readonly T[], year: number, subject: CompanyDraftSubject): T[] {
+  const wanted = pdNumberKey(subject.projectNumber);
+  return rows
+    .filter((file) => !file.archived && file.hasText && file.category === "final_pd" && file.fiscalYear === year)
+    .map((file) => ({
+      file,
+      matches: wanted !== null && pdNumberKey(file.pdNumber) === wanted ? 1 : 0,
+      shared: sharedTitleWords(file, subject),
+    }))
+    .sort(
+      (a, b) =>
+        b.matches - a.matches ||
+        b.shared - a.shared ||
+        b.file._creationTime - a.file._creationTime ||
+        (a.file._id < b.file._id ? -1 : a.file._id > b.file._id ? 1 : 0)
+    )
+    .slice(0, PINNED_FINAL_PDS_PER_YEAR)
+    .map(({ file }) => file);
+}
+
+/**
+ * 2026-11-18 (third, review): words too common in SR&ED and Import file
+ * names to link a PD to a project on their own. Short words and the
+ * evidence stop words are dropped before these (`evidenceWords`).
+ */
+export const PREVIOUS_YEAR_LINK_STOP_WORDS: ReadonlySet<string> = new Set([
+  "development", "developing", "develop", "developed", "system", "systems", "project", "projects", "new", "improved",
+  "improve", "improvement", "improvements", "improving", "design", "designs", "designing", "process", "processes",
+  "technology", "technologies", "technological", "technical", "advanced", "advancement", "advancements", "novel",
+  "method", "methods", "prototype", "prototypes", "application", "applications", "based", "integrated", "integration",
+  "enhanced", "enhancement", "optimization", "optimisation", "optimized", "optimised", "automated", "automation",
+  "platform", "solution", "solutions", "product", "products", "experimental", "experiment", "experiments",
+  "uncertainty", "uncertainties", "analysis", "testing", "study", "phase", "sred", "claim", "fiscal", "year",
+  "final", "draft", "review", "reviewed", "copy", "version", "rev", "revised", "inc", "ltd", "llc", "corp",
+  "corporation", "company", "limited", "group", "docx", "doc", "pdf", "txt", "rtf", "pptx", "xlsx", "md",
+]);
+
+/** Dotted initials such as "T1.OV.PN" in an Import file name, dropped whole. */
+const INITIALS_GROUP = /(?<![\p{L}\p{N}])[\p{Lu}\p{N}]{1,4}(?:\.[\p{Lu}\p{N}]{1,4})+(?![\p{L}\p{N}])/gu;
+/** A file name's extension. */
+const FILE_EXTENSION = /\.[A-Za-z0-9]{1,5}$/;
+
+function linkWords(text: string, dropped: ReadonlySet<string>): Set<string> {
+  const words = new Set<string>();
+  for (const word of evidenceWords(foldForSearch(text.replace(INITIALS_GROUP, " ")))) {
+    if (/\p{N}/u.test(word) || PREVIOUS_YEAR_LINK_STOP_WORDS.has(word) || dropped.has(word)) continue;
+    words.add(word);
+  }
+  return words;
+}
+
+/**
+ * 2026-11-18 (third, review; the developer's reading of "shared title
+ * words", plural): the meaningful words a file's name or label title shares
+ * with the project's titles. Dropped first: short and common words
+ * (`evidenceWords`), generic SR&ED and file name words
+ * (`PREVIOUS_YEAR_LINK_STOP_WORDS`), the company's own names, any word with
+ * a digit (numbers, fiscal years, versions such as "v2", PD numbers), the
+ * file extension and dotted initials ("T1.OV.PN"). The pin rule keeps its
+ * own looser count (`sharedTitleWords`), so pinning is unchanged.
+ */
+export function previousYearTitleWords(file: Pick<FinalPdFacts, "fileName" | "labels">, subject: CompanyDraftSubject): string[] {
+  const company = new Set((subject.companyNames ?? []).flatMap((name) => evidenceWords(foldForSearch(name))));
+  const titleWords = new Set(subject.titles.flatMap((title) => [...linkWords(title, company)]));
+  const fileWords = linkWords(`${file.fileName.replace(FILE_EXTENSION, "")} ${file.labels?.title ?? ""}`, company);
+  return [...fileWords].filter((word) => titleWords.has(word)).sort();
+}
+
+/** Meaningful words a title-word link needs (`previousYearTitleWords`). */
+export const PREVIOUS_YEAR_LINK_WORDS = 2;
+
+/** Why last year's final PD is linked to the project (2026-11-18, third). */
+export type PreviousYearPdLink = "pd_number" | "title_words" | "only_final_pd";
+
+/**
+ * 2026-11-18 (third, owner): whether a company's final PD is linked to the
+ * project as its previous-year report, and why; null when it is not.
+ * Pure, and the one place the link test lives.
+ *
+ * 1. The year: its own stored `fiscalYear` (never the AI label's year) is
+ *    the project's fiscal year minus one, and it is a final PD that is not
+ *    archived. A project with no fiscal year links nothing.
+ * 2. The link, when the year may hold other projects' final PDs: its PD
+ *    number matches the project's (leading zeros and case ignored), or its
+ *    name or label title shares at least PREVIOUS_YEAR_LINK_WORDS
+ *    meaningful words with the project's titles
+ *    (`previousYearTitleWords`), or it is the year's only final PD among
+ *    `yearRows`, the rows read for that year (with text or not). The last
+ *    holds only when that read was complete (`yearRowsComplete`): a read a
+ *    budget stopped early never makes a PD the only one.
+ *
+ * The owner's literal reading ("any final PD of last year counts") would
+ * be step 1 alone.
+ */
+export function previousYearPdLink<T extends FinalPdFacts>(
+  file: T,
+  yearRows: readonly T[],
+  subject: CompanyDraftSubject,
+  yearRowsComplete = true
+): PreviousYearPdLink | null {
+  if (subject.fiscalYear === null) return null;
+  const year = subject.fiscalYear - 1;
+  const ofYear = (row: T) => !row.archived && row.category === "final_pd" && row.fiscalYear === year;
+  if (!ofYear(file)) return null;
+  const wanted = pdNumberKey(subject.projectNumber);
+  if (wanted !== null && pdNumberKey(file.pdNumber) === wanted) return "pd_number";
+  if (previousYearTitleWords(file, subject).length >= PREVIOUS_YEAR_LINK_WORDS) return "title_words";
+  if (!yearRowsComplete) return null;
+  const yearFinalPds = yearRows.filter(ofYear);
+  if (yearFinalPds.length === 1 && yearFinalPds[0]!._id === file._id) return "only_final_pd";
+  return null;
+}
+
+/**
+ * 2026-11-18 (third): the one pinned final PD a draft reads as the
+ * project's previous-year report, or null. The first of `pinned` (in pin
+ * order: a matching PD number, then more shared words, then the newest)
+ * that `previousYearPdLink` links to the project, from `yearRows`, the
+ * rows read for the year before the project's. None when the project has
+ * its own previous-year file (`ownPreviousYearReport`): that one is the
+ * report, and the import stays background.
+ */
+export function previousYearPdOf<T extends FinalPdFacts>(
+  pinned: readonly T[],
+  yearRows: readonly T[],
+  subject: CompanyDraftSubject,
+  ownPreviousYearReport: boolean,
+  yearRowsComplete = true
+): T | null {
+  if (ownPreviousYearReport) return null;
+  return pinned.find((file) => previousYearPdLink(file, yearRows, subject, yearRowsComplete) !== null) ?? null;
+}
+
+/**
+ * 2026-11-18 (third): whether the project has its own previous-year file
+ * (`previous_pd`: an uploaded report or note, a report ported in, or one a
+ * duplicate brought along) a draft could read: among the first
+ * FROZEN_DOCUMENT_ROWS file rows, in the order a draft reads them, one that
+ * is not archived and has text. Ticked or not, so leaving it out of a draft
+ * never makes an imported PD the report instead, and the start dialog
+ * shows exactly what a draft decides.
+ */
+export function hasOwnPreviousYearReport(
+  documentsInReadOrder: ReadonlyArray<Parameters<typeof documentHasText>[0] & Pick<Doc<"projectDocuments">, "archived" | "category">>
+): boolean {
+  return documentsInReadOrder
+    .slice(0, FROZEN_DOCUMENT_ROWS)
+    .some((document) => !document.archived && documentHasText(document) && isPreviousYearDocument(document));
+}
+
+/**
+ * Bytes `projectHasOwnPreviousYearReport` reads of project file rows when
+ * its caller gives no meter (2026-11-18, third, review): an older row holds
+ * its whole text inline, so 50 of them could pass a query's read limit.
+ */
+export const OWN_REPORT_READ_BYTES = 4 * 1024 * 1024;
+/** Room for one largest row (1 MiB) and its overhead before each read. */
+const OWN_REPORT_ROW_HEADROOM = 1024 * 1024 + 4096;
+
+/**
+ * Reads `hasOwnPreviousYearReport` from the project's first
+ * FROZEN_DOCUMENT_ROWS file rows, in a draft's order, stopping at the first
+ * previous-year file. True when one is found; false when the 50 rows (or
+ * all of them) hold none; null when the read stopped early, by `meter`'s
+ * `mayRead` or, without a meter, at OWN_REPORT_READ_BYTES. A caller treats
+ * null as "the project may have its own report", so no imported PD counts
+ * from a partial read.
+ */
+export async function projectHasOwnPreviousYearReport(
+  ctx: Ctx,
+  projectId: Id<"projects">,
+  meter?: ReadCounter
+): Promise<boolean | null> {
+  let bytes = 0;
+  const counter: ReadCounter = meter ?? {
+    mayRead: () => bytes + OWN_REPORT_ROW_HEADROOM <= OWN_REPORT_READ_BYTES,
+    read: (doc) => {
+      if (doc) bytes += getDocumentSize(doc as Record<string, Value>);
+    },
+  };
+  let rows = 0;
+  const iterator = countedRows(
+    ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", projectId)),
+    counter
+  );
+  for await (const document of iterator) {
+    rows += 1;
+    if (hasOwnPreviousYearReport([document])) return true;
+    if (rows >= FROZEN_DOCUMENT_ROWS) return false;
+  }
+  // The walk ended: by the rows running out, or by the budget saying no.
+  return counter.mayRead && !counter.mayRead() ? null : false;
+}
+
+/**
+ * Each length's share of `total`, fairly (max-min): every file gets the
+ * same share, and one shorter than its share leaves the rest to the
+ * others. In the order given; whole characters.
+ */
+export function fairShares(lengths: readonly number[], total: number): number[] {
+  const shares = lengths.map(() => 0);
+  let left = Math.max(0, total);
+  const order = lengths.map((length, index) => ({ length, index })).sort((a, b) => a.length - b.length || a.index - b.index);
+  for (let position = 0; position < order.length; position += 1) {
+    const { length, index } = order[position]!;
+    const share = Math.min(length, Math.floor(left / (order.length - position)));
+    shares[index] = share;
+    left -= share;
+  }
+  return shares;
+}
+
+/**
+ * One company file a draft reads: how many characters, whether it is a
+ * pinned final PD, and (2026-11-18, third) whether it is read as the
+ * project's previous-year report (`previousYearPdOf`).
+ */
+export type DraftCompanyFile<T> = { file: T; limit: number; pinned: boolean; previousYear: boolean };
+
+/**
+ * The company files a draft reads, in order (2026-11-17, company history;
+ * pure, so the start dialog and every freeze decide alike):
+ *
+ * 1. The company files added by hand (every category but Import's), newest
+ *    first, exactly as before (`eligibleCompanyFiles`): FROZEN_COMPANY_FILES
+ *    places and FROZEN_COMPANY_CHARS. A company with no Import files reads
+ *    exactly what it read before.
+ * 2. Then, on top, pinned: the final PDs of the two fiscal years before the
+ *    project's, newest year first, at most two a year
+ *    (`pinnedFinalPdsOfYear`), in PINNED_FINAL_PDS places of their own,
+ *    sharing the least of PINNED_FINAL_PD_CHARS, COMPANY_HISTORY_CHARS and
+ *    what the hand-added files left of FROZEN_COMPANY_CHARS.
+ * 3. 2026-11-18 (third): the one pinned PD of last year linked to the
+ *    project (`previousYearPdOf`) is marked `previousYear` and takes its
+ *    share first, up to PREVIOUS_YEAR_PD_CHARS; the other pinned PDs share
+ *    the rest fairly (`fairShares`). With none marked, all share fairly as
+ *    before.
+ *
+ * Imported drafts, review copies, transcripts, supporting files and final
+ * PDs of other years are never read by a draft; the chat finds them by
+ * search. Relevance filling from every file is evidence layer step 2.
+ */
+export function planDraftCompanyFiles<T extends FinalPdFacts>(input: {
+  /** Final PD rows of each pinned year, newest year first; `complete` false when a read stopped early. */
+  finalPdsByYear: ReadonlyArray<{ year: number; rows: readonly T[]; complete?: boolean }>;
+  /** Files added by hand, not archived, newest first. */
+  handNewestFirst: readonly T[];
+  subject: CompanyDraftSubject;
+  /** 2026-11-18 (third): the project has its own previous-year file (`hasOwnPreviousYearReport`). */
+  ownPreviousYearReport?: boolean;
+}): Array<DraftCompanyFile<T>> {
+  const hand = eligibleCompanyFiles(input.handNewestFirst);
+  const handChars = hand.reduce((sum, item) => sum + item.limit, 0);
+  const pinnedFiles = input.finalPdsByYear
+    .flatMap(({ year, rows }) => pinnedFinalPdsOfYear(rows, year, input.subject))
+    .slice(0, PINNED_FINAL_PDS);
+  const lastYear = input.subject.fiscalYear === null ? null : input.subject.fiscalYear - 1;
+  const lastYearRead = input.finalPdsByYear.find(({ year }) => year === lastYear);
+  const previousYear = previousYearPdOf(
+    pinnedFiles,
+    lastYearRead?.rows ?? [],
+    input.subject,
+    input.ownPreviousYearReport === true,
+    lastYearRead?.complete !== false
+  );
+  const room = Math.max(0, Math.min(PINNED_FINAL_PD_CHARS, COMPANY_HISTORY_CHARS, FROZEN_COMPANY_CHARS - handChars));
+  const previousYearShare = previousYear ? Math.min(previousYear.textLength, PREVIOUS_YEAR_PD_CHARS, room) : 0;
+  const others = pinnedFiles.filter((file) => file !== previousYear);
+  const otherShares = fairShares(
+    others.map((file) => file.textLength),
+    room - previousYearShare
+  );
+  const pinned = pinnedFiles
+    .map((file) => {
+      const isPreviousYear = file === previousYear;
+      const limit = isPreviousYear ? previousYearShare : otherShares[others.indexOf(file)]!;
+      return { file, limit, pinned: true, previousYear: isPreviousYear };
+    })
+    .filter((item) => item.limit > 0);
+  return [...hand.map((item) => ({ ...item, pinned: false, previousYear: false })), ...pinned];
+}
+
+/**
+ * Rows of several index ranges, each newest first, merged newest first, at
+ * most `limit` in all: each range is read only as far as the merge needs
+ * it, so reading N rows reads at most N plus one per range. `meter` is told
+ * before and after every row read.
+ */
+async function newestFirstMerged(
+  ranges: ReadonlyArray<AsyncIterable<Doc<"companyFiles">>>,
+  limit: number,
+  meter?: ReadCounter
+): Promise<Doc<"companyFiles">[]> {
+  const iterators = ranges.map((range) => range[Symbol.asyncIterator]());
+  const pull = async (iterator: AsyncIterator<Doc<"companyFiles">>) => {
+    if (meter?.mayRead && !meter.mayRead()) return null;
+    await meter?.beforeRead?.();
+    const next = await iterator.next();
+    if (next.done) return null;
+    meter?.read(next.value);
+    return next.value;
+  };
+  const merged: Doc<"companyFiles">[] = [];
+  try {
+    const heads: Array<Doc<"companyFiles"> | null> = [];
+    for (const iterator of iterators) heads.push(limit > 0 ? await pull(iterator) : null);
+    while (merged.length < limit) {
+      let best = -1;
+      for (let index = 0; index < heads.length; index += 1) {
+        const head = heads[index];
+        if (!head) continue;
+        const current = best >= 0 ? heads[best]! : null;
+        if (!current || head._creationTime > current._creationTime || (head._creationTime === current._creationTime && head._id > current._id)) {
+          best = index;
+        }
+      }
+      if (best < 0) break;
+      merged.push(heads[best]!);
+      heads[best] = merged.length < limit ? await pull(iterators[best]!) : null;
+    }
+  } finally {
+    for (const iterator of iterators) await iterator.return?.();
+  }
+  return merged;
+}
+
+/** A company's files of these categories, not archived, as index ranges newest first. */
+function categoryRanges(ctx: Ctx, clientId: Id<"clients">, categories: ReadonlyArray<Doc<"companyFiles">["category"]>) {
+  return categories.map((category) =>
+    ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_archived_and_category", (q) =>
+        q.eq("clientId", clientId).eq("archived", undefined).eq("category", category)
+      )
+      .order("desc")
+  );
+}
+
+/**
+ * A company's files added by hand (every category but Import's, and none),
+ * not archived, newest first, at most `limit`: one index range per
+ * category, merged, so no number of imported files hides them, and the
+ * rows read stay about what one newest-first read of `limit` rows took.
+ */
+export async function handCompanyFilesNewestFirst(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  limit: number = COMPANY_FILE_ROWS,
+  meter?: ReadCounter
+): Promise<Doc<"companyFiles">[]> {
+  return await newestFirstMerged(categoryRanges(ctx, clientId, HAND_COMPANY_FILE_CATEGORIES), limit, meter);
+}
+
+/**
+ * A company's Import files (`COMPANY_HISTORY_CATEGORIES`), not archived,
+ * newest added first, at most `limit`. Reads nothing for a company with no
+ * Import files.
+ */
+export async function historyCompanyFilesNewestFirst(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  limit: number,
+  meter?: ReadCounter
+): Promise<Doc<"companyFiles">[]> {
+  return await newestFirstMerged(categoryRanges(ctx, clientId, COMPANY_HISTORY_CATEGORIES), limit, meter);
+}
+
+/**
+ * historyCompanyFilesNewestFirst without final PDs: the Import drafts,
+ * review copies, transcripts and supporting files (2026-11-19, from code
+ * review), for the chat list's last pass, which lists final PDs only up to
+ * CHAT_LISTED_FINAL_PDS in its own pass before it.
+ */
+export async function nonFinalHistoryCompanyFilesNewestFirst(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  limit: number,
+  meter?: ReadCounter
+): Promise<Doc<"companyFiles">[]> {
+  const categories = COMPANY_HISTORY_CATEGORIES.filter((category) => category !== "final_pd");
+  return await newestFirstMerged(categoryRanges(ctx, clientId, categories), limit, meter);
+}
+
+/**
+ * A company's final PDs of `year`, not archived, newest first, at most
+ * `limit` (FINAL_PD_ROWS_PER_YEAR: a year with more chooses among its
+ * newest 20). `complete` (2026-11-18, third, review) is false when `meter`'s
+ * `mayRead` stopped the read before the rows or the limit ran out, so a
+ * partial read never makes a PD "the year's only final PD".
+ */
+export async function companyFinalPdsOfYear(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  year: number,
+  limit: number = FINAL_PD_ROWS_PER_YEAR,
+  meter?: ReadCounter
+): Promise<{ rows: Doc<"companyFiles">[]; complete: boolean }> {
+  const rows: Doc<"companyFiles">[] = [];
+  for await (const row of countedRows(
+    ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_category_and_archived_and_fiscalYear", (q) =>
+        q.eq("clientId", clientId).eq("category", "final_pd").eq("archived", undefined).eq("fiscalYear", year)
+      )
+      .order("desc"),
+    meter
+  )) {
+    rows.push(row);
+    if (rows.length >= limit) return { rows, complete: true };
+  }
+  return { rows, complete: !(meter?.mayRead && !meter.mayRead()) };
+}
+
+/** The fiscal years a draft pins final PDs from, newest first: the two before the project's. */
+export function pinnedYears(subject: CompanyDraftSubject): number[] {
+  if (subject.fiscalYear === null) return [];
+  return Array.from({ length: PINNED_FINAL_PD_YEARS }, (_, index) => subject.fiscalYear! - 1 - index);
+}
+
+/**
+ * The company files a draft of `subject` reads from `clientId`
+ * (`planDraftCompanyFiles`), with bounded, indexed reads: at most 20 final
+ * PD rows for each pinned year, and the newest 50 hand-added rows (plus one
+ * per category for the merge). `meter` is told before and after every row
+ * read (a draft's reservation).
+ */
+export async function draftCompanyFiles(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  subject: CompanyDraftSubject,
+  meter?: ReadCounter,
+  /**
+   * 2026-11-18 (third): the project has its own previous-year file
+   * (`hasOwnPreviousYearReport`), or a function that reads it, called only
+   * when a pinned PD would otherwise count (the start dialog). Its null
+   * ("not known") counts as true, so no PD counts from a partial read.
+   */
+  ownPreviousYearReport: boolean | (() => Promise<boolean | null>) = false
+): Promise<Array<DraftCompanyFile<Doc<"companyFiles">>>> {
+  const finalPdsByYear: Array<{ year: number; rows: Doc<"companyFiles">[]; complete: boolean }> = [];
+  for (const year of pinnedYears(subject)) {
+    finalPdsByYear.push({ year, ...(await companyFinalPdsOfYear(ctx, clientId, year, FINAL_PD_ROWS_PER_YEAR, meter)) });
+  }
+  const handNewestFirst = await handCompanyFilesNewestFirst(ctx, clientId, COMPANY_FILE_ROWS, meter);
+  if (typeof ownPreviousYearReport === "boolean") {
+    return planDraftCompanyFiles({ finalPdsByYear, handNewestFirst, subject, ownPreviousYearReport });
+  }
+  const plan = planDraftCompanyFiles({ finalPdsByYear, handNewestFirst, subject, ownPreviousYearReport: false });
+  if (!plan.some((item) => item.previousYear)) return plan;
+  if ((await ownPreviousYearReport()) === false) return plan;
+  return planDraftCompanyFiles({ finalPdsByYear, handNewestFirst, subject, ownPreviousYearReport: true });
 }
 
 /**
  * The project's company's files a run reads (Phase C, decision "2026-10-26",
  * part 1): of the company the project is linked to now, if it is active,
- * the eligible files (`eligibleCompanyFiles`) not left out, none once every
+ * the files a draft reads (`draftCompanyFiles`) not left out, none once every
  * frozen row together would pass FROZEN_TOTAL_BYTES. A file whose stored
  * text is damaged is left out. Nothing at all for a project with no
  * company, or when the company's names cannot all be read (nothing goes out
@@ -250,11 +795,21 @@ async function selectCompanyFiles(
   projectId: Id<"projects">,
   excluded: ExcludedSourceIds | undefined,
   frozenSoFar: readonly string[],
-  meter?: ReadCounter
+  meter?: ReadCounter,
+  ownPreviousYearReport = false
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames" | "companyFilesLeftOut">> {
   const project = await ctx.db.get(projectId);
   const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
-  return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar, projectId, meter);
+  return await selectCompanyFilesOf(
+    ctx,
+    client,
+    excluded,
+    frozenSoFar,
+    projectId,
+    meter,
+    companyDraftSubject(project, client),
+    ownPreviousYearReport
+  );
 }
 
 /**
@@ -269,7 +824,11 @@ export async function selectCompanyFilesOf(
   frozenSoFar: readonly string[],
   /** The draft's own project, left out of the company's names (`companyIdentityNames`). */
   ownProjectId?: Id<"projects">,
-  meter?: ReadCounter
+  meter?: ReadCounter,
+  /** 2026-11-17: what the files are chosen for; none pins no final PD (a New project draft has no fiscal year). */
+  subject: CompanyDraftSubject = NO_COMPANY_DRAFT_SUBJECT,
+  /** 2026-11-18 (third): the project has its own previous-year file, so no imported PD is read as one. */
+  ownPreviousYearReport = false
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames" | "companyFilesLeftOut">> {
   const none = { frozenCompanyFiles: [], companyNames: { organizations: [], people: [] } };
   if (!client || client.status !== "active") return none;
@@ -279,9 +838,7 @@ export async function selectCompanyFilesOf(
   // 2026-10-28 (third, owner): the first file that does not fit and every
   // eligible one after it, unread, so the Inputs band can list them.
   const companyFilesLeftOut: Id<"companyFiles">[] = [];
-  const newestFirst = await companyFilesNewestFirst(ctx, client._id);
-  for (const file of newestFirst) meter?.read(file);
-  for (const { file, limit } of eligibleCompanyFiles(newestFirst)) {
+  for (const { file, limit, previousYear } of await draftCompanyFiles(ctx, client._id, subject, meter, ownPreviousYearReport)) {
     if (leftOut.has(file._id)) continue;
     if (companyFilesLeftOut.length > 0) {
       companyFilesLeftOut.push(file._id);
@@ -294,7 +851,7 @@ export async function selectCompanyFilesOf(
       companyFilesLeftOut.push(file._id);
       continue;
     }
-    frozenCompanyFiles.push({ file, content, truncated: text.length !== file.textLength });
+    frozenCompanyFiles.push({ file, content, truncated: text.length !== file.textLength, ...(previousYear ? { previousYear } : {}) });
   }
   if (frozenCompanyFiles.length === 0) return { ...none, companyFilesLeftOut };
   try {
@@ -354,6 +911,8 @@ export type FrozenSourceFields = {
   projectDocumentId?: Id<"projectDocuments">;
   companyFileId?: Id<"companyFiles">;
   clientId?: Id<"clients">;
+  /** 2026-11-17: a company file's fiscal year at the freeze, when it has one. */
+  fiscalYear?: number;
   /** A private intake draft's row (decision 65, stage 2): its source and stable key. */
   intakeSourceId?: Id<"intakeSources">;
   sourceKey?: string;
@@ -400,18 +959,22 @@ export async function frozenSourceFields(evidence: FrozenEvidence): Promise<Froz
 /**
  * Frozen company file rows (Phase C), last, with client trust always (no
  * uploader role), and a category that can never pass for this project's own
- * prior work or scoping (`companyFileCategory`).
+ * prior work or scoping (`companyFileCategory`), except, since 2026-11-18
+ * (third), last year's final PD a draft reads as the project's
+ * previous-year report. Since 2026-11-17 each keeps the file's fiscal
+ * year, when it has one, beside its file and text version.
  */
 export async function companyFileSourceFields(
   files: FrozenEvidence["frozenCompanyFiles"]
 ): Promise<FrozenSourceFields[]> {
   const rows: FrozenSourceFields[] = [];
-  for (const { file, content, truncated } of files) {
+  for (const { file, content, truncated, previousYear } of files) {
     rows.push({
       kind: "company_file",
       companyFileId: file._id,
       clientId: file.clientId,
-      label: `${companyFileCategory(file.category)}:${file.fileName}`,
+      ...(typeof file.fiscalYear === "number" ? { fiscalYear: file.fiscalYear } : {}),
+      label: companyFileLabel(file, previousYear === true),
       content,
       contentHash: await sha256(content),
       truncated,
@@ -422,13 +985,83 @@ export async function companyFileSourceFields(
 }
 
 /**
- * A company file's category in a draft: background, or other. A company
- * file filed as a previous-year report, scoping notes or writer's notes is
- * not this project's (the analyzer weighs those as the project's own), so
- * it reads as background (Phase C review, 2026-10-26).
+ * A frozen company file row's label, `<category>:<name>`. Since 2026-11-17
+ * an Import file with a fiscal year adds it ("background:Pump PD.docx (FY
+ * 2024)"), so two same-name final PDs of different years read apart; a
+ * file added by hand keeps its label exactly, so its Brief reuse holds.
+ * 2026-11-18 (third): last year's final PD read as the project's
+ * previous-year report reads "previous_pd:Pump PD.docx (FY 2024)".
  */
-export function companyFileCategory(category: Doc<"companyFiles">["category"]): "background" | "other" {
-  return category === "other" || category === undefined ? "other" : "background";
+export function companyFileLabel(
+  file: Pick<Doc<"companyFiles">, "category" | "fileName" | "fiscalYear">,
+  previousYear = false
+): string {
+  const year = isCompanyHistoryCategory(file.category) && typeof file.fiscalYear === "number" ? ` (FY ${file.fiscalYear})` : "";
+  return `${companyFileCategory(file.category, previousYear)}:${file.fileName}${year}`;
+}
+
+/**
+ * A company file's category in a draft, chat and their trust labels:
+ * background, or other. A company file filed as a previous-year report,
+ * scoping notes or writer's notes is not this project's (the analyzer
+ * weighs those as the project's own), so it reads as background (Phase C
+ * review, 2026-10-26).
+ *
+ * 2026-11-17 (company history, decision 42): an imported final PD reads as
+ * background; imported drafts, review copies, transcripts and supporting
+ * files read as other.
+ *
+ * 2026-11-18 (third, owner): last year's final PD linked to the project
+ * (`previousYear`, decided by `previousYearPdOf`) reads as `previous_pd`,
+ * the project's previous-year report. It is still a company file with
+ * client trust, and it never counts as this year's source (decision 42).
+ */
+export function companyFileCategory(
+  category: Doc<"companyFiles">["category"],
+  previousYear = false
+): "background" | "other" | "previous_pd" {
+  if (previousYear && category === "final_pd") return "previous_pd";
+  switch (category) {
+    case "previous_pd":
+    case "scoping_notes":
+    case "writer_notes":
+    case "background":
+    case "final_pd":
+      return "background";
+    case "draft":
+    case "review_copy":
+    case "transcript":
+    case "supporting":
+    case "other":
+    case undefined:
+      return "other";
+  }
+}
+
+/**
+ * 2026-11-18 (third): the company file a draft of the project would read
+ * as its previous-year report when nothing is left out, or null, read
+ * apart from a draft (the chat opening one file): last year's final PD
+ * rows (at most FINAL_PD_ROWS_PER_YEAR), and the project's own file rows
+ * only when one of them is linked, within `projectHasOwnPreviousYearReport`'s
+ * byte budget. A read stopped early counts nothing.
+ */
+export async function previousYearCompanyFileId(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  subject: CompanyDraftSubject,
+  projectId: Id<"projects">,
+  meter?: ReadCounter,
+  /** Already known by a caller that holds the project's file rows. */
+  ownPreviousYearReport?: boolean
+): Promise<Id<"companyFiles"> | null> {
+  if (subject.fiscalYear === null) return null;
+  const year = subject.fiscalYear - 1;
+  const { rows, complete } = await companyFinalPdsOfYear(ctx, clientId, year, FINAL_PD_ROWS_PER_YEAR, meter);
+  const candidate = previousYearPdOf(pinnedFinalPdsOfYear(rows, year, subject), rows, subject, false, complete);
+  if (!candidate) return null;
+  const own = ownPreviousYearReport ?? (await projectHasOwnPreviousYearReport(ctx, projectId, meter));
+  return own === false ? candidate._id : null;
 }
 
 /**

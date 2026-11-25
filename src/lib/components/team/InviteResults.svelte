@@ -9,13 +9,30 @@
     | { email: string; status: "created"; link: string }
     | { email: string; status: "invalid" | "already_member" | "already_invited" };
 
-  let { rows, role }: { rows: InviteResultRow[]; role: Role } = $props();
+  let {
+    rows,
+    role,
+    forPastWriter = false,
+  }: {
+    rows: InviteResultRow[];
+    role: Role;
+    /** The dialog invited one past writer (2026-11-17): a plain invite or an account never links them. */
+    forPastWriter?: boolean;
+  } = $props();
 
-  const FAILURES = {
-    invalid: "Not a valid email",
-    already_member: "Already has an account",
-    already_invited: "Already invited. Use Resend on the Team page.",
-  } as const;
+  const FAILURES = $derived(
+    forPastWriter
+      ? {
+          invalid: "Not a valid email",
+          already_member: "Already has an account. Use Link to a team member.",
+          already_invited: "Already invited without this writer. Revoke that invite, then invite again from Past writers.",
+        }
+      : {
+          invalid: "Not a valid email",
+          already_member: "Already has an account",
+          already_invited: "Already invited. Use Resend on the Team page.",
+        },
+  );
 
   let copied = $state<Record<string, boolean>>({});
 

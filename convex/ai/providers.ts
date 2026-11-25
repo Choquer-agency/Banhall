@@ -45,6 +45,7 @@ import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
   OutputLimitError,
+  RefusalError,
   RefusalOutputError,
   isCutOffStopReason,
   isRefusalStopReason,
@@ -386,7 +387,7 @@ export function modelFaultCode(error: unknown): string | null {
   // unknown value, a missing OpenRouter key, a model without an OpenRouter
   // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
   if (isTransportConfigurationError(error)) return null;
-  if (error instanceof RefusalOutputError || isContentDeclineError(error)) return null;
+  if (error instanceof RefusalError || error instanceof RefusalOutputError || isContentDeclineError(error)) return null;
   // The database refusing a write for its write rate (owner, 2026-10-28).
   if (isWriteRateLimitError(error)) return null;
   // A cut-off is `output_limit` on both gateways: OpenRouter throws it
@@ -882,13 +883,21 @@ export function clientForStep(
 export function withStepRequest(client: GenerationClient, route: StepRoute): GenerationClient {
   if (route.policyVersion === null) return client;
   const thinking = route.request.thinking;
+  const outputConfig = route.request.output_config;
   const routed = (params: GenerationMessageParams): GenerationMessageParams => {
     if (params.model !== route.model) {
       throw new Error(
         `The ${route.step} step is routed to ${route.model} but its request names ${params.model}`
       );
     }
-    return thinking && params.thinking === undefined ? { ...params, thinking } : params;
+    let next = params;
+    if (thinking && next.thinking === undefined) {
+      next = { ...next, thinking };
+    }
+    if (outputConfig && next.output_config?.effort === undefined) {
+      next = { ...next, output_config: { ...next.output_config, ...outputConfig } };
+    }
+    return next;
   };
   const streaming = client.messages.createStreaming?.bind(client.messages);
   return {

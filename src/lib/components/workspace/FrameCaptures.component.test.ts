@@ -294,8 +294,8 @@ describe("page frame captures (1440 by 900)", () => {
       };
     }));
     __setQueryData("invites:listTeamInvites", [
-      { _id: "i-1", email: "ana.ruiz@banhall.com", role: "writer", invitedByName: "Bryce Choquer", sentAt: now - 2 * 86_400_000, expiresAt: now + 5 * 86_400_000, expired: false, canManage: true },
-      { _id: "i-2", email: "m.tremblay@banhall.com", role: "manager", invitedByName: "Sam Chen", sentAt: now - 18 * 86_400_000, expiresAt: now - 11 * 86_400_000, expired: true, canManage: true },
+      { _id: "i-1", email: "ana.ruiz@banhall.com", role: "writer", invitedByName: "Bryce Choquer", sentAt: now - 2 * 86_400_000, expiresAt: now + 5 * 86_400_000, expired: false, canManage: true, canResend: true },
+      { _id: "i-2", email: "m.tremblay@banhall.com", role: "manager", invitedByName: "Sam Chen", sentAt: now - 18 * 86_400_000, expiresAt: now - 11 * 86_400_000, expired: true, canManage: true, canResend: true },
     ]);
     __setPageUrl("/team");
     await render(TeamPage, { origin: "https://banhall.app" });

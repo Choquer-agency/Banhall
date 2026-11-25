@@ -8,10 +8,14 @@ import { brainRerankModel } from "./embeddings";
 import { searchBrainExemplars } from "./retrieve";
 
 const search = vi.hoisted(() => vi.fn());
-vi.mock("./rag", () => ({
+// 2026-11-18 (fourth): retrieval searches through the serving index's RAG
+// instance (`BRAIN_RAGS`), so both instances get the stub; the rest of the
+// module stays real (brain.ts reads the serving index through it).
+vi.mock("./rag", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./rag")>()),
   brain: { search },
-  BRAIN_NAMESPACE: "brain",
-  BRAIN_FILTER_NAMES: ["industryApproved", "docType"],
+  BRAIN_RAGS: { voyage3: { search }, voyage4: { search } },
+  BRAIN_SEARCH_RAGS: { voyage3: { search }, voyage4: { search } },
 }));
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../../**/*.ts")).map(([path, load]) => [
@@ -79,7 +83,9 @@ describe("actual Brain retrieval terminal observations", () => {
     expect(provider).toHaveBeenCalledTimes(2);
     expect(result.degraded).toBe(false);
     expect(result.exemplars[0]).toMatchObject(exhausted
-      ? { entryId: "entry-0", score: 0.9 }
+      // Search order, positions counted over the kept slate (entry-0 is 1),
+      // then the writer tier blend (no tier: 0.4, so 1 × 0.76).
+      ? { entryId: "entry-0", searchScore: 0.9, score: expect.closeTo(0.76, 6) }
       : { entryId: "entry-0", rerankScore: 0.8 });
     expect(await observations(t)).toEqual([expect.objectContaining({ outcome: exhausted ? "fallback" : "success" })]);
   });
@@ -87,10 +93,12 @@ describe("actual Brain retrieval terminal observations", () => {
   test("short and empty slates skip the provider and preserve the raw relevance floor", async () => {
     const t = convexTest(schema, modules);
     const provider = vi.spyOn(brainRerankModel, "doRerank");
-    for (const scores of [[0.1], []]) {
-      search.mockResolvedValueOnce(slate(scores));
-      expect(await t.action(internal.ai.brain.retrieve.retrieveBrainContext, args)).toEqual({ exemplars: [], degraded: false });
-    }
+    // Five hits for k=5: positions 1, 0.8, 0.6, 0.4, 0.2; the last is under the floor.
+    search.mockResolvedValueOnce(slate([0.9, 0.7, 0.5, 0.3, 0.1]));
+    const five = await t.action(internal.ai.brain.retrieve.retrieveBrainContext, { ...args, k: 5 });
+    expect(five.exemplars.map((e) => e.entryId)).toEqual(["entry-0", "entry-1", "entry-2", "entry-3"]);
+    search.mockResolvedValueOnce(slate([]));
+    expect(await t.action(internal.ai.brain.retrieve.retrieveBrainContext, args)).toEqual({ exemplars: [], degraded: false });
     expect(provider).not.toHaveBeenCalled();
     expect((await observations(t)).map((row) => row.outcome)).toEqual(["skip", "skip"]);
   });

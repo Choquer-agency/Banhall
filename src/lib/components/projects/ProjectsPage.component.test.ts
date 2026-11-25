@@ -373,7 +373,8 @@ describe("Projects page client area", () => {
   it("opens the delete confirmation from the menu, and hides Delete from someone who may not", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", [
       ...CEDARLINE.slice(0, 1),
-      project("other", { title: "Someone else's project", createdBy: "u-2", fiscalYearEnd: day("2026-09-30") }),
+      project("other", { title: "Someone else's project", createdBy: "u-2", ownerId: "u-2", fiscalYearEnd: day("2026-09-30") }),
+      project("owned", { title: "Transferred to me", createdBy: "u-2", ownerId: "u-1", fiscalYearEnd: day("2026-09-30") }),
     ]);
     await mount("/projects?client=cedarline+systems");
     await expect.poll(() => document.querySelector('[data-card-menu="other"]')).not.toBeNull();
@@ -382,6 +383,11 @@ describe("Projects page client area", () => {
     expect(document.querySelector('[data-card-menu-item="delete"]')).toBeNull();
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => document.querySelector('[data-card-menu-content="other"]')).toBeNull();
+
+    await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu="owned"]')!);
+    await expect.poll(() => document.querySelector('[data-card-menu-item="delete"]')).not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector('[data-card-menu-content="owned"]')).toBeNull();
 
     await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu="p4"]')!);
     await userEvent.click(document.querySelector<HTMLElement>('[data-card-menu-item="delete"]')!);

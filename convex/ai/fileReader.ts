@@ -22,7 +22,7 @@ import {
   normalizeExtractedText,
   pdfPageStopMarker,
 } from "../../shared/documentStatus";
-import { capContent, locatePageOffsets, MAX_CONTENT_CHARS } from "../../shared/documentContent";
+import { capContent, joinPdfTextItems, locatePageOffsets, MAX_CONTENT_CHARS } from "../../shared/documentContent";
 import { spreadsheetText } from "../../shared/spreadsheetText";
 import { emailToText, emlToText, fmtPerson, MAX_MBOX_MESSAGES, splitMbox } from "../../shared/emailText";
 import { wordToMarkdown } from "../../shared/wordMarkdown";
@@ -118,7 +118,9 @@ async function readPdf(bytes: Uint8Array, timeoutMs: number, maxChars: number): 
       try {
         const page = await before(pdf.getPage(index), deadline);
         const content = await before(page.getTextContent(), deadline);
-        const strings = content.items.map((item) => ("str" in item ? item.str : "")).join(" ");
+        const strings = joinPdfTextItems(
+          content.items as readonly { str?: string; hasEOL?: boolean; transform?: readonly number[] }[]
+        );
         text += `${strings}\n\n`;
         pages.push(strings);
       } catch (error) {

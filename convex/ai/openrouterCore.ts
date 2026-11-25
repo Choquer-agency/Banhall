@@ -81,6 +81,8 @@ export interface GenerationMessageParams {
   tool_choice?: { type: "tool"; name: string };
   /** Direct Anthropic control; OpenRouter conversion intentionally ignores it. */
   thinking?: { type: "disabled" };
+  /** Direct Anthropic adaptive-thinking effort; OpenRouter conversion ignores it. */
+  output_config?: { effort?: "low" | "medium" | "high" | "xhigh" };
 }
 
 /**
@@ -89,6 +91,8 @@ export interface GenerationMessageParams {
  * not a delta); an empty string means the request started again.
  */
 export type GenerationStreamHandlers = {
+  /** Called once as soon as the stream delivers its first event (e.g. message_start). */
+  onFirstEvent?: () => void;
   onToolInput?: (snapshot: string) => void;
   /**
    * 2026-09-27 (second): the characters of answer received so far (text,
@@ -184,6 +188,7 @@ export async function collectMessageStream(
   const blocks: Block[] = [];
   let usage: Record<string, unknown> = {};
   let received = 0;
+  let sawFirstEvent = false;
   const folded = () => {
     const content = blocks.filter(Boolean).map((block) => {
       if (block.partial === undefined) return block;
@@ -206,6 +211,10 @@ export async function collectMessageStream(
   try {
     for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
       if (progress) progress.lastEventAt = Date.now();
+      if (!sawFirstEvent) {
+        sawFirstEvent = true;
+        handlers.onFirstEvent?.();
+      }
       const event = raw ?? {};
       switch (event.type) {
         case "message_start": {
@@ -347,10 +356,16 @@ export function toChatCompletions(
   } = {}
 ): ChatCompletionsBody {
   // A model that rejects a forced tool call (Opus 5.5 and Fable 5.1 on
-  // OpenRouter) gets `auto` plus one system line; everything else is
+  // OpenRouter) gets `auto` plus one instruction line; everything else is
   // unchanged (shared/generationModels.ts toolRequestForModel).
-  const toolRequest = toolRequestForModel(params.model, params.tool_choice, params.system);
+  const toolRequest = toolRequestForModel(
+    params.model,
+    params.tool_choice,
+    params.system,
+    params.messages
+  );
   const system = toolRequest.system as string | undefined;
+  const sourceMessages = (toolRequest.messages ?? params.messages) as typeof params.messages;
   const body: ChatCompletionsBody = {
     model: requestModelId(params.model),
     // Agents budget max_tokens for the answer alone (the Anthropic-correct
@@ -365,7 +380,7 @@ export function toChatCompletions(
       system
         ? [{ role: OPENROUTER_CONVERSION.systemRole, content: system }]
         : []),
-      ...params.messages.map((message) => ({
+      ...sourceMessages.map((message) => ({
         role: message.role,
         content: convertContent(params.model, message.content),
       })),
@@ -543,6 +558,18 @@ export class RefusalOutputError extends MalformedOutputError {
   }
 }
 
+/**
+ * A provider answer declined for safety/content policy (`stop_reason: "refusal"`
+ * or `finish_reason: "content_filter"`). Never retried as malformed output and
+ * never counted against a model tier's production error rate.
+ */
+export class RefusalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RefusalError";
+  }
+}
+
 export type ChatCompletionsResponse = {
   /** The model that actually answered (differs only after a fallback). */
   model?: string;
@@ -647,6 +674,11 @@ export function requireTextResponse(
   response: GenerationResponse,
   label: string
 ): string {
+  if (isRefusalStopReason(response.stop_reason)) {
+    throw new RefusalError(
+      `${label} refused to answer (stop reason: ${response.stop_reason})`
+    );
+  }
   if (isCutOffStopReason(response.stop_reason)) {
     throw new OutputLimitError(
       `${label} response was truncated at the max_tokens limit before completing`

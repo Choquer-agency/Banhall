@@ -13,11 +13,11 @@
  * `legacyModel`, and sends every request unchanged. Pure: queries,
  * mutations and actions all call it.
  */
-import { MODEL, entryAlwaysThinks, seedModelById } from "../../shared/generationModels";
+import { MODEL, entryAlwaysThinks, seedModelById, type AnthropicEffort } from "../../shared/generationModels";
 import type { ModelFreeze } from "./modelCatalogValidators";
 
 /** Stamped on every freeze written from now on (freezeModelsForGeneration). */
-export const GENERATION_STEP_POLICY_VERSION = 1;
+export const GENERATION_STEP_POLICY_VERSION = 2;
 
 export const GENERATION_STEPS = [
   "analyzer",
@@ -54,12 +54,15 @@ export type StepPolicy = {
   timeoutMs: number;
   /**
    * `off`: every request of the step is sent `thinking: {type: "disabled"}`,
-   * which a model whose thinking is always on turns into low effort on the
-   * direct gateway. `low-when-always-thinking`: only such a model is sent it
-   * (low effort); every other model's request is unchanged. `as-sent`: the
-   * step's own request decides (the Section agents already send it off).
+   * which a model whose thinking is always on converts using `effort` on the
+   * direct gateway. `low-when-always-thinking`: only an always-thinking model
+   * receives explicit adaptive-effort routing; every other model's request is
+   * unchanged. `as-sent`: the step's own request decides for non-always-thinking
+   * models, while always-thinking models still receive explicit `effort`.
    */
   thinking: "off" | "low-when-always-thinking" | "as-sent";
+  /** Explicit adaptive-thinking effort for always-thinking direct Anthropic models. */
+  effort: AnthropicEffort;
 };
 
 const DEFAULT_TIMEOUT_MS = 240_000;
@@ -72,19 +75,19 @@ const SEED_TIMEOUT_MS = 90_000;
  * consistency pass after "Draft the rest" runs on the seed transport (90 s).
  */
 export const GENERATION_STEP_POLICY: Readonly<Record<GenerationStep, StepPolicy>> = {
-  analyzer: { source: "planning", callSite: "generation:analyzer", maxTokens: 16_000, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  brief: { source: "planning", callSite: "generation:brief", maxTokens: 16_000, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  seeds: { source: "planning", callSite: "generation:seeds:<roleId>", maxTokens: 4_000, timeoutMs: SEED_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  seedFeedback: { source: "planning", callSite: "generation:seedFeedback:<roleId>", maxTokens: 4_000, timeoutMs: SEED_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  section: { source: "writer", callSite: "generation:section:<n>", maxTokens: "section-answer-token-budget", timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "as-sent" },
-  repair: { source: "writer", callSite: "generation:repair:<n>", maxTokens: "section-answer-token-budget", timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "as-sent" },
-  compression: { source: "writer", callSite: "generation:compression:<n>", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "off" },
-  selfCheck: { source: "checking", callSite: "generation:selfCheck:<n>", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  consistency: { source: "checking", callSite: "generation:consistency", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  qa: { source: "checking", callSite: "generation:qa", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  chronology: { source: "checking", callSite: "generation:chronology", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  postQa: { source: "checking", callSite: "generation:post_qa", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  postChronology: { source: "checking", callSite: "generation:post_chronology", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  analyzer: { source: "planning", callSite: "generation:analyzer", maxTokens: 16_000, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  brief: { source: "planning", callSite: "generation:brief", maxTokens: 16_000, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  seeds: { source: "planning", callSite: "generation:seeds:<roleId>", maxTokens: 4_000, timeoutMs: SEED_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  seedFeedback: { source: "planning", callSite: "generation:seedFeedback:<roleId>", maxTokens: 4_000, timeoutMs: SEED_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  section: { source: "writer", callSite: "generation:section:<n>", maxTokens: "section-answer-token-budget", timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "as-sent", effort: "medium" },
+  repair: { source: "writer", callSite: "generation:repair:<n>", maxTokens: "section-answer-token-budget", timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "as-sent", effort: "medium" },
+  compression: { source: "writer", callSite: "generation:compression:<n>", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "off", effort: "low" },
+  selfCheck: { source: "checking", callSite: "generation:selfCheck:<n>", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  consistency: { source: "checking", callSite: "generation:consistency", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  qa: { source: "checking", callSite: "generation:qa", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  chronology: { source: "checking", callSite: "generation:chronology", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  postQa: { source: "checking", callSite: "generation:post_qa", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
+  postChronology: { source: "checking", callSite: "generation:post_chronology", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking", effort: "medium" },
 };
 
 const STEP_BY_SLOT: Readonly<Record<string, GenerationStep>> = {
@@ -117,7 +120,10 @@ export function generationStepOf(callSite: string): GenerationStep | null {
 type StepFreeze = Pick<ModelFreeze, "roles" | "entries" | "stepPolicyVersion">;
 
 /** Request fields a step adds to what its agent sends. Empty: sent as is. */
-export type StepRequestFields = { thinking?: { type: "disabled" } };
+export type StepRequestFields = {
+  thinking?: { type: "disabled" };
+  output_config?: { effort: AnthropicEffort };
+};
 
 export type StepRoute = {
   step: GenerationStep;
@@ -141,11 +147,23 @@ export function stepRequestFields(
   model: string
 ): StepRequestFields {
   if (!freeze || freeze.stepPolicyVersion === undefined) return {};
-  const thinking = GENERATION_STEP_POLICY[step].thinking;
-  if (thinking === "off") return { thinking: { type: "disabled" } };
-  if (thinking === "low-when-always-thinking" && alwaysThinks(freeze, model)) {
-    return { thinking: { type: "disabled" } };
+  const policy = GENERATION_STEP_POLICY[step];
+  // Version 1 freezes keep their original low-when-always-thinking / off-only
+  // request settings so in-flight v1 generations do not change mid-run.
+  if (freeze.stepPolicyVersion < 2) {
+    if (policy.thinking === "off") return { thinking: { type: "disabled" } };
+    if (policy.thinking === "low-when-always-thinking" && alwaysThinks(freeze, model)) {
+      return { thinking: { type: "disabled" } };
+    }
+    return {};
   }
+  if (alwaysThinks(freeze, model)) {
+    return {
+      output_config: { effort: policy.effort },
+      ...(policy.thinking === "off" ? { thinking: { type: "disabled" } } : {}),
+    };
+  }
+  if (policy.thinking === "off") return { thinking: { type: "disabled" } };
   return {};
 }
 

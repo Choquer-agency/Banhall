@@ -1,18 +1,27 @@
 # The Brain — reference notes
 
 Curated, governed cross-project knowledge base (RAG) behind SR&ED report
-generation and the chat assistant. Ticket: **BNH-10**. Last updated 2026-07-02.
+generation and the chat assistant. Ticket: **BNH-10**. Last updated 2026-11-18.
 
 ## Architecture (one paragraph)
 
-`@convex-dev/rag` owns the vector index (Voyage `voyage-3-large`, 1024d, hybrid
-search; provider: first-party `@ai-sdk/voyage`). Our own reactive tables own
+`@convex-dev/rag` owns the vector index (Voyage, 1024d, hybrid search;
+provider: first-party `@ai-sdk/voyage`). Since 2026-11-18 there are two
+indexes, one per model: `voyage3` (`voyage-3-large`, namespace `brain`,
+reranked by `rerank-2.5`) and `voyage4` (`voyage-4-large`, namespace
+`brain-v4`, reranked by `rerank-3`). A stored pointer
+(`brainSearchIndexState`) says which one search reads; see "Two search
+indexes" below. Our own reactive tables own
 **governance**: nothing is retrievable until an admin approves it, revoking
 unlearns it (deleted from the index), and every change lands in an audit log.
-Each entry's `importance` = the writer's tier (shapes the wide first-stage
-net), and the tier is blended back in after reranking
-(`rerankScore × (0.6 + 0.4·tier)`), so stronger writers rank higher at equal
-relevance end-to-end.
+Every entry's `importance` is 1 since 2026-11-17 (it used to be the writer's
+tier, which the component applied before the relevance floor, so low tiers
+were near invisible). The tier is blended in after the floors
+(`score × (0.6 + 0.4·tier)`, after rerank and on the exit without rerank),
+read from the source's card, so stronger writers rank higher at equal
+relevance and a weight change takes effect at once (a source is re-embedded
+once, at importance 1, if its vectors may still carry an old tier: below 1,
+or no importance recorded, which is unknown and refreshed).
 
 **A good PD is a good PD.** Everything lives in ONE namespace (`brain`), so the
 Brain helps every generation — no industry required. Setting an industry on a
@@ -46,10 +55,12 @@ Source: `~/Downloads/Sample PD's/<Writer>/<Abundant|Sparse> Info/Submitted PD/`.
 
 ### Conventions locked in by this import
 
-- **Writer tiers** (`writerTier` → RAG `importance`): Tracy **1.0** (gold
+- **Writer tiers** (`writerTier`, a ranking weight): Tracy **1.0** (gold
   standard) · Larry / Emily / Orel **0.7** · other writers (incl. Eniko) **0.4**.
   Change any entry's weight in `/admin/brain` → expand row → Weight → Save
-  (re-ingests automatically).
+  (takes effect at once; since 2026-11-17 a source is re-embedded only once,
+  if its vectors may still carry an old tier, including when no importance
+  was recorded).
 - **Industry values** (exact strings — the project-page Industry dropdown and
   Brain filters share them): `software` · `manufacturing` · `life-sciences`.
   Set per project on the project header (Industry dropdown). Optional —
@@ -104,7 +115,7 @@ for the exact event write/read boundaries, privacy-review UI, and limitations.
 |---|---|
 | Approve | Embeds + becomes retrievable (audit-logged) |
 | Reject / Revoke | Unlearned — deleted from the vector index, row kept for history |
-| Weight + Save | Changes writer tier, re-ingests with new importance |
+| Weight + Save | Changes writer tier (a ranking weight); re-embeds once only if not yet at importance 1 |
 | Writer feedback tab | Approve/reject writer-submitted rules (BNH-39 conduit) |
 | Audit log tab | Every action, actor, reason, timestamp |
 
@@ -156,9 +167,11 @@ Status dot on approved rows: ● = embedded & retrievable, ◌ = still embedding
    Haiku-generated blurb situating it in its parent PD (cached-prefix, ~nil
    cost; cuts retrieval failures ~35–49%).
 3. **Hybrid search** casts a 30-chunk net (vector + text, writer-weighted).
-4. **Voyage `rerank-2.5` cross-encoder** re-scores a 12-wide slate
+4. **Voyage cross-encoder** (`rerank-2.5` while `voyage3` serves, `rerank-3`
+   while `voyage4` serves) re-scores a 12-wide slate
    (`maxRetries: 1`; any rerank error falls back to vector order), then:
-   **relevance floor** 0.35 (zero exemplars beats misleading ones), **writer
+   **relevance floor** 0.35, set per index (zero exemplars beats misleading
+   ones), **writer
    tier blended back in** (`score × (0.6 + 0.4·tier)` — rerank alone is
    tier-blind), **≤2 chunks per source PD** (diversity; applies on the
    fallback path too).
@@ -169,11 +182,55 @@ Status dot on approved rows: ● = embedded & retrievable, ◌ = still embedding
 Still open in P2: Citations API in the drafters (deep output-shape change,
 deferred to its own pass — bump `@anthropic-ai/sdk` first).
 
-**⚠ Voyage billing:** the Voyage org has NO payment method on file → hard
-limit of 3 requests/min + 10K tokens/min. That caused the seed-day 429s and
-throttles rerank today. Add a payment method before any bulk import (BNH-17)
-or the 4-retrievals-per-generation flow will regularly fall back to
-vector-order.
+**Voyage billing:** until 2026-11-17 the Voyage org had no payment method on
+file, so it was held to 3 requests/min and 10K tokens/min. That caused the
+seed-day 429s and throttled rerank (the 4-retrievals-per-generation flow often
+fell back to vector order). As of 2026-11-17 a card is on file (owner
+confirmed), which lifts that free-tier limit before the bulk import (BNH-17).
+
+## Two search indexes (2026-11-18, the move to Voyage 4)
+
+Vectors from two models are not comparable, and the RAG component keeps one
+"ready" namespace per name: adding with a new model under the old name
+would mark the old index "replaced" and search would read an almost empty
+one, with no way back. So the new model has its own index and RAG instance
+(`brainV4`, `convex/ai/brain/rag.ts`), and the index table with each
+index's model, namespace, reranker and floors is `BRAIN_SEARCH_INDEXES`
+(`convex/ai/brain/embeddings.ts`).
+
+- **Pointer.** `brainSearchIndexState` (one row, key `search`; none means
+  `voyage3`). Retrieval reads it once per search. Moving it to `voyage4` is
+  the cutover and moving it back is the rollback.
+- **Both indexes are written.** An embed makes the chunks once (with chunk
+  notes when they are on) and adds them to each written index whose entry is
+  not current, the serving index first. When the other index already holds
+  this source's chunks with current notes, they are reused, so Haiku is paid
+  once. Each index's entry id is on the source: `ragEntryId` (voyage3) and
+  `ragEntryIdV4`. Revoke erases both, each confirmed on its own.
+- **Owner steps** (all internal, deploy order steps 13 to 15, 17 and 18):
+  `brain:buildSearchIndex` fills both indexes (paged, waits for each page's
+  embeds, one pass at a time, deletes nothing, safe to run again; `index`
+  fills just one); `brain:calibrateSearchIndexes` reports both indexes' and
+  both rerankers' scores and suggests floors (read only);
+  `brain:setServingSearchIndex` moves the pointer; later
+  `brain:dropOldSearchIndex` then `brain:deleteOldSearchNamespace` drop
+  `voyage3`.
+- **The rollback index stays as good as the serving one.** The build renews
+  `voyage3` entries with old notes or an old weight's importance, reusing the
+  notes it makes for `voyage4`, so Haiku is paid once (voyage-3-large is paid
+  once more). The pointer checks every approved card live before it moves,
+  in either direction: each must have a current entry in the target index
+  (entry, current notes, and for `voyage3` importance 1). A check of more
+  than 4,000 cards takes more than one call; it says "run this again".
+- **Retries.** Notes an embed made are kept (`brainChunkNotes`) until all
+  its adds land, so a pool retry never pays Haiku twice. Each add takes a
+  short lease (`brainIndexWrites`), refused once the old index's drop
+  starts, so a late add never makes the "brain" namespace again.
+- **Floors.** The `voyage4` floors start equal to `voyage3`'s (cosine 0.3,
+  rerank 0.35) and are provisional until the calibration report confirms or
+  changes them, which is a code change and a deploy.
+- **Region.** Voyage processes in the US. A Canada-only rule would need
+  another provider.
 
 ## Generation fan-out (fixed 2026-07-02, found during Brain e2e)
 
@@ -194,5 +251,91 @@ imports of any size are safe, just slow-and-steady. See `embedPool` in
 `convex/brain.ts`.
 
 Utility: `npx convex run brain:requeueAllApprovedEmbeds` re-embeds everything
-through the pool (unlearning old entries first) — for index-shape migrations
-like namespace or embedding-model changes.
+through the pool (unlearning old entries first), for index-shape migrations
+like namespace or embedding-model changes. Since 2026-11-17 it runs as a chain
+of pages of 50 and needs `brain:backfillBrainSourceCards` finished first.
+
+## Reads at volume (2026-11-17)
+
+The admin list and the stats never read a source's text. Each source has a
+small list row in `brainSourceCards`, and `brainSourceCounts` holds the counts
+by status and approved counts by industry. Both change only through
+`insertBrainSource`, `patchBrainSource` and `deleteBrainSource` in
+`convex/ai/brain/rag.ts` (a guard test catches table-name writes elsewhere;
+id-only patches and deletes name no table, so review must catch those).
+`brain:listBrainSources` is paginated. Dedup checks an import file's content
+hash against every file already linked to a source (`brainSourceImportFiles`,
+written by `linkBrainSourceImportFile`), then the text hash, so a copy of any
+linked file finds its source even when its text is read differently. An import
+that matches a revoked source is refused in plain words that say whether it was
+rejected or removed.
+
+Deploy: run `brain:backfillBrainSourceCards` right after the backend deploy,
+before anyone opens `/admin/brain` (the list and counts miss older rows until
+it finishes). Repair: `brain:recountBrainSourceCounts` rebuilds the counts from
+the cards. See the 2026-11-17 amendment in `docs/product-domain.md`.
+
+Follow-up (left as it is, bounded by the hits it looks up): learning
+health's source lookup (`convex/learningHealth.ts:133`) still `db.get`s the
+full source row, text included. Move it to the cards (or to the text table of
+a later PR). Retrieval's join moved to the cards on 2026-11-17
+(`brain:servableBrainSources`).
+
+## Brain copies of imported PDs (2026-11-17)
+
+A final PD approved on Import also gets a scrubbed Brain copy made from the
+import file, but only after an Admin reads it on the Import page's Brain
+check tab and adds it (2026-11-17, fourth); the company file itself never
+enters the Brain. The old `/admin/ingestion` Approve is switched off. `convex/lib/importBrainCopy.ts` builds it: the company's names and
+every distinctive word of them, their initials, the folder, the file name's
+client part, the website domain, Business Numbers, addresses with a postal
+code, and people (on the company's projects, after a writer cue, or next to
+a title, a role or a cue such as "led by") become `[redacted]`, matched
+without regard to accents. The title is "Past PD, FY2024", and a separate
+leak check with its own forms refuses the copy if the company's name
+survives (ordinary first words still capitalized come back as warnings).
+Approve must show the scrubbed text to a person, with an "Also remove" box
+for product names and other words (each hidden and checked as a whole
+word whatever its length, so "Li" counts; an entry of only punctuation is
+refused) and a note of what the check does not cover, before the copy is
+made.
+Industry comes from the company (or the one picked for a new company) and
+is required; the tier comes from `pdWriters.tier`, default 0.4.
+
+Retrieval leaves a company's own imported PDs out of its own exemplars
+(fetching 90 hits only when the company has any, keeping a slate of 30). A
+source counts as the company's when any import file linked to it is (two
+companies' PDs can scrub to one shared source), checked over at most 20
+links per source; more than that leaves the source out.
+Chunk notes never name the company.
+
+Deploy: `brain:backfillBrainSourceCards`, then
+`brain:reembedBelowFullImportance` (re-embeds only sources below importance
+1, and with chunk notes on those whose notes came from the old prompt that
+asked for the company; deletes nothing first; not `requeueAllApprovedEmbeds`). See the
+2026-11-17 (third) amendment in `docs/product-domain.md`.
+
+## Send back and edits after approval (2026-11-17)
+
+Send back to review on Import revokes an imported PD's Brain copy as an
+audited unlearn (reason "Sent back to review on Import", marked
+`sentBackItemId`), unless another approved Import file still links it. Such a
+source never blocks that PD later: after its next approval, its Brain check
+makes a new row with a RAG key of its own (`<kind>:<hash>:2`), and other
+paths that match the PD then find the new row. A source revoked on
+`/admin/brain` still blocks it. Approve on `/admin/brain` takes pending
+sources only, so a revoked source never comes back beside a newer copy.
+
+An Admin's edit of an approved file's writer or science code on Import
+reaches its Brain copy (writer name and tier, science code, and the card),
+logged as `relabel` ("Details changed on Import" in the audit tab).
+Retrieval reads the writer's name, the science code and the tier from the
+source's card (`servableBrainSources`), not from the RAG entry's metadata,
+so the edit shows in exemplar labels and science routing at once with no
+new embed (the component would keep the old entry anyway: its text,
+importance and filters are the same). Only a tier change on a source still
+embedded with its tier as importance is embedded once, as a reweight is.
+The text, title, industry and fiscal year never change there. A final PD's
+new writer may not be a form of the company's names or a person its
+projects interviewed. See the 2026-11-17 (fifth) amendment in
+`docs/product-domain.md`.

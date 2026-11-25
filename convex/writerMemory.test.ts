@@ -7,6 +7,7 @@
 import { composeWithSavedPreferences, SAVED_PREFERENCE_NOTE, withoutSavedPreferenceText } from "./lib/savedPreferences";
 import { savedPreferenceMatchOfGeneration, savedPreferencesOfGeneration } from "./lib/savedPreferenceNotes";
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -25,6 +26,7 @@ afterEach(() => {
 
 async function setup() {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "memory-writer", role: "writer", firstName: "Wren" });
     const otherId = await ctx.db.insert("users", { authId: "memory-other", role: "writer", firstName: "Otto" });

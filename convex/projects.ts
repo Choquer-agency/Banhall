@@ -23,6 +23,8 @@ import {
   type ProjectScopedTable,
 } from "./lib/projectScopedTables";
 import { deleteStorageIfUnreferenced, STORAGE_REFERENCE_FIELDS } from "./lib/storage";
+import { revokeProjectBrainSource } from "./brain";
+import { feedbackApprovedAt, turnOffWithdrawnPublishedSet } from "./lib/learningWithdrawal";
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
@@ -68,6 +70,7 @@ import { createPurgeGuard, type PurgeGuard } from "./lib/purgeBudget";
 import {
   projectDashboardProjectionPatch,
   stageCountBucket,
+  syncDashboardCompanyDerivedYearEnd,
   syncProjectDashboardFields,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
@@ -234,11 +237,20 @@ async function validateProjectTagIds(
 }
 
 
+const LIST_PROJECTS_MAX = 500;
+
 export const listProjects = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireCurrentUser(ctx);
-    const projects = await ctx.db.query("projects").order("desc").collect();
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireInternalActor(ctx);
+    const limit = Math.max(1, Math.min(args.limit ?? LIST_PROJECTS_MAX, LIST_PROJECTS_MAX));
+    const projects = await ctx.db
+      .query("projects")
+      .withIndex("by_updatedAt")
+      .order("desc")
+      .take(limit);
     return await Promise.all(
       projects.map(async (project) => {
         const activeGeneration = await findActiveGeneration(ctx, project, [
@@ -254,8 +266,9 @@ export const listProjects = query({
                 activeGeneration?.status === "awaiting_input"
               ? activeGeneration.status
               : null;
+        const { shareToken: _shareToken, ...safeProject } = project;
         return {
-          ...project,
+          ...safeProject,
           writer: await resolveLiveUserLabel(ctx, project.writer, project.createdBy),
           interviewer: await resolveLiveUserLabel(
             ctx,
@@ -326,15 +339,25 @@ export const findSameProject = query({
 export const listIndustries = query({
   args: {},
   handler: async (ctx) => {
-    await requireCurrentUser(ctx);
-    const projects = await ctx.db.query("projects").collect();
-    return [
-      ...new Set(
-        projects
-          .map((p) => p.industry)
-          .filter((i): i is string => Boolean(i && i.trim()))
-      ),
-    ].sort();
+    await requireInternalActor(ctx);
+    const seen = new Set<string>();
+    let cursor: string | undefined = undefined;
+    // Skip-scan distinct industry values over the by_industry index: reads one
+    // row per distinct value instead of scanning every project or dropping
+    // custom industries that only appear on older projects.
+    while (seen.size < 500) {
+      const next = await ctx.db
+        .query("projects")
+        .withIndex("by_industry", (q) =>
+          cursor === undefined ? q.gt("industry", "") : q.gt("industry", cursor)
+        )
+        .first();
+      if (!next || !next.industry) break;
+      const trimmed = next.industry.trim();
+      if (trimmed) seen.add(trimmed);
+      cursor = next.industry;
+    }
+    return [...seen].sort();
   },
 });
 
@@ -442,20 +465,19 @@ function normalizeProjectNumberInput(
 ): string | undefined {
   const raw = input?.trim().toLowerCase() ?? "";
   if (!raw) return undefined;
-  // 1–20, a letter a–z, or a combined form like 2a/14b (owner
-  // clarification 2026-08-11: numbering and lettering compose; stored
-  // lowercase since 2026-08-19).
+  // 1-99, a letter a-z, or a combined form like 2a/14b (2-digit zero-padded
+  // per Banhall naming convention, stored lowercase since 2026-08-19).
   if (!/^(?:[1-9][0-9]?[a-z]?|[a-z])$/.test(raw)) {
     domainError(
       "INVALID_INPUT",
-      "Project number must be 1–20, a letter a–z, or combined like 2a"
+      "Project number must be 1-99, a letter a-z, or combined like 2a"
     );
   }
   const numericPart = raw.match(/^[0-9]+/)?.[0];
-  if (numericPart && Number(numericPart) > 20) {
+  if (numericPart && Number(numericPart) > 99) {
     domainError(
       "INVALID_INPUT",
-      "Numbered projects are capped at 20 per company"
+      "Numbered projects are capped at 99 per company"
     );
   }
   return raw;
@@ -759,6 +781,7 @@ export const bulkUpdateProjects = mutation({
     let updated = 0;
     let skipped = 0;
     const editsAll = user.role === "manager" || user.role === "admin";
+    const deferredYearEndKeys = new Set<string>();
     for (const projectId of projectIds) {
       const project = await ctx.db.get(projectId);
       if (!project || project.deletionStartedAt !== undefined) {
@@ -780,8 +803,13 @@ export const bulkUpdateProjects = mutation({
       if (args.industry !== undefined) patch.industry = industry;
       if (args.scienceCode !== undefined) patch.scienceCode = scienceCode;
       await ctx.db.patch(projectId, patch);
-      await syncProjectDashboardFields(ctx, projectId, patch);
+      await syncProjectDashboardFields(ctx, projectId, patch, {
+        deferDerivedYearEndKeys: deferredYearEndKeys,
+      });
       updated++;
+    }
+    for (const key of deferredYearEndKeys) {
+      await syncDashboardCompanyDerivedYearEnd(ctx, key);
     }
     return { updated, skipped };
   },
@@ -1000,16 +1028,30 @@ export const getProjectByShareToken = query({
       .query("projects")
       .withIndex("by_shareToken", (q) => q.eq("shareToken", args.shareToken))
       .unique();
-    if (!project?.sharedReportId || project.deletionStartedAt !== undefined) return null;
-    const report = await ctx.db.get(project.sharedReportId);
-    if (!report || report.projectId !== project._id) return null;
+    if (!project?.sharedReportId || !project.sharedReportSnapshotId || project.deletionStartedAt !== undefined) {
+      return null;
+    }
+    const [report, snapshot] = await Promise.all([
+      ctx.db.get(project.sharedReportId),
+      ctx.db.get(project.sharedReportSnapshotId),
+    ]);
+    if (
+      !report ||
+      report.projectId !== project._id ||
+      !snapshot ||
+      snapshot.reportId !== report._id ||
+      snapshot.projectId !== project._id
+    ) {
+      return null;
+    }
     return {
       _id: project._id,
       title: project.title,
       clientName: project.clientName,
       sharedReportId: report._id,
       reportVersion: report.version,
-      revisionNumber: (await reportWithBody(ctx, report)).revisionNumber ?? 0,
+      revisionNumber:
+        project.sharedReportRevisionNumber ?? snapshot.sourceRevisionNumber ?? 0,
     };
   },
 });
@@ -1273,6 +1315,9 @@ export async function insertNewProject(
       1,
       "intake"
     );
+    if (args.fiscalYearEnd !== undefined) {
+      await syncDashboardCompanyDerivedYearEnd(ctx, dashboardProjection.dashboardCompanyKey);
+    }
     return projectId;
 }
 
@@ -2280,20 +2325,47 @@ export const publishForReview = mutation({
     if (await reportNeedsQaScore(ctx, report)) {
       domainError("QA_SCORE_REQUIRED", "The current report needs a completed QA score before client review.");
     }
+    const hydrated = await reportWithBody(ctx, report);
+    const now = Date.now();
+    const revisionNumber = hydrated.revisionNumber ?? 0;
+    const contentHash = hydrated.contentHash ?? (await sha256(hydrated.content));
+    const snapshotId = await ctx.db.insert("reportSnapshots", {
+      projectId: args.projectId,
+      reportId: report._id,
+      content: hydrated.content,
+      reason: "publish_review",
+      label: "Shared for client review",
+      createdByRole: "writer",
+      createdAt: now,
+      provenanceId: hydrated.provenanceId,
+      sourceRevisionNumber: revisionNumber,
+      contentHash,
+    });
     await ctx.db.patch(args.projectId, {
       sharedReportId: report._id,
+      sharedReportSnapshotId: snapshotId,
+      sharedReportRevisionNumber: revisionNumber,
+      sharedReportPublishedAt: now,
       status: "client_review",
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
     // BNH-10 / CAP-2: freeze the post-edit distance at client publish.
     await ctx.scheduler.runAfter(0, internal.reportEditDistance.recordAtPublish, {
       reportId: report._id,
     });
+    return {
+      snapshotId,
+      revisionNumber,
+      shareToken: project.shareToken,
+    };
   },
 });
 
 export const unpublishReview = mutation({
-  args: { projectId: v.id("projects") },
+  args: {
+    projectId: v.id("projects"),
+    rotateToken: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     // Same authority as publishForReview (CAP-3 / D-2): current Owner,
     // Manager, or Admin; createdBy is not consulted.
@@ -2301,11 +2373,17 @@ export const unpublishReview = mutation({
     await requireCapability(ctx, "project.setStage", {
       ownedBy: project.ownerId ? [project.ownerId] : [],
     });
+    const nextShareToken = args.rotateToken ? generateShareToken() : project.shareToken;
     await ctx.db.patch(args.projectId, {
       sharedReportId: undefined,
+      sharedReportSnapshotId: undefined,
+      sharedReportRevisionNumber: undefined,
+      sharedReportPublishedAt: undefined,
+      ...(args.rotateToken ? { shareToken: nextShareToken } : {}),
       status: project.status === "client_review" ? "review" : project.status,
       updatedAt: Date.now(),
     });
+    return { shareToken: nextShareToken };
   },
 });
 
@@ -2642,15 +2720,20 @@ export const deleteProject = mutation({
       dashboardCompanyCounted: false,
     });
     if (project.dashboardCompanyCounted === true) {
+      const companyKey =
+        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey;
       // Decrement the exact stage bucket the row occupied (2026-08-06
       // second amendment): workflowStage ?? "legacy".
       await upsertDashboardCompany(
         ctx,
-        project.dashboardCompanyKey ?? projectDashboardProjectionPatch(project).dashboardCompanyKey,
+        companyKey,
         project.clientName,
         -1,
         stageCountBucket(project.workflowStage)
       );
+      if (project.fiscalYearEnd !== undefined) {
+        await syncDashboardCompanyDerivedYearEnd(ctx, companyKey);
+      }
     }
     await terminalizeLiveGenerationWork(ctx, args.projectId, now);
     await schedulePurgePage(ctx, args.projectId, purgePosition(0, null));
@@ -2880,6 +2963,77 @@ export const purgeProjectPage = internalMutation({
         await db.patch(rowId(row), patch);
         guard.noteRowTouched(row, false);
         writes += 1;
+        continue;
+      }
+      if (entry.disposition === "scrub") {
+        const patch: Record<string, string> = {};
+        for (const [field, replacement] of Object.entries(entry.scrubFields ?? {})) {
+          if (row[field] !== undefined && row[field] !== replacement) {
+            patch[field] = replacement;
+          }
+        }
+        if (Object.keys(patch).length === 0) continue;
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
+        await db.patch(rowId(row), patch);
+        guard.noteRowTouched(row, false);
+        writes += 1;
+        continue;
+      }
+      if (entry.disposition === "revoke") {
+        const source = row as unknown as Doc<"brainSources">;
+        if (
+          source.status === "revoked" &&
+          source.content === "[redacted]" &&
+          source.title === "[redacted]"
+        ) {
+          continue;
+        }
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
+        const changed = await revokeProjectBrainSource(ctx, source);
+        if (changed) {
+          guard.noteRowTouched(row, false);
+          writes += 4;
+        }
+        continue;
+      }
+      if (entry.disposition === "withdraw") {
+        const feedback = row as unknown as Doc<"brainFeedbackQueue">;
+        if (!(await guard.canTouchRow(row, false))) {
+          budgetExhausted = true;
+          break;
+        }
+        if (feedback.status === "approved") {
+          const now = Date.now();
+          const withdrawnAt = feedback.withdrawnAt ?? now;
+          const withdrawnApprovedAt =
+            feedback.withdrawnApprovedAt ?? (await feedbackApprovedAt(ctx, feedback));
+          await ctx.db.patch(feedback._id, {
+            projectId: undefined,
+            reportId: undefined,
+            body: "[redacted]",
+            ...(feedback.suggestedRule !== undefined
+              ? { suggestedRule: "[redacted]" }
+              : {}),
+            ...(feedback.reviewNote !== undefined
+              ? { reviewNote: "[redacted]" }
+              : {}),
+            withdrawnAt,
+            withdrawnApprovedAt,
+          });
+          await turnOffWithdrawnPublishedSet(ctx, now);
+          guard.noteRowTouched(row, false);
+          writes += 2;
+        } else {
+          await ctx.db.delete(feedback._id);
+          guard.noteRowTouched(row, false);
+          writes += 1;
+        }
         continue;
       }
       const result = await deleteRowWithChildren(

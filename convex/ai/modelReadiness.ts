@@ -149,6 +149,25 @@ function forcedRequest(model: string): GenerationMessageParams {
   } as GenerationMessageParams;
 }
 
+async function probeThinkingDisabled(
+  client: GenerationClient,
+  modelId: string
+): Promise<{ accepted: boolean; failure?: string }> {
+  try {
+    await client.messages.create({
+      ...plainRequest(modelId, false),
+      thinking: { type: "disabled" },
+    } as GenerationMessageParams);
+    return { accepted: true };
+  } catch (error) {
+    if (statusOf(error) === 400) return { accepted: false };
+    return {
+      accepted: false,
+      failure: `the request with thinking off failed (${errorText(error)})`,
+    };
+  }
+}
+
 /**
  * Runs the readiness check for one candidate and reports what it found. A
  * thrown error is a failure of the check, never of the job.
@@ -197,7 +216,8 @@ export async function checkReadiness(
   } catch (error) {
     return { plainOk: false, forcedToolChoice: false, forcedRejected: false, failure: `the plain request failed (${errorText(error)})` };
   }
-  // A model already known to refuse a forced call is not asked again.
+  // Probe 1: forced tool choice support. A model already known to refuse a
+  // forced call is not asked again.
   if (FORCED_TOOL_CHOICE_REJECTED_IDS.has(candidate.toModelId) || FORCED_TOOL_CHOICE_REJECTED_IDS.has(candidate.listingId)) {
     return { plainOk: true, forcedToolChoice: false, forcedRejected: true };
   }
@@ -212,17 +232,16 @@ export async function checkReadiness(
     return { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: `the tool request failed (${errorText(error)})` };
   }
   if (!anthropic) return { plainOk: true, forcedToolChoice: true, forcedRejected: false };
-  // Review 2026-10-22: a direct model that takes forced calls is sent
-  // thinking disabled for section drafts. One that refuses it (as Sonnet 5.5
-  // and Opus 5.5 do) is treated like a model that refuses forced calls, so
-  // it gets the unforced path with low effort instead.
-  try {
-    await client.messages.create({ ...plainRequest(candidate.toModelId, false), thinking: { type: "disabled" } } as GenerationMessageParams);
-    return { plainOk: true, forcedToolChoice: true, forcedRejected: false };
-  } catch (error) {
-    if (statusOf(error) === 400) return { plainOk: true, forcedToolChoice: false, forcedRejected: true };
-    return { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: `the request with thinking off failed (${errorText(error)})` };
+  // Probe 2 (direct Anthropic only): thinking-disabled support. Models that
+  // reject `thinking: { type: "disabled" }` run on the adaptive-effort path.
+  const thinkingOff = await probeThinkingDisabled(client, candidate.toModelId);
+  if (thinkingOff.failure) {
+    return { plainOk: true, forcedToolChoice: false, forcedRejected: false, failure: thinkingOff.failure };
   }
+  if (!thinkingOff.accepted) {
+    return { plainOk: true, forcedToolChoice: false, forcedRejected: true };
+  }
+  return { plainOk: true, forcedToolChoice: true, forcedRejected: false };
 }
 
 const upgradeOutcomeValidator = v.object({

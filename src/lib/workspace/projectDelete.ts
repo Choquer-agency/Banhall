@@ -23,7 +23,8 @@ type Viewer = {
 export function canDeleteProject(
   viewer: Viewer | null | undefined,
   createdBy: string | null | undefined,
-  deleting = false
+  deleting = false,
+  ownerId?: string | null
 ): boolean {
   if (deleting || !viewer || viewer.isAnonymous === true || !viewer.role) return false;
   // Stricter than the server for an admin on a row without a creator, on
@@ -31,5 +32,5 @@ export function canDeleteProject(
   // it, so only a source that leaves it out (Home's With you, which always
   // carries open work) lands here, and there a delete would be refused.
   if (createdBy === undefined || createdBy === null) return false;
-  return viewer.role === "admin" || createdBy === viewer._id;
+  return viewer.role === "admin" || createdBy === viewer._id || ownerId === viewer._id;
 }

@@ -2,7 +2,9 @@
   /**
    * The Admin section sidebar (the page frame, owner 2026-10-28, answers 1
    * and 2): the admin pages in board order (`ADMIN_RAIL_ROUTES`), the
-   * OneDrive import row with its attention dot, and for developers Alerts
+   * Import row with the To review count at its right (2026-11-12, Paper
+   * Files 1: "Import 504"; files that could not be read are counted there
+   * and marked on the page), and for developers Alerts
    * (with the open count) and Feature requests at the foot. Visibility reads
    * the effective viewer, as the drawer does: only someone who may open Admin
    * (`settings.configure`, View as applied) sees it, and nothing shows until
@@ -15,7 +17,7 @@
   import { api } from "../../../../../convex/_generated/api";
   import { IconLightbulb, IconWarning } from "$lib/components/icons";
   import AdminRouteIcon from "$lib/components/shell/AdminRouteIcon.svelte";
-  import { ADMIN_INGESTION_PATH, ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
+  import { ADMIN_IMPORT_PATH, ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
   import { badgeLabel, canSeeAdmin, canSeeAlerts } from "$lib/shell/navigation";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import SectionSidebar from "../SectionSidebar.svelte";
@@ -24,13 +26,19 @@
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
   const viewer = $derived(effectiveViewer(userQ.data));
-  const attentionQ = useQuery(api.adminAttention.getAttention, () =>
-    auth.isAuthenticated && canSeeAdmin(viewer) ? {} : "skip"
+  // The Import page's To review count; null for anyone the sheet is not for.
+  const importQ = useQuery(api.ingestion.sheetTotals, () =>
+    auth.isAuthenticated && canSeeAdmin(viewer) ? { tab: "review" as const } : "skip"
   );
   const alertsQ = useQuery(api.errorReports.openCount, () =>
     auth.isAuthenticated && canSeeAlerts(viewer) ? {} : "skip"
   );
-  const ingestionFailed = $derived(attentionQ.data?.ingestionFailed ?? 0);
+  // Nothing to review shows no count; more files than the totals read show as "1,000+".
+  const importCount = $derived(
+    importQ.data && importQ.data.files > 0
+      ? `${importQ.data.files.toLocaleString("en-US")}${importQ.data.complete ? "" : "+"}`
+      : null
+  );
   const openAlerts = $derived(alertsQ.data ?? 0);
   const pathname = $derived(page.url.pathname);
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
@@ -43,13 +51,14 @@
   <nav aria-label="Admin" class="flex min-h-full flex-col gap-0.5 pt-3">
     {#each ADMIN_RAIL_ROUTES as route (route.href)}
       {@const href = resolve(route.href as "/")}
-      <SectionSidebarLink {href} label={route.label} data-admin-link={route.href} active={isCurrent(href)}>
+      <SectionSidebarLink
+        {href}
+        label={route.label}
+        data-admin-link={route.href}
+        active={isCurrent(href)}
+        count={route.href === ADMIN_IMPORT_PATH ? importCount : null}
+      >
         {#snippet icon()}<AdminRouteIcon icon={route.icon} size={16} />{/snippet}
-        {#snippet trailing()}
-          {#if route.href === ADMIN_INGESTION_PATH && ingestionFailed > 0}
-            <span data-rail-attention aria-label={`${ingestionFailed} failed`} class="size-1.5 shrink-0 rounded-full bg-stale-dot"></span>
-          {/if}
-        {/snippet}
       </SectionSidebarLink>
     {/each}
     {#if viewer.isDeveloper}

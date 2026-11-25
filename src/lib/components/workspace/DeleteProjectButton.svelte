@@ -24,6 +24,7 @@
     projectId,
     projectTitle,
     createdBy,
+    ownerId = undefined,
     deleting = false,
     class: className = "",
   }: {
@@ -31,6 +32,8 @@
     projectTitle: string;
     /** Who created the project; undefined when the row source does not say. */
     createdBy: string | undefined;
+    /** Current owner of the project, when known. */
+    ownerId?: string | null;
     /** The project is mid-deletion: nothing to offer. */
     deleting?: boolean;
     /** Placement tweaks from the host (margins, alignment). */
@@ -39,7 +42,7 @@
 
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
-  const allowed = $derived(canDeleteProject(userQ.data, createdBy, deleting));
+  const allowed = $derived(canDeleteProject(userQ.data, createdBy, deleting, ownerId));
   let dialogOpen = $state(false);
 
   function openDialog(event: MouseEvent) {

@@ -7,6 +7,7 @@
  * none (decision 26: it streams, so it cannot restore placeholders yet).
  */
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -138,6 +139,7 @@ describe("the PD review reads live fact packs behind placeholders", () => {
 
   async function reviewFixture(mode: "off" | "all", extract: boolean) {
     const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
     const ids = await t.run(async (ctx) => {
       const writerId = await ctx.db.insert("users", { authId: "rf-writer", role: "writer" });
       const projectId = await ctx.db.insert("projects", {

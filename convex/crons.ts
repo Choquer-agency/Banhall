@@ -33,6 +33,15 @@ crons.interval(
   {}
 );
 
+// 2026-11-12 (Import page): a file is New for 24 hours after it arrives;
+// its flag is cleared in bounded batches so the bands' New counts follow.
+crons.interval(
+  "clear New on imported files after 24 hours",
+  { minutes: 15 },
+  internal.ingestion.clearExpiredNew,
+  {}
+);
+
 crons.interval(
   "purge stale Brief preparations",
   { hours: 1 },
@@ -118,11 +127,8 @@ crons.interval(
   { minutes: 5 },
   internal.oversight.sweepStalled
 );
-crons.interval(
-  "resume stalled My work backfills",
-  { minutes: 5 },
-  internal.myWorkBackfill.sweepStalled
-);
+// Retired 2026-11-21: My work backfill is complete; manual admin resume remains
+// available via `myWorkBackfill.resume` without 5-minute idle cron polling.
 
 // Model catalog (owner decision 21, amended 2026-10-22 and 2026-10-23):
 // refresh from OpenRouter and log expiring or removed models for admins
@@ -198,6 +204,14 @@ crons.interval(
   internal.projectDuplication.resumeStalledProjectCopies,
   {}
 );
+// Company merge file moves run on their own 5-minute cadence instead of
+// riding on the 1-minute project copy cron.
+crons.interval(
+  "resume stalled company file moves",
+  { minutes: 5 },
+  internal.clients.resumeStalledCompanyFileMoves,
+  {}
+);
 // F2 review, round 3: the clones a stopped copy runner stored but never
 // attached, in their own transactions (continuing while there is more).
 crons.interval(
@@ -206,5 +220,45 @@ crons.interval(
   internal.projectDuplication.reconcileProjectCopyClones,
   {}
 );
+// Stuck-state reapers for financial uploads and transcript fact extraction runs.
+crons.interval(
+  "recover stale financial uploads",
+  { minutes: 10 },
+  internal.financial.failStaleFinancialUploads,
+  { olderThanMinutes: 15 }
+);
+crons.interval(
+  "recover stale transcript fact runs",
+  { minutes: 10 },
+  internal.transcripts.failStaleTranscriptFactRuns,
+  { olderThanMinutes: 15 }
+);
+
+// Daily bounded retention pruners for high-volume operational tables.
+// Raw aiUsage rows are preserved until historical reports read complete rollups.
+crons.cron(
+  "prune old rerank outcomes",
+  "40 10 * * *",
+  internal.learningHealth.pruneOldRerankOutcomes,
+  {}
+);
+crons.cron(
+  "prune old report views",
+  "50 10 * * *",
+  internal.reportViews.pruneOldReportViews,
+  {}
+);
+
+// 2026-11-18 (second): the Brain check lists the last three fiscal years
+// first; which part a waiting PD is in is stored when it is written. Just
+// after New Year (UTC) every waiting PD is written again, so last year's
+// oldest recent year moves to the second part, ordered by writer weight.
+crons.cron(
+  "move the Brain check's recent years at New Year",
+  "10 0 1 1 *",
+  internal.ingestion.rerankBrainCheck,
+  {}
+);
 
 export default crons;
+

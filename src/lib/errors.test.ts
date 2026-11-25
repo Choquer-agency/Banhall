@@ -70,6 +70,14 @@ describe("isHandledRefusalLog", () => {
     }
     // NOT_FOUND itself stays a crash signal.
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
+    // Import sheet (phase 3b): a refused label change, delete or put back is
+    // shown in the page's toast in the server's words; a crash still is not.
+    const approved = { code: "INVALID_STATE", message: '"PD 4.docx" is already approved, so its labels cannot be changed here.' };
+    for (const fn of ["setSheetLabels", "removeItems", "restoreItems"]) {
+      expect(isHandledRefusalLog(convexLog(`ingestion:${fn}`, approved)), fn).toBe(true);
+      expect(isHandledRefusalLog(convexLog(`ingestion:${fn}`, null)), fn).toBe(false);
+    }
+    expect(userErrorMessage(new Error(convexLog("ingestion:setSheetLabels", approved)), "fallback")).toBe(approved.message);
   });
 
   it("leaves unexpected failures and other lines to the crash toast", () => {

@@ -44,9 +44,9 @@ describe("StageChangeDialog", () => {
     expect(document.body.textContent).not.toContain("Current stage: Intake");
   });
 
-  it("renders the full open-matrix option list with fail-closed stages disabled", async () => {
-    // Real options for an owner at intake: all 10 other stages, with the two
-    // storage-gated stages (Submitted, Delivered) disabled with a reason.
+  it("renders the full open-matrix option list with delivery stages enabled for owners", async () => {
+    // Real options for an owner at intake: all 10 other stages are selectable
+    // now that Submitted (ready_for_delivery) and Delivered are supported.
     await render(StageChangeDialog, {
       open: true,
       currentStageLabel: "Intake",
@@ -56,12 +56,12 @@ describe("StageChangeDialog", () => {
     const radios = [...document.body.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
     expect(radios).toHaveLength(10);
     const disabled = radios.filter((button) => button.getAttribute("aria-disabled") === "true");
-    expect(disabled.map((button) => button.textContent)).toEqual([
-      expect.stringContaining("Submitted"),
-      expect.stringContaining("Delivered"),
-    ]);
-    const internalReview = radios.find((button) => button.textContent?.includes("Internal review"));
-    expect(internalReview?.getAttribute("aria-disabled")).not.toBe("true");
+    expect(disabled).toHaveLength(0);
+    for (const label of ["Internal review", "Submitted", "Delivered"]) {
+      const option = radios.find((button) => button.textContent?.includes(label));
+      expect(option).toBeDefined();
+      expect(option?.getAttribute("aria-disabled")).not.toBe("true");
+    }
   });
 
   it("shows supplied options and explains unavailable prerequisites", async () => {

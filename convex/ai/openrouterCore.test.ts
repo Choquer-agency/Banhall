@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   toChatCompletions,
   fromChatCompletions,
+  collectMessageStream,
   requireTextResponse,
   firstResponseText,
   openRouterUsage,
@@ -11,6 +12,7 @@ import {
   isAbortLikeError,
   MalformedOutputError,
   OutputLimitError,
+  RefusalError,
   RefusalOutputError,
   isCutOffStopReason,
   isRefusalStopReason,
@@ -24,6 +26,7 @@ import {
   isKnownModel,
   maxTokensWithReasoningHeadroom,
   modelById,
+  modelCapabilities,
   registerModelEntries,
   requestModelId,
   resetRegisteredModelEntries,
@@ -688,5 +691,78 @@ describe("firstResponseText", () => {
   it("returns an empty string when the reply has no text block", () => {
     expect(firstResponseText({ content: [{ type: "thinking", thinking: "only thoughts" }] } as never)).toBe("");
     expect(firstResponseText({ content: [] })).toBe("");
+  });
+});
+
+describe("modelCapabilities and cached-prefix tool placement", () => {
+  it("separates forced-tool and thinking-off capabilities by model family", () => {
+    expect(modelCapabilities("claude-sonnet-5-5")).toEqual({
+      supportsForcedTool: false,
+      thinkingOffMode: "adaptive_low",
+      thinksByDefault: true,
+    });
+    expect(modelCapabilities("claude-opus-5-5")).toEqual({
+      supportsForcedTool: false,
+      thinkingOffMode: "adaptive_low",
+      thinksByDefault: true,
+    });
+    expect(modelCapabilities("claude-haiku-5-5")).toEqual({
+      supportsForcedTool: true,
+      thinkingOffMode: "disabled",
+      thinksByDefault: true,
+    });
+    expect(modelCapabilities("claude-sonnet-5")).toEqual({
+      supportsForcedTool: true,
+      thinkingOffMode: "disabled",
+      thinksByDefault: true,
+    });
+    expect(modelCapabilities("claude-haiku-4-5-20251001")).toEqual({
+      supportsForcedTool: true,
+      thinkingOffMode: "disabled",
+      thinksByDefault: false,
+    });
+  });
+
+  it("places toolOnlyReplyLine on the uncached user tail when messages contain cache_control", () => {
+    const cachedBlock = { type: "text" as const, text: "Frozen context", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } };
+    const messages = [{ role: "user" as const, content: [cachedBlock, { type: "text" as const, text: "Task body" }] }];
+    const adapted = toolRequestForModel("claude-sonnet-5-5", { type: "tool", name: "submit_seed_batch" }, "System prompt", messages);
+    expect(adapted.system).toBe("System prompt");
+    expect(adapted.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          cachedBlock,
+          { type: "text", text: "Task body" },
+          { type: "text", text: toolOnlyReplyLine("submit_seed_batch") },
+        ],
+      },
+    ]);
+  });
+
+  it("rejects refusal stop reasons in requireTextResponse with RefusalError", () => {
+    expect(() =>
+      requireTextResponse({
+        content: [{ type: "text", text: "I cannot assist with that request." }],
+        stop_reason: "refusal",
+      }, "Test agent")
+    ).toThrow(RefusalError);
+  });
+
+  it("fires onFirstEvent once when collectMessageStream receives its first event", async () => {
+    async function* events() {
+      yield { type: "message_start", message: { usage: { input_tokens: 10 } } };
+      yield { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } };
+      yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } };
+      yield { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } };
+    }
+    let fired = 0;
+    const result = (await collectMessageStream(events(), { onFirstEvent: () => { fired += 1; } })) as {
+      content: unknown;
+      stop_reason?: string;
+    };
+    expect(fired).toBe(1);
+    expect(result.content).toEqual([{ type: "text", text: "Hello" }]);
+    expect(result.stop_reason).toBe("end_turn");
   });
 });

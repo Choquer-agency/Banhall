@@ -4,12 +4,12 @@ import { v } from "convex/values";
 import { rerank } from "ai";
 import type { Id } from "../../_generated/dataModel";
 import {
-  brain,
+  BRAIN_ENTRY_IMPORTANCE,
   BRAIN_FILTER_NAMES,
-  BRAIN_NAMESPACE,
+  BRAIN_SEARCH_RAGS,
   type BrainEntryMetadata,
 } from "./rag";
-import { brainEmbeddingModel, brainRerankModel } from "./embeddings";
+import { BRAIN_RERANK_MODELS, BRAIN_SEARCH_INDEXES } from "./embeddings";
 import { scheduleUsage } from "../instrument";
 import { voyageTokenCount } from "../providers";
 import {
@@ -24,7 +24,7 @@ import { safeErrorDetails } from "../../lib/safeErrorDetails";
 
 export type BrainExemplar = {
   text: string;
-  /** Final ranking score (rerank × writer-tier blend when reranked, else vector/RRF). */
+  /** Final ranking score: the rerank or search score × the writer-tier blend. */
   score: number;
   entryId: string;
   /** brainSources row behind this entry — flywheel joins + revocation forensics. */
@@ -51,8 +51,12 @@ export type BrainSearchOutcome = {
   degraded: boolean;
 };
 
-/** Rerank scores below this are noise — better zero exemplars than wrong ones. */
-export const BRAIN_RERANK_RELEVANCE_FLOOR = 0.35;
+/**
+ * Rerank scores below this are noise: better zero exemplars than wrong ones.
+ * The voyage3 index's (rerank-2.5); since 2026-11-18 (fourth) each index
+ * sets its own (`BRAIN_SEARCH_INDEXES`, embeddings.ts).
+ */
+export const BRAIN_RERANK_RELEVANCE_FLOOR = BRAIN_SEARCH_INDEXES.voyage3.rerankRelevanceFloor;
 
 /**
  * Relevance gates for the NON-reranked paths (≤k candidates, or a rerank
@@ -68,13 +72,24 @@ export const BRAIN_RERANK_RELEVANCE_FLOOR = 0.35;
  *    slate, on every path. Deliberately low — voyage-3 cosine similarity for
  *    on-topic text runs ≳0.4; 0.3 prunes clear junk without starving a small
  *    corpus.
+ *    The component multiplies the cosine by the entry's importance before
+ *    this floor, so since 2026-11-17 every entry is ingested with importance
+ *    1 (BRAIN_ENTRY_IMPORTANCE) and the floor reads raw similarity; entries
+ *    ingested before keep their tier in the vector until re-embedded.
  *  - RAW_SEARCH_FLOOR then trims the tail of the fused slate on the
  *    non-reranked returns: the bottom of the RRF ordering is where text-only
  *    stragglers (which bypass the cosine floor) land.
  */
-export const BRAIN_MIN_VECTOR_SIMILARITY = 0.3;
+export const BRAIN_MIN_VECTOR_SIMILARITY = BRAIN_SEARCH_INDEXES.voyage3.minVectorSimilarity;
 export const BRAIN_RAW_SEARCH_FLOOR = 0.25;
 export const BRAIN_SEARCH_LIMIT = 30;
+/**
+ * Hits fetched when a company's own imported PDs are left out (2026-11-17):
+ * they are dropped after the search, then the slate is cut back to
+ * BRAIN_SEARCH_LIMIT, so a company's own PDs never shrink its slate unless
+ * they fill all of these.
+ */
+export const BRAIN_OWN_COMPANY_SEARCH_LIMIT = 90;
 export const BRAIN_SEARCH_DEFAULT_K = 4;
 export const BRAIN_CHUNK_CONTEXT = { before: 1, after: 1 } as const;
 export const BRAIN_RERANK_TOP_N_CAP = 12;
@@ -95,6 +110,23 @@ export const BRAIN_SEARCH_PROGRAM = {
     rerankCoefficient: 0.6,
     writerTierCoefficient: 0.4,
     defaultWriterTier: 0.4,
+    // 2026-11-17: every entry's RAG importance is 1, so the floors read raw
+    // relevance; the tier ranks after them on both exits, and comes from
+    // the source's card (its current weight) before the entry's metadata.
+    entryImportance: BRAIN_ENTRY_IMPORTANCE,
+    appliesAfterFloor: ["rerank", "no-rerank"],
+    noRerankPositions: "recounted-over-the-kept-slate",
+    tierSource: "source-card-then-entry-metadata",
+    // 2026-11-17 (edit after approval on Import): the writer's name and the
+    // science code an exemplar is labelled and routed by come from its
+    // source's card too, so an Admin's edit shows without a re-embed.
+    labelSource: "source-card-then-entry-metadata",
+  },
+  ownCompanyExclusion: {
+    leavesOut: "sources-from-import-files-of-the-searching-project-company",
+    widerFetchOnlyWhen: "the-company-has-import-files-with-a-brain-source",
+    searchLimit: BRAIN_OWN_COMPANY_SEARCH_LIMIT,
+    slateLimit: BRAIN_SEARCH_LIMIT,
   },
   scienceLabelScaffold: {
     separator: "\n\n",
@@ -129,6 +161,38 @@ export function applyRawSearchFloor(
   );
 }
 
+/**
+ * Writer quality as a ranking weight: score × (0.6 + 0.4·tier), with a
+ * missing tier read as 0.4. Applied after the relevance floor, never before
+ * it, so a low tier lowers a match's rank but never hides an on-topic one.
+ */
+export function blendWriterTier(score: number, writerTier: number | undefined): number {
+  const blend = BRAIN_SEARCH_PROGRAM.writerTierBlend;
+  return score * (blend.rerankCoefficient + blend.writerTierCoefficient * (writerTier ?? blend.defaultWriterTier));
+}
+
+/**
+ * The non-reranked exit (2026-11-17). Hybrid search scores are positions
+ * ((n - i) / n over every hit it returned), so after revoked and
+ * own-company hits are dropped the positions are counted again over the
+ * kept slate, in search order; then the raw-slate floor, then the writer
+ * tier blended in and the slate sorted by it (ties keep search order).
+ * `searchScore` keeps the component's score for provenance. Exported for
+ * unit tests.
+ */
+export function rankWithoutRerank(candidates: BrainExemplar[]): BrainExemplar[] {
+  const kept = candidates.length;
+  return candidates
+    .map((candidate, index) => ({ candidate, index, position: (kept - index) / kept }))
+    .filter(({ position }) => position >= BRAIN_RAW_SEARCH_FLOOR)
+    .map(({ candidate, index, position }) => ({
+      candidate: { ...candidate, score: blendWriterTier(position, candidate.writerTier) },
+      index,
+    }))
+    .sort((a, b) => b.candidate.score - a.candidate.score || a.index - b.index)
+    .map(({ candidate }) => candidate);
+}
+
 export function shouldRerankBrainCandidates(
   candidateCount: number,
   requestedK: number
@@ -160,6 +224,11 @@ type BrainSearchArgs = {
   k?: number;
   docType?: string;
   projectId?: Id<"projects">;
+  /**
+   * The project whose company's own imported PDs are left out (2026-11-17).
+   * Defaults to `projectId`; chat, which bills no project, passes it here.
+   */
+  ownCompanyProjectId?: Id<"projects">;
   userId?: string;
   agentThreadId?: string;
   usageLabel?: string;
@@ -181,10 +250,20 @@ type BrainSearchArgs = {
  * below the rerank threshold (skipping rerank entirely) and always narrows the
  * documents/topN handed to the reranker. That is intended: a non-servable hit
  * must not influence ranking, and it must not be served.
+ *
+ * 2026-11-17: it also drops hits from the searching project's company's own
+ * imported PDs (when that company has any, the search fetched
+ * BRAIN_OWN_COMPANY_SEARCH_LIMIT hits for that), takes each kept hit's
+ * writer tier from its source (the current weight), and cuts the slate back
+ * to BRAIN_SEARCH_LIMIT. Each kept hit's writer name and science code come
+ * from its source too (an edit after approval on Import changes them there,
+ * never in the entry's metadata, which the component keeps when the text is
+ * the same).
  */
 async function dropNonServableCandidates(
   ctx: ActionCtx,
-  candidates: BrainExemplar[]
+  candidates: BrainExemplar[],
+  ownCompanyKeys: string[] | undefined
 ): Promise<BrainExemplar[]> {
   const sourceIds = [
     ...new Set(
@@ -193,11 +272,28 @@ async function dropNonServableCandidates(
         .filter((id): id is string => typeof id === "string" && id.length > 0)
     ),
   ];
-  if (sourceIds.length === 0) return candidates;
-  const approved = new Set(
-    await ctx.runQuery(internal.brain.approvedBrainSourceIds, { sourceIds })
+  if (sourceIds.length === 0) return candidates.slice(0, BRAIN_SEARCH_LIMIT);
+  const servable = new Map(
+    (
+      await ctx.runQuery(internal.brain.servableBrainSources, {
+        sourceIds,
+        ...(ownCompanyKeys ? { ownCompanyKeys } : {}),
+      })
+    ).map((row) => [row.sourceId, row])
   );
-  return candidates.filter((c) => !c.sourceId || approved.has(c.sourceId));
+  return candidates
+    .filter((c) => !c.sourceId || servable.has(c.sourceId))
+    .map((c) => {
+      const row = c.sourceId ? servable.get(c.sourceId) : undefined;
+      if (!row) return c;
+      return {
+        ...c,
+        writerTier: row.writerTier,
+        writerName: row.writerName,
+        scienceCode: isCraScienceCode(row.scienceCode) ? row.scienceCode : undefined,
+      };
+    })
+    .slice(0, BRAIN_SEARCH_LIMIT);
 }
 
 export async function searchBrainExemplars(
@@ -205,6 +301,7 @@ export async function searchBrainExemplars(
   args: BrainSearchArgs
 ): Promise<BrainSearchOutcome> {
   const k = args.k ?? BRAIN_SEARCH_DEFAULT_K;
+  const ownCompanyProjectId = args.ownCompanyProjectId ?? args.projectId;
   const usageSuffix = args.usageLabel ? `:${args.usageLabel}` : "";
   let terminalOutcome: RerankOutcome = "search_error";
   const filters: {
@@ -232,12 +329,20 @@ export async function searchBrainExemplars(
     const retrievalQuery = scienceCode
       ? `${args.query}${BRAIN_SEARCH_PROGRAM.scienceLabelScaffold.separator}${BRAIN_SEARCH_PROGRAM.scienceLabelScaffold.prefix}${scienceCodeLabel(scienceCode)}`
       : args.query;
-    const { results, entries, usage } = await brain.search(ctx, {
-      namespace: BRAIN_NAMESPACE,
+    // 2026-11-18 (fourth): the stored pointer chooses the index, read once
+    // per search; its model, namespace, reranker and floors go together.
+    const { serving } = await ctx.runQuery(internal.brain.servingSearchIndex, {});
+    const index = BRAIN_SEARCH_INDEXES[serving];
+    // Only a company with imported PDs in the Brain needs the wider fetch.
+    const ownCompany = ownCompanyProjectId
+      ? await ctx.runQuery(internal.brain.ownCompanyImports, { projectId: ownCompanyProjectId })
+      : null;
+    const { results, entries, usage } = await BRAIN_SEARCH_RAGS[serving].search(ctx, {
+      namespace: index.namespace,
       query: retrievalQuery,
       searchType: BRAIN_SEARCH_PROGRAM.searchType,
-      limit: BRAIN_SEARCH_LIMIT,
-      vectorScoreThreshold: BRAIN_MIN_VECTOR_SIMILARITY,
+      limit: ownCompany ? BRAIN_OWN_COMPANY_SEARCH_LIMIT : BRAIN_SEARCH_LIMIT,
+      vectorScoreThreshold: index.minVectorSimilarity,
       chunkContext: BRAIN_CHUNK_CONTEXT,
       ...(filters.length ? { filters: filters as never } : {}),
     });
@@ -249,7 +354,7 @@ export async function searchBrainExemplars(
           ? { agentThreadId: args.agentThreadId }
           : {}),
         callSite: `brain:query_embedding${usageSuffix}`,
-        model: brainEmbeddingModel.modelId,
+        model: index.embeddingModelId,
         inputTokens: usage.tokens,
         outputTokens: 0,
       });
@@ -274,7 +379,7 @@ export async function searchBrainExemplars(
       };
     });
 
-    const candidates = await dropNonServableCandidates(ctx, rawCandidates);
+    const candidates = await dropNonServableCandidates(ctx, rawCandidates, ownCompany?.companyKeys);
 
     // P2 quality layer: rerank a wide slate (not just top-k), then apply a
     // relevance floor, blend the writer tier back in (rerank is tier-blind),
@@ -284,7 +389,7 @@ export async function searchBrainExemplars(
     if (shouldRerankBrainCandidates(candidates.length, k)) {
       try {
         const rerankResult = await rerank({
-          model: brainRerankModel,
+          model: BRAIN_RERANK_MODELS[serving],
           query: retrievalQuery,
           documents: candidates.map((c) => c.text),
           topN: Math.min(BRAIN_RERANK_TOP_N_CAP, candidates.length),
@@ -299,7 +404,7 @@ export async function searchBrainExemplars(
               ? { agentThreadId: args.agentThreadId }
               : {}),
             callSite: `brain:rerank${usageSuffix}`,
-            model: brainRerankModel.modelId,
+            model: index.rerankModelId,
             inputTokens: rerankTokens,
             outputTokens: 0,
           });
@@ -308,19 +413,14 @@ export async function searchBrainExemplars(
         }
         const { ranking } = rerankResult;
         const floored = ranking.filter(
-          (ranked) => ranked.score >= BRAIN_RERANK_RELEVANCE_FLOOR
+          (ranked) => ranked.score >= index.rerankRelevanceFloor
         );
         const blended = floored
           .map((r) => ({
             ...candidates[r.originalIndex],
             rerankScore: r.score,
             // Writer quality re-enters after reranking: score × (0.6 + 0.4·tier)
-            score:
-              r.score *
-              (BRAIN_SEARCH_PROGRAM.writerTierBlend.rerankCoefficient +
-                BRAIN_SEARCH_PROGRAM.writerTierBlend.writerTierCoefficient *
-                  (candidates[r.originalIndex].writerTier ??
-                    BRAIN_SEARCH_PROGRAM.writerTierBlend.defaultWriterTier)),
+            score: blendWriterTier(r.score, candidates[r.originalIndex].writerTier),
           }))
           .sort((a, b) => b.score - a.score);
         // May return < k, or none — floor over filler.
@@ -336,9 +436,10 @@ export async function searchBrainExemplars(
       }
     }
     // Non-reranked exit (≤k candidates, or the rerank catch above): apply the
-    // raw-slate floor since RELEVANCE_FLOOR never ran here.
+    // raw-slate floor since RELEVANCE_FLOOR never ran here, then rank by the
+    // writer tier blend (2026-11-17: the search itself no longer weighs it).
     const result = {
-      exemplars: pickScienceRouted(applyRawSearchFloor(candidates), k, scienceCode),
+      exemplars: pickScienceRouted(rankWithoutRerank(candidates), k, scienceCode),
       degraded: false,
     };
     terminalOutcome = rerankFailed ? "fallback" : "skip";
@@ -359,6 +460,7 @@ export const retrieveBrainContext = internalAction({
     k: v.optional(v.number()),
     docType: v.optional(v.string()),
     projectId: v.optional(v.id("projects")),
+    ownCompanyProjectId: v.optional(v.id("projects")),
     userId: v.optional(v.string()),
     agentThreadId: v.optional(v.string()),
     usageLabel: v.optional(v.string()),

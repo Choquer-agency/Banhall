@@ -236,6 +236,41 @@ describe("the searchWeb tool body", () => {
     expect(await remaining(f.t, "webSearchPerUser", f.userId)).toBe(AI_RATE_LIMITS.webSearchPerUser.rate);
   });
 
+  test("redacts saved companyContacts names even when they never appeared in project transcripts", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      const clientId = await ctx.db.insert("clients", {
+        name: "Larkspur Fluidics Ltd.",
+        nameKey: "larkspur fluidics ltd.",
+        status: "active",
+        createdBy: f.userId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      await ctx.db.patch(f.projectId, { clientId });
+      await ctx.db.insert("companyContacts", {
+        clientId,
+        firstName: "Henrik",
+        lastName: "Solberg",
+        role: "VP Engineering",
+        email: "henrik@larkspur.example",
+        isMain: true,
+        createdBy: f.userId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const { threadId } = await f.send(true);
+    const prepared = await f.t.query(internal.chatV2.prepareChatWebSearch, {
+      agentThreadId: threadId,
+      query: "Coriolis calibration drift noted by Henrik Solberg",
+    });
+    expect(prepared?.query).toBe("Coriolis calibration drift noted by");
+    expect(prepared?.query).not.toContain("Henrik");
+    expect(prepared?.query).not.toContain("Solberg");
+    expect(prepared?.changed).toBe(true);
+  });
+
   test(`sends at most ${MAX_WEB_SEARCHES_PER_TURN} searches in one turn`, async () => {
     const f = await setup();
     const { threadId } = await f.send(true);

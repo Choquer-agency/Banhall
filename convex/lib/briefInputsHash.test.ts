@@ -144,3 +144,25 @@ test("briefInputsHash: a generation reading fact packs never shares a Brief with
     await briefInputsHash([transcript, second, document])
   );
 });
+
+test("briefInputsHash: a company file read as last year's report is marked, and labels count for nothing else (2026-11-18, third)", async () => {
+  const row = (kind: "transcript" | "company_file", label: string, contentHash: string) => ({
+    kind,
+    contentHash,
+    label,
+    content: "text",
+    projectId: "proj1" as any,
+    generationId: "gen1" as any,
+    truncated: false,
+    originalLength: 4,
+    capturedAt: 1,
+  });
+  const background = [row("transcript", "Interview", "t1"), row("company_file", "background:Pump PD.docx (FY 2024)", "c1")];
+  const previous = [row("transcript", "Interview", "t1"), row("company_file", "previous_pd:Pump PD.docx (FY 2024)", "c1")];
+  // Without a marked row the hash is the content hashes alone, as before.
+  expect(await briefInputsHash(background)).toBe(await sha256("c1|t1"));
+  expect(await briefInputsHash(previous)).toBe(await sha256("c1|t1|previousYearCompanyFile:c1"));
+  // A project file filed as last year's report has its own category already; it adds no marker.
+  const projectReport = [row("transcript", "Interview", "t1"), { ...row("company_file", "x", "p1"), kind: "project_document" as const, label: "previous_pd:report.pdf" }];
+  expect(await briefInputsHash(projectReport)).toBe(await sha256("p1|t1"));
+});

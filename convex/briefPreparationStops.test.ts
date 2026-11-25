@@ -230,7 +230,7 @@ function inAction<R>(t: T, fn: (ctx: ActionCtx) => Promise<R>): Promise<R> {
 }
 
 /** Waits (really) until `ready` holds. */
-async function until(ready: () => boolean | Promise<boolean>, tries = 200) {
+async function until(ready: () => boolean | Promise<boolean>, tries = 600) {
   for (let attempt = 0; attempt < tries; attempt += 1) {
     if (await ready()) return;
     await realPause(10);

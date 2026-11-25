@@ -18,11 +18,26 @@
 import { foldForSearch } from "../shared/evidenceChoice";
 import { piecesCurrent, searchCompanyPieces, searchProjectPieces } from "./lib/searchPieces";
 import { readCompanyFileTextOrNull } from "./lib/companyFileText";
-import { companyFileCategory } from "./lib/briefEvidence";
+import {
+  companyDraftSubject,
+  companyFileCategory,
+  companyFinalPdsOfYear,
+  handCompanyFilesNewestFirst,
+  nonFinalHistoryCompanyFilesNewestFirst,
+  pinnedFinalPdsOfYear,
+  pinnedYears,
+  previousYearCompanyFileId,
+  previousYearPdOf,
+  projectHasOwnPreviousYearReport,
+  type CompanyDraftSubject,
+} from "./lib/briefEvidence";
+import { isCompanyHistoryCategory } from "./lib/companyEvidence";
+import { countedRows, type ReadCounter } from "./lib/readMeter";
 import { labelsCurrent } from "./lib/fileLabels";
 import { hasCapability } from "../shared/capabilities";
 import { MAX_CHAT_COMPANY_FILES, type ChatCompanyFile } from "./ai/chatEvidence";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { companyFilesMovingInto } from "./lib/clients";
 import { quotableFileText } from "../shared/wordMarkdown";
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -196,37 +211,154 @@ export async function chatCompanyScope(
 export async function chatCompanyFilesFor(
   ctx: QueryCtx,
   projectId: Id<"projects">,
-  userId: Id<"users"> | undefined
+  userId: Id<"users"> | undefined,
+  /** 2026-11-17: told of every company file row read (the chat's read budget charges them). */
+  meter?: ReadCounter,
+  /**
+   * 2026-11-18 (third): whether the project has its own previous-year file
+   * (`hasOwnPreviousYearReport`), for a caller that already holds its file
+   * rows; read here only when a listed final PD could count otherwise.
+   */
+  ownPreviousYearReport?: boolean
 ): Promise<ChatCompanyFile[]> {
   const clientId = await chatCompanyScope(ctx, projectId, userId);
-  return clientId ? await listedCompanyFiles(ctx, clientId) : [];
+  return clientId
+    ? await listedCompanyFiles(ctx, clientId, await chatCompanySubject(ctx, projectId, clientId), projectId, meter, ownPreviousYearReport)
+    : [];
+}
+
+/** What the chat chooses company files for: as a draft does, with the company's names (2026-11-18, third). */
+async function chatCompanySubject(ctx: QueryCtx, projectId: Id<"projects">, clientId: Id<"clients">): Promise<CompanyDraftSubject> {
+  return companyDraftSubject(await ctx.db.get(projectId), await ctx.db.get(clientId));
+}
+
+/** At most this many final PDs head the chat's company file list (2026-11-17). */
+export const CHAT_LISTED_FINAL_PDS = 10;
+/**
+ * Rows the walk for the company's other final PDs reads at most, whatever
+ * their text (review, 2026-11-17): many final PDs without text never make
+ * a chat turn read the whole range.
+ */
+export const CHAT_FINAL_PD_ROWS_READ = CHAT_LISTED_FINAL_PDS * 2;
+
+/** How Import filed a file, as the chat's list says it (2026-11-17). */
+const IMPORT_CATEGORY_WORDS: Readonly<Record<string, string>> = {
+  final_pd: "final PD",
+  draft: "draft",
+  review_copy: "review copy",
+  transcript: "transcript",
+  supporting: "supporting file",
+};
+
+/** "final PD, FY 2024" for an Import file, as the list and search name it; undefined for a file added by hand. */
+export function importFiledAs(file: { category?: string | null; fiscalYear?: number | null }): string | undefined {
+  const words = file.category && isCompanyHistoryCategory(file.category) ? IMPORT_CATEGORY_WORDS[file.category] : undefined;
+  if (!words) return undefined;
+  return typeof file.fiscalYear === "number" ? `${words}, FY ${file.fiscalYear}` : words;
+}
+
+function listedFile(file: Doc<"companyFiles">, previousYear: boolean): ChatCompanyFile {
+  const filedAs = importFiledAs(file);
+  return {
+    companyFileId: file._id,
+    fileName: file.fileName,
+    category: companyFileCategory(file.category, previousYear),
+    textLength: file.textLength,
+    ...(filedAs ? { filedAs } : {}),
+    ...(file.labels?.title && labelsCurrent(file, file.textHash) ? { title: file.labels.title } : {}),
+  };
 }
 
 /**
- * The company files a chat turn may reach: its newest 30 with text, listed
- * oldest first, so a file added later joins the end and the handles before
- * it keep naming the same files (review 2, 2026-10-26). Each has the
- * category a draft gives it (`companyFileCategory`) and a title only from
- * labels of its current text. Search reaches only these, so every excerpt
- * can be opened.
+ * The company files a chat turn lists, at most 30, each with the category a
+ * draft gives it (`companyFileCategory`) and a title only from labels of its
+ * current text. Since 2026-11-17 (company history), in this order:
+ *
+ * 1. the final PDs a draft of this project pins (the two fiscal years
+ *    before its own), then the company's other final PDs, newest fiscal
+ *    year first, at most CHAT_LISTED_FINAL_PDS in all, from at most
+ *    CHAT_FINAL_PD_ROWS_READ rows of the other final PDs;
+ * 2. the files added by hand: the newest 30 with text, listed oldest first,
+ *    so a file added later joins the end and the handles before it keep
+ *    naming the same files (review 2, 2026-10-26). A company with no Import
+ *    files gets exactly the list it got before;
+ * 3. while there is room, the newest of the company's other Import files.
+ *
+ * Search reaches every file of the company, listed or not (`searchForChat`).
+ * Every read is bounded and indexed, and `meter.mayRead` is asked before
+ * each row: once the chat's read budget has no room for one more row, the
+ * list ends with what it has (review, 2026-11-17).
+ *
+ * 2026-11-18 (third): last year's final PD a draft reads as the project's
+ * previous-year report (`previousYearPdOf`) is listed in that category, so
+ * chat and drafts agree.
  */
-async function listedCompanyFiles(ctx: QueryCtx, clientId: Id<"clients">): Promise<ChatCompanyFile[]> {
-  const rows = await ctx.db
-    .query("companyFiles")
-    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId).eq("archived", undefined))
-    .order("desc")
-    .take(MAX_CHAT_COMPANY_FILES * 2);
-  return rows
+async function listedCompanyFiles(
+  ctx: QueryCtx,
+  clientId: Id<"clients">,
+  subject: CompanyDraftSubject,
+  projectId: Id<"projects">,
+  meter?: ReadCounter,
+  ownPreviousYearReport?: boolean
+): Promise<ChatCompanyFile[]> {
+  const listed: Doc<"companyFiles">[] = [];
+  const seen = new Set<Id<"companyFiles">>();
+  const add = (file: Doc<"companyFiles">) => {
+    if (seen.has(file._id) || file.archived || !file.hasText) return;
+    seen.add(file._id);
+    listed.push(file);
+  };
+  let previousYearId: Id<"companyFiles"> | null = null;
+  // Final review P3-2: while a merge's files are still moving in, the year's
+  // final PDs are not all here, so none counts as the previous-year report
+  // (drafts wait for the move; the chat lists it as background meanwhile).
+  const moving = await companyFilesMovingInto(ctx, clientId);
+  for (const year of pinnedYears(subject)) {
+    const { rows, complete } = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
+    const pinned = pinnedFinalPdsOfYear(rows, year, subject);
+    if (year === subject.fiscalYear! - 1 && !moving) {
+      // A read the budget stopped early never makes a PD the year's only one.
+      const candidate = previousYearPdOf(pinned, rows, subject, false, complete);
+      // Null (the read of the project's rows stopped early) counts nothing.
+      if (candidate && (ownPreviousYearReport ?? (await projectHasOwnPreviousYearReport(ctx, projectId, meter))) === false) {
+        previousYearId = candidate._id;
+      }
+    }
+    for (const file of pinned) add(file);
+  }
+  // The other final PDs, newest fiscal year first (no year: never listed
+  // here), from at most CHAT_FINAL_PD_ROWS_READ rows read.
+  let finalRowsRead = 0;
+  for await (const file of countedRows(
+    ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_category_and_archived_and_fiscalYear", (q) =>
+        q.eq("clientId", clientId).eq("category", "final_pd").eq("archived", undefined).gte("fiscalYear", 0)
+      )
+      .order("desc"),
+    meter
+  )) {
+    finalRowsRead += 1;
+    add(file);
+    if (listed.length >= CHAT_LISTED_FINAL_PDS || finalRowsRead >= CHAT_FINAL_PD_ROWS_READ) break;
+  }
+  // As before: 60 rows read for the newest 30 with text.
+  const hand = (await handCompanyFilesNewestFirst(ctx, clientId, MAX_CHAT_COMPANY_FILES * 2, meter))
     .filter((file) => file.hasText)
-    .slice(0, MAX_CHAT_COMPANY_FILES)
-    .reverse()
-    .map((file) => ({
-      companyFileId: file._id,
-      fileName: file.fileName,
-      category: companyFileCategory(file.category),
-      textLength: file.textLength,
-      ...(file.labels?.title && labelsCurrent(file, file.textHash) ? { title: file.labels.title } : {}),
-    }));
+    .slice(0, MAX_CHAT_COMPANY_FILES - listed.length)
+    .reverse();
+  for (const file of hand) add(file);
+  const room = MAX_CHAT_COMPANY_FILES - listed.length;
+  if (room > 0) {
+    // Reads nothing for a company with no Import files. Final PDs are never
+    // read here: the pass above lists them up to CHAT_LISTED_FINAL_PDS, and
+    // this room is for the other Import files.
+    for (const file of await nonFinalHistoryCompanyFilesNewestFirst(ctx, clientId, room, meter)) {
+      if (listed.length >= MAX_CHAT_COMPANY_FILES) break;
+      add(file);
+    }
+  }
+  return listed.slice(0, MAX_CHAT_COMPANY_FILES).map((file) => listedFile(file, file._id === previousYearId));
 }
 
 /** An active transcript of the project: not removed, not replaced, not empty. */
@@ -420,6 +552,16 @@ export const readCompanyFileForChat = internalQuery({
     const file = await ctx.db.get(args.companyFileId);
     if (!clientId || !file || file.clientId !== clientId || file.archived) return { status: "not_found" };
     if (!file.hasText) return { status: "no_text", fileName: file.fileName };
+    // 2026-11-18 (third): last year's final PD reads as the project's
+    // previous-year report here too when the list and drafts read it so.
+    const subject = await chatCompanySubject(ctx, scope.projectId, clientId);
+    const previousYear =
+      file.category === "final_pd" &&
+      subject.fiscalYear !== null &&
+      file.fiscalYear === subject.fiscalYear - 1 &&
+      // Final review P3-2: not while a merge's files are still moving in.
+      !(await companyFilesMovingInto(ctx, clientId)) &&
+      (await previousYearCompanyFileId(ctx, clientId, subject, scope.projectId)) === file._id;
     const totalChars = file.textLength;
     if (args.start >= totalChars) return { status: "past_end", fileName: file.fileName, totalChars };
     // As readDocumentTextSafeRange: a window one character wider, so a range
@@ -433,7 +575,7 @@ export const readCompanyFileForChat = internalQuery({
     return {
       status: "ok",
       fileName: file.fileName,
-      category: companyFileCategory(file.category),
+      category: companyFileCategory(file.category, previousYear),
       totalChars,
       start: range.start + windowStart,
       end: range.end + windowStart,
@@ -804,6 +946,8 @@ export type SearchExcerpt =
       kind: "company";
       companyFileId: Id<"companyFiles">;
       fileName: string;
+      /** 2026-11-17: how Import filed it ("final PD, FY 2024"), as the list says; absent for a file added by hand. */
+      filedAs?: string;
       /** Where the excerpt starts in the file's text. */
       start: number;
       /** As for a file's piece (Phase D, step 1). */
@@ -1071,13 +1215,14 @@ export const searchForChat = internalQuery({
     // a file the company holds now, not archived, with current text).
     const clientId = await chatCompanyScope(ctx, scope.projectId, args.userId);
     if (clientId && excerpts.length < CHAT_SEARCH_MAX_EXCERPTS && left > 0) {
+      // 2026-11-17 (company history): every file of the company, listed or
+      // not; readDocument opens one the turn does not list by the handle
+      // the search gave it (chatDocumentTools.ts runSearchDocuments).
       const companyFound = await searchCompanyPieces(ctx, {
         clientId,
         query: args.query,
         limit: CHAT_SEARCH_MAX_EXCERPTS - excerpts.length,
         perFile: SEARCH_EXCERPTS_PER_SOURCE,
-        // Only files the turn lists, which readDocument can open.
-        onlyFileIds: new Set((await listedCompanyFiles(ctx, clientId)).map((file) => file.companyFileId)),
       });
       if (!companyFound.complete) complete = false;
       for (const hit of companyFound.hits) {
@@ -1090,6 +1235,7 @@ export const searchForChat = internalQuery({
           kind: "company",
           companyFileId: hit.companyFileId,
           fileName: hit.fileName,
+          ...(importFiledAs(hit) ? { filedAs: importFiledAs(hit) } : {}),
           start: hit.start,
           end: hit.end,
           textHash: hit.textHash,

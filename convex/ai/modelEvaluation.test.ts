@@ -116,7 +116,7 @@ const VALID_TIMESHEET = {
   ],
 };
 const VALID_CHUNK_CONTEXT =
-  "This chunk is the Line 246 advancement section of Verdant Grid Technologies' Project Helios PD, stating the simulated two-thirds cut in voltage excursions.";
+  "This chunk is the Line 246 advancement section of the company's PD, stating the simulated two-thirds cut in voltage excursions.";
 
 type Overrides = {
   seeds?: unknown;
@@ -538,11 +538,16 @@ describe("second review: split roles, judge bound, unsettled spend", () => {
     expect(await runOne("timesheet_extraction", { timesheet: "No JSON here." })).toMatchObject({ schemaValid: false });
   });
 
-  it("A: Brain context names the company and section in one or two sentences, no preamble", async () => {
+  it("A: Brain context names the section without naming the company in one or two sentences, no preamble", async () => {
     expect(await runOne("chunk_context")).toMatchObject({ contractPassed: true, rubricScore: 8 });
     expect(await runOne("chunk_context", { chunkContext: `Here is the context. ${VALID_CHUNK_CONTEXT}` })).toMatchObject({
       contractPassed: false,
     });
+    expect(
+      await runOne("chunk_context", {
+        chunkContext: "This chunk is the Line 246 advancement section of Verdant Grid Technologies' PD.",
+      })
+    ).toMatchObject({ contractPassed: false });
     expect(
       await runOne("chunk_context", { chunkContext: "It is about control. It uses batteries. It was simulated." })
     ).toMatchObject({ contractPassed: false });

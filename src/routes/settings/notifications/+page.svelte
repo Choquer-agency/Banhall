@@ -29,6 +29,7 @@
     { key: "draftReady", label: "Draft is ready", hint: "When the PD is written." },
     { key: "qaFinished", label: "QA finished", hint: "With the score." },
     { key: "handoff", label: "Handed off to you", hint: "When a project lands with you." },
+    { key: "clientComment", label: "Client comment", hint: "When a client comments on a shared review link." },
     { key: "inviteAccepted", label: "Invite accepted", hint: "Anyone who can invite.", invitersOnly: true },
   ];
   const rows = $derived(ROWS.filter((row) => !row.invitersOnly || canInvite));

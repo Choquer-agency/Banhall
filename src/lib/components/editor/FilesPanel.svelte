@@ -80,7 +80,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import { api } from "../../../../convex/_generated/api";
   import { categoryMeta, type ContextCategoryId } from "$lib/contextCategories";
   import { userErrorMessage } from "$lib/errors";
-  import { SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/parseDocument";
+  import { SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/documentFileTypes";
   import { withUploadTimeout } from "$lib/uploads/outboxFlush";
   import { storeProjectFile } from "$lib/uploads/storeProjectFile";
   import { createProjectFileUploads } from "$lib/uploads/projectFileUploads.svelte";

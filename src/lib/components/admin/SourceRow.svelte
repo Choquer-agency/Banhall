@@ -25,7 +25,7 @@
     kind: string;
     industry: string;
     writerName: string | null;
-    writerTier: number;
+    writerTier?: number;
     docType: string;
     craOutcome: string | null;
     scienceCode: string | null;
@@ -40,7 +40,7 @@
   let confirming = $state(false);
   // Initial value only, matching React's useState(String(row.writerTier)).
   // svelte-ignore state_referenced_locally
-  let tierDraft = $state(String(row.writerTier));
+  let tierDraft = $state(row.writerTier !== undefined ? String(row.writerTier) : "");
   let busy = $state(false);
 
   const fullQ = useQuery(api.brain.getBrainSource, () =>
@@ -78,7 +78,7 @@
     <div class="min-w-0 flex-1">
       <p class="truncate text-sm font-medium text-gray-800">{row.title}</p>
       <p class="text-xs text-gray-400">
-        {KIND_LABEL[row.kind] ?? row.kind} · {row.industry}{row.scienceCode ? ` · ${scienceCodeLabel(row.scienceCode)}` : ""}{row.writerName ? ` · ${row.writerName}` : ""} · tier {row.writerTier} ({tierLabel(row.writerTier)}){row.craOutcome ? ` · CRA ${row.craOutcome}` : ""}
+        {KIND_LABEL[row.kind] ?? row.kind} · {row.industry}{row.scienceCode ? ` · ${scienceCodeLabel(row.scienceCode)}` : ""}{row.writerName ? ` · ${row.writerName}` : ""}{row.writerTier !== undefined ? ` · tier ${row.writerTier} (${tierLabel(row.writerTier)})` : ""}{row.craOutcome ? ` · CRA ${row.craOutcome}` : ""}
       </p>
     </div>
     {#if row.status === "approved"}
@@ -130,7 +130,7 @@
               <span class="flex items-center gap-2">
                 <span class="text-sm text-gray-600">
                   {row.status === "approved"
-                    ? "Unlearn — deletes it from retrieval. Sure?"
+                    ? "Unlearn - deletes it from retrieval. Sure?"
                     : "Reject this source?"}
                 </span>
                 <button
@@ -157,7 +157,7 @@
             {/if}
           {/if}
 
-          {#if row.status === "approved"}
+          {#if row.status === "approved" && row.writerTier !== undefined}
             <span class="ml-auto flex items-center gap-1.5 text-sm text-gray-500">
               Weight
               <input

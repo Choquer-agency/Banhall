@@ -13,7 +13,7 @@
  */
 
 // The framework-free note marker regexes (gap and inferred), beside the CRA line math.
-import { NOTE_MARKER_RE } from "../convex/lib/lineLimits";
+import { NOTE_MARKER_RE } from "./report/lineLimits";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", small items): drafts copied

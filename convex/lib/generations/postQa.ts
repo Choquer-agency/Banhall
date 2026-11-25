@@ -364,7 +364,8 @@ export async function saveReportQaHandler(
   if (args.qaScore !== undefined && (generation.candidateMode ?? "compare") === "compare" &&
     report && args.capturedRef?.revisionNumber === 0) {
     const generated = await ctx.db.query("reportSnapshots")
-      .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
+      .withIndex("by_reportId_and_reason", (q) =>
+        q.eq("reportId", report._id).eq("reason", "generated"))
       .first();
     if (generated?.reason === "generated" &&
       generated.contentHash === args.capturedRef.contentHash &&

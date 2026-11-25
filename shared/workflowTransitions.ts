@@ -16,14 +16,14 @@ export type ReviewDecision = "approve" | "return";
 
 /**
  * The decision value that agrees with an internal-review completion edge:
- * returning the report for edits is a `return`, promoting it to
- * `ready_for_delivery` is an `approve`. Shared by the mutation (which enforces
- * agreement) and the UI (which derives the value from the destination), so the
- * mapping lives in exactly one place.
+ * returning the report for edits is a `return`, approving it into
+ * `client_review` or `ready_for_delivery` is an `approve`. Shared by the
+ * mutation (which enforces agreement) and the UI (which derives the value from
+ * the destination), so the mapping lives in exactly one place.
  */
 export function reviewDecisionForStage(to: WorkflowStage): ReviewDecision | undefined {
   if (to === "edits") return "return";
-  if (to === "ready_for_delivery") return "approve";
+  if (to === "client_review" || to === "ready_for_delivery") return "approve";
   return undefined;
 }
 
@@ -45,11 +45,12 @@ const reviewAuthorities = [
 const managerAdmin = ["manager", "admin"] as const;
 
 function transitionRule(from: WorkflowStage, to: WorkflowStage): WorkflowTransitionRule {
-  // The two internal-review completion edges: the handoff assignee is
-  // additionally authorized on them AND they are the edges that must record a
-  // reviewer decision. One predicate, both policies.
+  // The internal-review completion edges: the handoff assignee is additionally
+  // authorized on them AND they are the edges that must record a reviewer
+  // decision. One predicate, both policies.
   const isReviewCompletion =
-    from === "internal_review" && (to === "edits" || to === "ready_for_delivery");
+    from === "internal_review" &&
+    (to === "edits" || to === "client_review" || to === "ready_for_delivery");
   const authorities =
     from === "abandoned" || (from === "delivered" && to === "on_hold")
       ? managerAdmin

@@ -601,15 +601,72 @@ describe("nominateFromReport de-identification", () => {
     }
     expect(source.content).toContain("[redacted email]");
     expect(source.content).toContain("[redacted phone]");
-    // The label degrades to the score, which is the point: the exemplar title
-    // is injected into drafting prompts.
-    expect(source.title).toBe("[redacted] (writer-rated 88/100)");
-    // The prose keeps its paragraph structure — it is exemplar material.
+    // The label degrades to a non-identifying PD label with the score, since
+    // exemplar titles are injected into drafting prompts.
+    expect(source.title).toBe("Past PD (writer-rated 88/100)");
+    // The prose keeps its paragraph structure - it is exemplar material.
     expect(source.content).toBe(
       "[redacted] engaged us on [redacted] after [redacted] scoped it.\n\n" +
       "Reach the lead at [redacted email] or [redacted phone].\n613\n555\n0134"
     );
     const report = await t.run((ctx) => ctx.db.get(reportId));
     expect(report?.content).toContain("(613) 555-0134");
+  });
+
+  test("scrubs merged client aliases and website stems from nominated reports", async () => {
+    const t = convexTest(schema, modules);
+    const reportId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const writerId = await ctx.db.insert("users", {
+        authId: "nominate-alias-writer",
+        role: "writer",
+        name: "Tracy",
+      });
+      const clientId = await ctx.db.insert("clients", {
+        name: "Acme Metals Inc.",
+        nameKey: "acme metals inc.",
+        status: "active",
+        website: "https://www.acmemetals.ca",
+        formerNames: ["Northstar Foundry Ltd"],
+        createdBy: writerId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Thermal Spray Coatings",
+        clientName: "Acme Metals Inc.",
+        clientId,
+        writer: "Tracy Fielding",
+        status: "review",
+        createdBy: writerId,
+        ownerId: writerId,
+        shareToken: "nominate-alias-token",
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert("reports", {
+        projectId,
+        content: tiptap(
+          "Northstar Foundry Ltd partnered with acmemetals.ca to test coatings under Thermal Spray Coatings.",
+        ),
+        version: 1,
+        generatedAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await t.mutation(internal.brain.nominateFromReport, {
+      reportId,
+      writerName: "Tracy Fielding",
+      score: 91,
+    });
+
+    const sources = await allRows(t, "brainSources");
+    expect(sources).toHaveLength(1);
+    const source = sources[0]!;
+    expect(source.title).toBe("Past PD (writer-rated 91/100)");
+    expect(source.content).not.toContain("Northstar Foundry");
+    expect(source.content).not.toContain("acmemetals");
+    expect(source.content).not.toContain("Thermal Spray Coatings");
   });
 });

@@ -89,6 +89,7 @@
     type GenerationModeId,
   } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
+  import { COMPANY_FILES_MOVING_MESSAGE } from "../../../../shared/companyFileMoves";
   import StartRunDialog, { type StartRunExcluded, type StartRunOptions } from "$lib/components/generation/StartRunDialog.svelte";
   import {
     projectStartProblem,
@@ -100,7 +101,7 @@
   import SingleModelPicker from "$lib/components/generation/SingleModelPicker.svelte";
   import GhostCompareDialog from "$lib/components/generation/GhostCompareDialog.svelte";
   import { displayName } from "$lib/displayName";
-  import { projectCapabilityAllows } from "../../../../shared/capabilities";
+  import { hasCapability, projectCapabilityAllows } from "../../../../shared/capabilities";
   import { layoutMotion } from "$lib/motion/layoutMotion";
   import { loadAgentChatPanel } from "$lib/components/chat/chatModules";
 
@@ -264,7 +265,7 @@
   let saving = $state(false);
   let saveError = $state("");
   let localRevision = $state(0);
-  let pendingSaves = 0;
+  let pendingSaves = $state(0);
   let saveChain: Promise<void> = Promise.resolve();
   let showHistory = $state(false);
   // Iterative-mode cancel (button lives in the PageBar; modal below).
@@ -446,8 +447,8 @@
             pendingSaves -= 1;
             saving = pendingSaves > 0;
           }
-        } else if (draft !== null) {
-          await handleEditorUpdate(draft);
+        } else if (draft !== null && report) {
+          await handleEditorUpdate(report._id, draft);
         }
       } catch (error) {
         notifyReplace(userErrorMessage(error, "The replacements could not be saved."));
@@ -649,8 +650,23 @@
       goToLogin();
     }
   });
+  const revisionByReport = new Map<Id<"reports">, number>();
+  let trackedReportId: Id<"reports"> | null = null;
   $effect(() => {
-    if (report && pendingSaves === 0) localRevision = report.revisionNumber ?? 0;
+    const currentId = report?._id ?? null;
+    if (currentId !== trackedReportId) {
+      trackedReportId = currentId;
+      saveError = "";
+      if (report) {
+        const rev = report.revisionNumber ?? 0;
+        localRevision = rev;
+        revisionByReport.set(report._id, rev);
+      }
+    } else if (report && pendingSaves === 0) {
+      const rev = report.revisionNumber ?? 0;
+      localRevision = rev;
+      revisionByReport.set(report._id, rev);
+    }
   });
   $effect(() => {
     if (project) selectedTagIds = [...(project.tagIds ?? [])];
@@ -672,37 +688,46 @@
   }
 
 
-  async function handleEditorUpdate(json: string) {
+  async function handleEditorUpdate(targetReportId: Id<"reports">, json: string) {
     // CAP-2: a replace session holds autosave. Park the latest document here;
     // finishReplaceSession writes it when the session ends.
-    if (replaceSession) {
+    if (replaceSession && targetReportId === report?._id) {
       sessionDraftJson = json;
       return;
     }
-    if (!report) return;
-    const reportId = report._id;
     pendingSaves += 1;
     saving = true;
-    saveError = "";
+    if (targetReportId === report?._id) saveError = "";
     const save = async () => {
       // Take a restore-point checkpoint of the prior state at most once every
       // 5 minutes of active editing (deduped + log-thinned server-side).
       const now = Date.now();
       if (now - lastSnapshotAt > 300_000) {
         lastSnapshotAt = now;
-        createSnapshot({ reportId, reason: "manual" }).catch(() => {});
+        createSnapshot({ reportId: targetReportId, reason: "manual" }).catch(() => {});
       }
-      localRevision = await updateReport({
-        reportId,
+      const expectedRevision =
+        revisionByReport.get(targetReportId) ??
+        (targetReportId === report?._id ? localRevision : 0);
+      const nextRevision = await updateReport({
+        reportId: targetReportId,
         content: json,
-        expectedRevisionNumber: localRevision,
+        expectedRevisionNumber: expectedRevision,
       });
+      revisionByReport.set(targetReportId, nextRevision);
+      if (targetReportId === report?._id) {
+        localRevision = nextRevision;
+      }
     };
-    saveChain = saveChain.then(save, save);
+    const thisSave = saveChain.then(save, save);
+    saveChain = thisSave.catch(() => {});
     try {
-      await saveChain;
+      await thisSave;
     } catch (error) {
-      saveError = userErrorMessage(error, "The report could not be saved.");
+      if (targetReportId === report?._id) {
+        saveError = userErrorMessage(error, "The report could not be saved.");
+      }
+      throw error;
     } finally {
       pendingSaves -= 1;
       saving = pendingSaves > 0;
@@ -940,14 +965,15 @@
     exportId: Id<"reportExports">
   ) {
     try {
+      // UTC, like the year end printed in the file's header (exportTemplateDocx).
       const year = canonical.fiscalYearEnd
-        ? new Date(canonical.fiscalYearEnd).getFullYear()
+        ? new Date(canonical.fiscalYearEnd).getUTCFullYear()
         : new Date().getFullYear();
       const safeClient = canonical.clientName
         .replace(/[^a-zA-Z0-9\s\-]/g, "")
         .replace(/\s+/g, "_");
       // Lazy imports: file-saver touches browser globals at module init (SSR).
-      const [{ exportToTemplateDocx }, { saveAs }] = await Promise.all([
+      const [{ exportToTemplateDocx, formatExportProjectNumber }, { saveAs }] = await Promise.all([
         import("$lib/exportTemplateDocx"),
         import("file-saver"),
       ]);
@@ -956,7 +982,10 @@
         sha256Hex(JSON.stringify(canonical)),
         sha256Hex(blob),
       ]);
-      saveAs(blob, `${safeClient}_Schedule60_FY${year}.docx`);
+      const projectSuffix = canonical.projectNumber?.trim()
+        ? `_P${formatExportProjectNumber(canonical.projectNumber).replace(/[^a-zA-Z0-9\-]/g, "")}`
+        : "";
+      saveAs(blob, `${safeClient}_Schedule60_FY${year}${projectSuffix}.docx`);
       await completeExport({ exportId, canonicalDtoHash, documentHash });
       pendingExport = null;
     } catch (error) {
@@ -989,16 +1018,22 @@
       await runExport(canonical, authorized.exportId);
     } catch (error) {
       // Filing-readiness and field gates come back as structured domain
-      // errors — show them in the validation dialog, not a raw toast.
+      // errors - show them in the validation dialog, not a raw toast.
       const code = userErrorCode(error);
-      if (code === "EVIDENCE_REQUIRED" || code === "INVALID_INPUT") {
+      if (
+        code === "EVIDENCE_REQUIRED" ||
+        code === "INVALID_INPUT" ||
+        code === "NOT_DRAFTED"
+      ) {
         // 2026-11-02: a Line over its CRA limit is refused by the server too.
         const labelFor = (message: string) =>
-          message.includes("over the CRA limit")
-            ? "CRA limit"
-            : code === "INVALID_INPUT"
-              ? "Science code"
-              : "Filing readiness";
+          code === "NOT_DRAFTED" || message.includes("[NOT GENERATED]")
+            ? "Draft incomplete"
+            : message.includes("over the CRA limit")
+              ? "CRA limit"
+              : code === "INVALID_INPUT"
+                ? "Science code"
+                : "Filing readiness";
         exportValidation = {
           errors: userErrorMessage(error, "The export is blocked.")
             .split("\n")
@@ -1677,13 +1712,15 @@
                 </svg>
               {/snippet}
             </IconAction>
-            <IconAction label="Financial" href={`/project/${projectId}/financial`}>
-              {#snippet icon()}
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              {/snippet}
-            </IconAction>
+            {#if hasCapability(user?.role, "financial.read")}
+              <IconAction label="Financial" href={`/project/${projectId}/financial`}>
+                {#snippet icon()}
+                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                {/snippet}
+              </IconAction>
+            {/if}
         {:else if awaitingSelection}
           <IconAction
             label={candidateMaximized ? "Minimize" : "Maximize"}
@@ -1855,17 +1892,24 @@
               {@render projectMetadata()}
 
               <!-- Editor column -->
-              <Editor
-                bind:this={editorRef}
-                content={report.content}
-                onUpdate={handleEditorUpdate}
-                onComment={handleComment}
-                onAskAI={handleAskAI}
-                onResearch={handleResearch}
-                editable={true}
-                {commentRanges}
-                onHoverComment={(id) => (hoveredCommentId = id)}
-              />
+              {#key report._id}
+                <Editor
+                  bind:this={editorRef}
+                  reportId={report._id}
+                  content={report.content}
+                  onUpdate={(json, targetReportId) => {
+                    if (targetReportId) {
+                      return handleEditorUpdate(targetReportId as Id<"reports">, json);
+                    }
+                  }}
+                  onComment={handleComment}
+                  onAskAI={handleAskAI}
+                  onResearch={handleResearch}
+                  editable={true}
+                  {commentRanges}
+                  onHoverComment={(id) => (hoveredCommentId = id)}
+                />
+              {/key}
 
               <!-- Supporting panels (QA moved to the right rail — BNH-47) -->
               <div class="mt-8 mb-12">
@@ -2132,6 +2176,7 @@
         {hoveredCommentId}
         {pendingHighlight}
         onClearPending={() => (pendingHighlight = null)}
+        onBeforeAcceptEdit={flushEditor}
       />
     {/if}
 
@@ -2140,6 +2185,7 @@
       mode={startMode}
       sources={startSources}
       models={startModels}
+      blockingMessage={companyFilesQ.data?.filesMoving ? COMPANY_FILES_MOVING_MESSAGE : null}
       validate={(excluded) => projectStartProblem(excluded, transcriptsQ.data ?? [], documentsQ.data ?? [])}
       onConfirm={confirmStart}
       offerWebBackground={webBackgroundQ.data === true}

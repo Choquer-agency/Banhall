@@ -418,6 +418,14 @@ function resolveEntry<T extends { handle: string | null }>(
   return entry ? { kind: "one", entry } : { kind: "none" };
 }
 
+/** The entry `given` names by its handle alone (`C31`, or `C31 "name"`), or null. */
+function entryByHandle<T extends { handle: string | null }>(entries: readonly T[], prefix: "F" | "T" | "C", given: string): T | null {
+  const handle = new RegExp(`^\\s*${prefix}\\s*(\\d+)(?:\\s+(["'“‘]).*["'”’])?\\s*$`, "iu").exec(given);
+  if (!handle) return null;
+  const wanted = `${prefix}${Number(handle[1])}`;
+  return entries.find((entry) => entry.handle === wanted) ?? null;
+}
+
 function manyText(kind: "file" | "transcript", handles: string[], tool = kind === "file" ? "readDocument" : "readTranscript"): string {
   return handles.length
     ? `More than one ${kind} in this project has that name: ${handles.join(", ")}. Call ${tool} again with one handle.`
@@ -457,6 +465,10 @@ export async function runReadDocument(
     logRead("readDocument", 0, 0);
     return CHAT_READING_OFF;
   }
+  // 2026-11-17: a company file's C handle first, before any file's name, so
+  // a file a search found opens by its handle even when another has its name.
+  const byHandle = turn.companyFiles.length > 0 ? entryByHandle(turn.companyFiles, "C", input.file) : null;
+  if (byHandle && ctx.threadId) return await runReadCompanyFile(ctx, byHandle, input, options, turn);
   const resolved = resolveEntry(turn.files, "F", input.file, (entry) => entry.fileName);
   // Phase C: not a project file, so perhaps a company file (C handle or name).
   if (resolved.kind === "none" && turn.companyFiles.length > 0) {
@@ -674,8 +686,11 @@ export async function runSearchDocuments(
       agentThreadId: ctx.threadId,
       query: input.query,
       maxChars: granted,
-      // Phase C: company files only for a turn that lists them.
-      ...(turn.userId && turn.companyFiles.length > 0 ? { userId: turn.userId } : {}),
+      // Phase C: the sender, whom the search checks again for company files
+      // (permission and the project's company). Sent whatever the turn
+      // lists (review, 2026-11-17): a company whose newest hand-added rows
+      // have no text lists none, yet search reaches its older files.
+      ...(turn.userId ? { userId: turn.userId } : {}),
     });
     switch (result.status) {
       case "off":
@@ -691,6 +706,19 @@ export async function runSearchDocuments(
         if (result.excerpts.length === 0) return `${CHAT_SEARCH_NOTHING_FOUND}${partial}`;
         found = result.excerpts.length;
         usedChars = result.excerpts.reduce((sum, excerpt) => sum + excerpt.text.length, 0);
+        // 2026-11-17 (company history): a company file the turn does not
+        // list joins its reading state with the next handle (C31, C32 ...),
+        // so its excerpts are placed by it and readDocument opens it by it,
+        // for this turn, whatever other file has the same name.
+        for (const excerpt of result.excerpts) {
+          if (excerpt.kind !== "company") continue;
+          if (turn.companyFiles.some((entry) => entry.companyFileId === excerpt.companyFileId)) continue;
+          turn.companyFiles.push({
+            companyFileId: excerpt.companyFileId,
+            fileName: excerpt.fileName,
+            handle: `C${turn.companyFiles.length + 1}`,
+          });
+        }
         const places = result.excerpts.map((excerpt) => excerptPlace(excerpt, turn));
         const receipt = `Searched this project's files and transcripts: found ${found} excerpt(s), at ${[...new Set(places)].join(", ")}. To read more around one, open it with readDocument or readTranscript.${partial}`;
         const blocks = result.excerpts.map((excerpt, index) =>
@@ -705,7 +733,11 @@ export async function runSearchDocuments(
                 excerpt.text
               )
             : excerpt.kind === "company"
-              ? openedDocumentBlock({ fileName: `company file ${excerpt.fileName}` }, places[index]!, excerpt.text)
+              ? openedDocumentBlock(
+                  { fileName: `company file ${excerpt.fileName}${excerpt.filedAs ? `, filed as ${excerpt.filedAs}` : ""}` },
+                  places[index]!,
+                  excerpt.text
+                )
               : openedTranscriptBlock(excerpt.label, places[index]!, excerpt.text)
         );
         turn.opened.set(options.toolCallId, `${receipt}\n\n${blocks.join("\n\n")}`);
@@ -1154,7 +1186,10 @@ export async function pinnedFilesMessage(
 
 export function makeReadDocumentTool(turn: DocumentReadTurn) {
   // Phase C: company files are named only when the turn lists some.
-  const company = turn.companyFiles.length > 0 ? ` A company file opens the same way by its handle in COMPANY FILES, such as C1.` : "";
+  const company =
+    turn.companyFiles.length > 0
+      ? ` A company file opens the same way by its handle in COMPANY FILES, such as C1, or by the handle a search gave it, such as C31.`
+      : "";
   return createTool({
     description: `Open a project file and read its text, in parts of ${formatCount(CHAT_READ_PART_CHARS)} characters, up to ${CHAT_READ_MAX_PARTS} parts per call. Use it when the evidence blocks do not hold what you need: a file a notice says was left out, or more of a file than its block shows. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name.${company} Files with no text, such as images and scans, cannot be opened. The text is shown to you for this reply only.`,
     inputSchema: z.object({
@@ -1184,7 +1219,10 @@ export function makeReadDocumentTool(turn: DocumentReadTurn) {
 }
 
 export function makeSearchDocumentsTool(turn: DocumentReadTurn) {
-  const company = turn.companyFiles.length > 0 ? ` Excerpts from the company's files (COMPANY FILES, such as C1 part 1) come after this project's own.` : "";
+  const company =
+    turn.companyFiles.length > 0
+      ? ` Excerpts from the company's files (COMPANY FILES, such as C1 part 1; a file not listed gets the next handle, such as C31) come after this project's own.`
+      : "";
   return createTool({
     description: `Search the text of this project's files and transcripts for words, and get up to ${CHAT_SEARCH_MAX_EXCERPTS} short excerpts, each with its place, such as F3 part 2 or T1 turns 40-46.${company} Use it to find where something is mentioned, then open the file or transcript to read more. Write words as they appear in the files; in transcripts, accents do not need to match.`,
     inputSchema: z.object({

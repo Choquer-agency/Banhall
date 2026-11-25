@@ -12,6 +12,7 @@ import { workflowStageRank } from "../shared/workflowStages";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import {
   projectDashboardProjectionPatch,
+  syncDashboardCompanyDerivedYearEnd,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
@@ -19,6 +20,7 @@ import { isProjectDeleting } from "./lib/projectDeletion";
 import { activeClientIdForName } from "./lib/clients";
 import { insertDocumentWithText } from "./lib/documentText";
 import { hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
+import { readIngestionItemText } from "./lib/ingestionItemTexts";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -78,12 +80,13 @@ export const getItemForPort = internalQuery({
         "This file has no client or fiscal year — fix its folder metadata first"
       );
     }
-    if (!item.text && !item.textStorageId) {
+    const previewText = await readIngestionItemText(ctx, item);
+    if (!previewText && !item.textStorageId) {
       domainError("INVALID_STATE", "No extracted text on this item");
     }
     return {
       alreadyPortedProjectId: null,
-      text: item.text ?? null,
+      text: previewText ?? null,
       textStorageId: item.textStorageId ?? null,
       storageId: item.storageId ?? null,
       name: item.name,
@@ -214,6 +217,9 @@ export const finalizePort = internalMutation({
       // Born at intake; the company row's stage bucket moves in the same
       // transaction (2026-08-06 second amendment).
       await upsertDashboardCompany(ctx, companyKey, clientName, 1, "intake");
+      if (fiscalYearEnd !== undefined) {
+        await syncDashboardCompanyDerivedYearEnd(ctx, companyKey);
+      }
       // Both existing creation paths insert an empty transcript row and
       // downstream consumers assume one exists.
       await ctx.db.insert("transcripts", {

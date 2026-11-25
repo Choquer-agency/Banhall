@@ -14,6 +14,7 @@ import { deriveProcessingStatus } from "../shared/documentStatus";
 import { workflowStageRank } from "../shared/workflowStages";
 import {
   projectDashboardProjectionPatch,
+  syncDashboardCompanyDerivedYearEnd,
   upsertDashboardCompany,
 } from "./lib/dashboardProjection";
 import { generateShareToken } from "./projects";
@@ -171,6 +172,12 @@ export const createReviewProjectRecord = internalMutation({
       1,
       "intake"
     );
+    if (source.fiscalYearEnd !== undefined) {
+      await syncDashboardCompanyDerivedYearEnd(
+        ctx,
+        dashboardProjection.dashboardCompanyKey
+      );
+    }
 
     const transcriptIds: Id<"transcripts">[] = [];
     for (const [position, transcript] of sourceTranscripts.entries()) {

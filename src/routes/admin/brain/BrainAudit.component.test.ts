@@ -10,7 +10,7 @@ import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 import {
-  __activeQueryArgs, __activeQueryCount, __resetConvexStub, __setQueryData,
+  __activeQueryArgs, __activeQueryCount, __resetConvexStub, __setPaginatedRows, __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 const AUDIT = "brain:listBrainAudit";
@@ -23,7 +23,7 @@ const NOW = Date.UTC(2026, 8, 5, 12);
 // Opaque fixture IDs are never dereferenced by this route or query stub.
 const sourceId = "brain-source-recovery" as Id<"brainSources">;
 const actions: Audit[number]["action"][] = [
-  "ingest", "approve", "reject", "reweight", "revert",
+  "relabel", "ingest", "approve", "reject", "reweight", "revert",
   "revoke", "unlearn_failed", "unlearn_confirmed",
 ];
 const audit: Audit = actions.map((action, index) => ({
@@ -44,6 +44,9 @@ const labels: Record<Audit[number]["action"], string> = {
   reweight: "Reweighted", revert: "Reverted",
   revoke: "Revoked (unlearn requested)",
   unlearn_failed: "Erasure attempt failed", unlearn_confirmed: "Erasure confirmed",
+  relabel: "Details changed on Import",
+  switch_index: "Search index changed",
+  keep_old_page_copy: "Kept after the old page check",
 };
 const rows = () => [...document.querySelectorAll("tbody tr")];
 const cells = (row: Element) => [...row.querySelectorAll("td")].map(cell => cell.textContent?.trim());
@@ -67,13 +70,14 @@ beforeEach(async () => {
   __setQueryData("users:getCurrentUser", { role: "admin", name: "Test Admin", isOwner: true, isAnonymous: false });
   __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
   __setQueryData(STATS, { approved: 0, pending: 0, byIndustry: {} });
-  __setQueryData(SOURCES, []);
+  // 2026-11-17: the list is a paginated read.
+  __setPaginatedRows(SOURCES, []);
   __setQueryData(AUDIT, audit);
   await page.viewport(1440, 900);
 });
 
 describe("/admin/brain actual audit route", () => {
-  it("renders all eight event labels and same-source recovery newest first with exact row details", async () => {
+  it("renders all nine event labels and same-source recovery newest first with exact row details", async () => {
     await openAudit();
     // Soft assertions retain all three baseline label failures in one run.
     rows().forEach((row, index) => {

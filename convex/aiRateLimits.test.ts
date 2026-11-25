@@ -49,8 +49,8 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
   providerMocks.create.mockReset().mockResolvedValue({
-    content: [{ type: "text", text: "NONE" }],
-    stop_reason: "end_turn",
+    content: [{ type: "tool_use", id: "toolu_sc_none", name: "select_science_code", input: { code: "NONE" } }],
+    stop_reason: "tool_use",
   });
 });
 

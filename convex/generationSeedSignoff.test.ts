@@ -3770,7 +3770,7 @@ describe("seed Summary sign-off and recovery", () => {
         fromModelId: "claude-sonnet-5-5",
         toModelId: "claude-sonnet-5",
         at: expect.any(Number),
-        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        roles: ["writing", "planning", "checking", "condense"],
         writer: true,
       },
     ]);
@@ -3849,7 +3849,8 @@ describe("seed Summary sign-off and recovery", () => {
     const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
     expect(generation?.draftingInputs).toMatchObject({ status: "preparing", attempt: 2 });
     expect(generation?.singleModelId).toBe("claude-sonnet-5");
-    expect(generation?.modelFreeze?.roles.analysis).toBe("claude-sonnet-5");
+    expect(generation?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(generation?.modelFreeze?.roles.analysis).toBe("claude-haiku-5-5");
     vi.useRealTimers();
   });
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HTMLInputAttributes } from "svelte/elements";
+  import type { WithElementRef } from "$lib/utils";
 
   let {
     label,
@@ -7,8 +8,9 @@
     class: className = "",
     id,
     value = $bindable(),
+    ref = $bindable(null),
     ...rest
-  }: HTMLInputAttributes & { label?: string; error?: string } = $props();
+  }: WithElementRef<HTMLInputAttributes & { label?: string; error?: string }, HTMLInputElement> = $props();
 </script>
 
 <div class="flex flex-col gap-1.5">
@@ -18,6 +20,7 @@
     </label>
   {/if}
   <input
+    bind:this={ref}
     {id}
     bind:value
     {...rest}

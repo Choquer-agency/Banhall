@@ -262,11 +262,11 @@ describe("Edit details dialog (Z7o)", () => {
     await mount();
     await openEdit();
     await expect.poll(() => field("projectNumber")?.value).toBe("5");
-    await userEvent.fill(field("projectNumber")!, "99");
+    await userEvent.fill(field("projectNumber")!, "100");
     await userEvent.fill(page.getByRole("combobox", { name: "Company" }), "Nobody Ltd");
     await userEvent.click(saveButton());
     await expect.poll(() => text(document.querySelector('[data-edit-error="projectNumber"]'))).toBe(
-      "Use 1 to 20, a letter A to Z, or both, like 2A."
+      "Use 1 to 99, a letter A to Z, or both, like 2A."
     );
     expect(text(document.querySelector('[data-edit-error="clientName"]'))).toBe(
       "Pick a company from the list, or add it as a new company."

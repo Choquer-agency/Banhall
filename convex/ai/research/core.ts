@@ -8,6 +8,7 @@ import {
   openRouterUsage,
   type ChatCompletionsResponse,
 } from "../openrouterCore";
+import { OPENROUTER_ANTHROPIC_PROVIDER } from "../../../shared/anthropicTransport";
 import { NAME_EDGE_BEFORE, pseudonymize, surfacePattern, type PlaceholderMap } from "../../lib/deidentify";
 
 /**
@@ -464,6 +465,16 @@ export function parseOpenRouterResearchResponse(body: unknown): OpenRouterResear
   const record = body as Record<string, unknown>;
   const choices = Array.isArray(record.choices) ? record.choices : [];
   const choice = choices[0] as Record<string, unknown> | undefined;
+  const finishReason =
+    typeof choice?.finish_reason === "string"
+      ? choice.finish_reason.toLowerCase()
+      : null;
+  if (finishReason === "content_filter" || finishReason === "refusal") {
+    throw new Error("OpenRouter refused the research request");
+  }
+  if (finishReason === "length") {
+    throw new Error("OpenRouter truncated the research response at max_tokens");
+  }
   const message =
     choice?.message && typeof choice.message === "object"
       ? (choice.message as Record<string, unknown>)
@@ -666,7 +677,7 @@ export function buildOpenRouterRequest(input: OpenRouterRequestInput): Record<st
       { role: "system", content: input.system },
       { role: "user", content: input.prompt },
     ],
-    max_tokens: input.provider === "reviewer" ? 6_000 : 8_000,
+    max_tokens: input.provider === "reviewer" ? 12_000 : 8_000,
     usage: { include: true },
   };
   if (input.provider === "gpt") {
@@ -677,10 +688,12 @@ export function buildOpenRouterRequest(input: OpenRouterRequestInput): Record<st
       },
     ];
     base.max_tool_calls = 5;
+    base.provider = { data_collection: "deny" };
   } else if (input.provider === "perplexity") {
     // Sonar Deep Research performs native multi-step retrieval itself. Its
     // OpenRouter endpoint does not advertise generic function/server tools.
     base.web_search_options = { search_context_size: "medium" };
+    base.provider = { data_collection: "deny" };
   } else {
     base.response_format = {
       type: "json_schema",
@@ -690,7 +703,10 @@ export function buildOpenRouterRequest(input: OpenRouterRequestInput): Record<st
         schema: REVIEWER_JSON_SCHEMA,
       },
     };
-    base.provider = { require_parameters: true };
+    base.provider = {
+      ...OPENROUTER_ANTHROPIC_PROVIDER,
+      require_parameters: true,
+    };
   }
   return base;
 }

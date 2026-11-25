@@ -70,3 +70,22 @@ it("warms the project page code once the browser is idle, and not after it stops
     cancel.mockRestore();
   }
 });
+
+it("cancels a brief hover when the pointer leaves before the hover-intent delay", async () => {
+  const idle = vi.spyOn(window, "requestIdleCallback").mockImplementation(() => 1);
+  const root = document.createElement("div");
+  document.body.append(root);
+  const stop = startProjectPrefetch(root);
+  try {
+    const link = document.createElement("a");
+    link.href = "/project/report-2";
+    root.append(link);
+    link.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    link.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 220));
+    expect(loadPreviewProjectPage).not.toHaveBeenCalled();
+  } finally {
+    stop();
+    idle.mockRestore();
+  }
+});

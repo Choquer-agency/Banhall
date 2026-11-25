@@ -38,8 +38,8 @@ import { CONTEXT_SCAFFOLDS, neutralizeMarkers, neutralizeWriterLabel } from "./t
 
 // ─── Limits and cost ─────────────────────────────────────────────────────────
 
-/** The model research's "gpt" provider uses, with OpenRouter's native search. */
-export const CHAT_WEB_SEARCH_MODEL = RESEARCH_MODELS.gpt;
+/** Fast OpenRouter search model (GPT-6 Luna) for chat web search and draft background lookups. */
+export const CHAT_WEB_SEARCH_MODEL = "openai/gpt-6-luna";
 /** The aiUsage call site of every chat web search. */
 export const CHAT_WEB_SEARCH_CALL_SITE = "chat_web_search";
 /** The longest query the model may write. */
@@ -414,6 +414,14 @@ export function prepareWebSearchQuery(raw: string, identity: WebSearchIdentity):
   );
   const mark = (text: string, stand: string) => text.replace(REDACTION_MARKER, stand);
 
+  // Redact Canadian Business Numbers (9 digits + optional program account),
+  // currency amounts, and explicit serial/part/lot identifiers before name checks.
+  const CANADIAN_BN = /\b\d{3}[\s-]?\d{3}[\s-]?\d{3}(?:\s?(?:RC|RT|RP|RM|RZ)\d{4})?\b/gi;
+  const CURRENCY_AMOUNT =
+    /(?:(?:CA|US)?\$\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:k|m|b|thousand|million|billion))?\b|\b(?:CAD|USD)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:k|m|b|thousand|million|billion))?\b|\b\d[\d,]*(?:\.\d+)?\s*(?:CAD|USD)\b)/gi;
+  const SERIAL_OR_PART_CODE =
+    /\b(?:S\/N|P\/N|SN|PN|LOT|BN)[\s:#-]+[A-Z0-9][A-Z0-9-]{2,}\b/gi;
+
   let text = redactExternalText(original, [])
     .replace(WWW_HOST, OTHER)
     .replace(BARE_DOMAIN, OTHER)
@@ -423,7 +431,10 @@ export function prepareWebSearchQuery(raw: string, identity: WebSearchIdentity):
     .replace(FRENCH_ADDRESS, OTHER)
     .replace(ADDRESS, OTHER)
     .replace(LOWERCASE_ADDRESS, OTHER)
-    .replace(POSTAL_CODE, OTHER);
+    .replace(POSTAL_CODE, OTHER)
+    .replace(CANADIAN_BN, OTHER)
+    .replace(CURRENCY_AMOUNT, OTHER)
+    .replace(SERIAL_OR_PART_CODE, OTHER);
   text = mark(text, OTHER);
   text = mark(redactExternalText(text, [...names.titles]), OTHER);
   text = pseudonymize(text, placeholders).replace(PLACEHOLDER_TOKEN, (token) =>

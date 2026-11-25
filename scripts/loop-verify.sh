@@ -6,9 +6,9 @@ cd "$(dirname "$0")/.."
 
 VERIFY_COMPONENT="${VERIFY_COMPONENT:-0}"
 if [ "$VERIFY_COMPONENT" = "1" ]; then
-  STEP_TOTAL=10
+  STEP_TOTAL=12
 else
-  STEP_TOTAL=9
+  STEP_TOTAL=11
 fi
 STEP_INDEX=0
 
@@ -108,27 +108,83 @@ NODE
   return 0
 }
 
-# A skipped or vacuous test is a silenced failure, not a passing one. The gate
-# refuses tracked test files that skip cases or assert nothing (added 2026-09-10
-# after a cheap-model dev session turned a failing suite into test.skip).
+# A skipped, focused, or vacuous test is a silenced failure, not a passing one.
 no_skipped_tests() {
   local hits
-  hits="$(git grep -n -E '\b(test|it|describe)\.skip\(|\b(test|it)\.todo\(|expect\(true\)\.toBe\(true\)' -- '*.test.ts' || true)"
+  hits="$(git grep -n -E '\b(test|it|describe)\.(skip|only)\(|\b(test|it)\.todo\(|expect\(true\)\.toBe\(true\)' -- '*.test.ts' || true)"
   if [ -n "$hits" ]; then
-    echo "loop-verify: skipped or vacuous tests are not allowed:"
+    echo "loop-verify: skipped, focused, or vacuous tests are not allowed:"
     echo "$hits"
     return 1
   fi
   return 0
 }
 
+# Architecture boundary guard: convex/ must not import from src/, and shared/
+# must stay framework-free without importing from convex/ or src/.
+layer_boundaries() {
+  local convex_hits shared_hits
+  convex_hits="$(git grep -n -E 'from ["'\''][^"'\'']*src/' -- 'convex/*.ts' 'convex/**/*.ts' ':!convex/_generated/**' ':!*.test.ts' || true)"
+  shared_hits="$(git grep -n -E 'from ["'\''][^"'\'']*(convex|src)/' -- 'shared/*.ts' 'shared/**/*.ts' ':!*.test.ts' || true)"
+  if [ -n "$convex_hits" ] || [ -n "$shared_hits" ]; then
+    echo "loop-verify: forbidden cross-layer imports found:"
+    [ -n "$convex_hits" ] && echo "$convex_hits"
+    [ -n "$shared_hits" ] && echo "$shared_hits"
+    return 1
+  fi
+  return 0
+}
+
+# Bundle hygiene guard: ensure pdf.worker is never pulled into eager app entry
+# chunks or any chunk statically imported by them.
+bundle_hygiene() {
+  local entry_dir=".svelte-kit/output/client/_app/immutable/entry"
+  if [ ! -d "$entry_dir" ]; then
+    echo "  skipped (no client entry dir)"
+    return 0
+  fi
+  node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const entryDir = path.resolve(process.argv[1]);
+    const queue = fs.readdirSync(entryDir)
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => [path.join(entryDir, f), [f]]);
+    const visited = new Set();
+    const staticImportRe = /(?:^|[;\n])\s*(?:import|export)\s*(?:(?:\*\s*(?:as\s+[\w$]+\s*)?|[\w$]+(?:\s*,\s*(?:\*\s*as\s+[\w$]+|\{[^}]*\}))?|\{[^}]*\})\s*from\s*)?["'\''](\.[^"'\'']+\.js)["'\'']/g;
+    const leaks = [];
+    while (queue.length > 0) {
+      const [file, chain] = queue.shift();
+      if (visited.has(file) || !fs.existsSync(file)) continue;
+      visited.add(file);
+      const src = fs.readFileSync(file, "utf8");
+      if (/pdf\.worker/.test(src)) {
+        leaks.push(chain.join(" -> "));
+      }
+      for (const m of src.matchAll(staticImportRe)) {
+        const target = path.resolve(path.dirname(file), m[1]);
+        if (!visited.has(target)) {
+          queue.push([target, [...chain, path.relative(path.dirname(entryDir), target)]]);
+        }
+      }
+    }
+    if (leaks.length > 0) {
+      console.error("loop-verify: pdf.worker leaked into eager static import graph:");
+      for (const leak of leaks) console.error("  " + leak);
+      process.exit(1);
+    }
+  ' "$entry_dir"
+}
+
 step preflight preflight
 step "no skipped tests" no_skipped_tests
+step "layer boundaries" layer_boundaries
 step "convex typecheck" npx tsc -p convex/tsconfig.json --noEmit
 step "svelte-check" npm run check
 step "unit tests" npm test
 step "test discovery guard" node scripts/check-test-discovery.mjs
 step "production build" npm run build
+step "bundle hygiene" bundle_hygiene
 # Client-uploader file-selection harnesses: uploader-lib.ps1 (Windows) and the
 # scan/upload helpers in banhall-uploader.sh (Mac).
 step "uploader harness (pwsh)" pwsh -NoProfile -File scripts/client-uploader/tests/run-tests.ps1

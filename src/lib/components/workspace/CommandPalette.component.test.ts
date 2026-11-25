@@ -55,7 +55,8 @@ describe("CommandPalette (round 2 additions)", () => {
 
   it("an Admin gets every admin page, palette-only ones included", async () => {
     await open({ _id: "a", role: "admin" });
-    for (const label of ["Team", "House rules", "OneDrive import", "AI usage and cost", "Paired comparisons", "Ownership review", "Users and roles"]) {
+    // Import (2026-11-12) replaced "OneDrive import"; the old page's sync controls stay findable as "OneDrive sync".
+    for (const label of ["Team", "House rules", "Import", "OneDrive sync", "AI usage and cost", "Paired comparisons", "Ownership review", "Users and roles"]) {
       expect(labels()).toContain(label);
     }
     expect(labels()).not.toContain("Current dashboard");

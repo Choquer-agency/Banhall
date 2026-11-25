@@ -138,12 +138,13 @@ async function toolAskedBy(input: RequestInfo | URL, init?: RequestInit): Promis
     const body = (await new Request(input, init).json()) as {
       tool_choice?: { type?: string; name?: string };
       system?: unknown;
+      messages?: unknown;
     };
     if (body.tool_choice?.type === "tool" && body.tool_choice.name) return body.tool_choice.name;
-    const system = JSON.stringify(body.system ?? "");
+    const haystack = `${JSON.stringify(body.system ?? "")}\n${JSON.stringify(body.messages ?? "")}`;
     return (
       [request.linkedTools.advancement.name, request.linkedTools.experiment.name, request.linkedTools.result.name, request.toolName].find((name) =>
-        system.includes(`calling the ${name} tool`)
+        haystack.includes(`calling the ${name} tool`)
       ) ?? request.toolName
     );
   } catch {
@@ -1400,7 +1401,12 @@ describe("seed Node action request boundary", () => {
       const bodies = await Promise.all(requests.map((request) => request.clone().json()));
       for (const body of bodies) {
         expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
-        expect(JSON.stringify(body.system)).toContain("Reply only by calling the submit_result_seed_batch tool, exactly once.");
+        // With explicit cache_control on the source block, the per-tool reply line
+        // goes into the uncached user tail so system stays byte-identical across roles.
+        expect(JSON.stringify(body.system)).not.toContain("Reply only by calling");
+        expect(requestText(body.messages[0].content)).toContain(
+          "Reply only by calling the submit_result_seed_batch tool, exactly once."
+        );
       }
       const repair = requestText(bodies[1].messages[0].content);
       expect(repair).toContain("it called submit_seed_batch, but this request must be answered with submit_result_seed_batch");
@@ -1497,7 +1503,10 @@ describe("seed Node action request boundary", () => {
       await t.action(generateBatchRef, { batchId: fixture.batchId });
       expect(requests).toHaveLength(2);
       const bodies = await Promise.all(requests.map((request) => request.clone().json()));
-      expect(JSON.stringify(bodies[0].system)).toContain("Reply only by calling the submit_result_seed_batch tool, exactly once.");
+      expect(JSON.stringify(bodies[0].system)).not.toContain("Reply only by calling");
+      expect(requestText(bodies[0].messages[0].content)).toContain(
+        "Reply only by calling the submit_result_seed_batch tool, exactly once."
+      );
       expect(requestText(bodies[1].messages[0].content)).toContain(
         "it called submit_seed_batch, but this request must be answered with submit_result_seed_batch"
       );
@@ -2267,9 +2276,13 @@ describe("seed Node action request boundary", () => {
       });
       expect(run.bodies).toHaveLength(2);
       for (const body of run.bodies) {
-        // The model cannot be forced: auto, with the tool named in the system line.
+        // The model cannot be forced: auto, with the tool named in the uncached
+        // user tail so system stays byte-identical across roles.
         expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
-        expect(JSON.stringify(body.system)).toContain(`Reply only by calling the ${tools.linkedTools.advancement.name} tool, exactly once.`);
+        expect(JSON.stringify(body.system)).not.toContain("Reply only by calling");
+        expect(requestText(body.messages[0].content)).toContain(
+          `Reply only by calling the ${tools.linkedTools.advancement.name} tool, exactly once.`
+        );
         expect(body.tools.map((tool: { name: string }) => tool.name)).toEqual([
           tools.toolName,
           tools.linkedTools.experiment.name,

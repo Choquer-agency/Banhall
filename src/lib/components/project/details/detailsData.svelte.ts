@@ -27,14 +27,14 @@ import { userErrorCode, userErrorMessage } from "$lib/errors";
 import { createRequestId } from "$lib/requestId";
 import type { DetailsPanelData, HandOffInput, ScienceCodeSuggestion, TeamMember } from "./types";
 
-/** Per-company project number rule the server enforces: "1".."20", "A".."Z", or "2A". */
+/** Per-company project number rule the server enforces: "1".."99", "A".."Z", or "2A". */
 const PROJECT_NUMBER_PATTERN = /^(?:[1-9][0-9]?[A-Z]?|[A-Z])$/;
 
 export function validateProjectNumber(value: string): string {
   const next = value.trim().toUpperCase();
   const numericPart = next.match(/^[0-9]+/)?.[0];
-  if (next && (!PROJECT_NUMBER_PATTERN.test(next) || (numericPart !== undefined && Number(numericPart) > 20))) {
-    throw new Error("Use 1 to 20, a letter A to Z, or both, like 2A.");
+  if (next && (!PROJECT_NUMBER_PATTERN.test(next) || (numericPart !== undefined && Number(numericPart) > 99))) {
+    throw new Error("Use 1 to 99, a letter A to Z, or both, like 2A.");
   }
   return next;
 }

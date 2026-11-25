@@ -488,6 +488,12 @@ export const handOff = mutation({
         "Complete an internal review with Change stage, which records the review decision"
       );
     }
+    if (refusal === "requirement") {
+      domainError(
+        "INVALID_STATE",
+        "Move to Submitted or Delivered with Change stage, which pins the report revision and records the production outcome"
+      );
+    }
     if (stageChanges) {
       const edge = findWorkflowTransition(fromStage, args.stage);
       // The handoff note is the audit note on edges that require one; an

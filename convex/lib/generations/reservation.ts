@@ -10,6 +10,8 @@
 import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
 import { TransactionGuard, countedRows } from "../readMeter";
 import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "../projectCopy";
+import { companyFilesMovingInto } from "../clients";
+import { COMPANY_FILES_MOVING_MESSAGE } from "../../../shared/companyFileMoves";
 import { getDocumentSize, v, type ObjectType, type Value } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
@@ -410,6 +412,11 @@ export async function reserveGeneration(
   if (await projectCopyInProgress(ctx, project._id)) {
     domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
   }
+  // 2026-11-18 (a company holds all its files): nor a company whose merged
+  // files are still moving into it, so a draft never reads only some.
+  if (await companyFilesMovingInto(ctx, project.clientId)) {
+    domainError("INVALID_STATE", COMPANY_FILES_MOVING_MESSAGE, { reason: "COMPANY_FILES_MOVING" });
+  }
   // The source rules below and the frozen sources run on what remains after
   // the leave-out list (decision 56). Shared with the Brief preparation
   // (decision 65), so both freeze the same bytes in the same order.
@@ -432,9 +439,11 @@ export async function reserveGeneration(
   // draft reads nothing from a previous year (the project's first year, or
   // no previous-year files): no previous-year report or note, project or
   // company, and no transcript copied from an earlier fiscal year.
+  // 2026-11-18 (third, owner): last year's imported final PD the draft
+  // froze as the project's previous-year report counts too.
   const previousYearMaterial =
     evidence.frozenDocuments.some((item) => isPreviousYearDocument(item.document)) ||
-    evidence.frozenCompanyFiles.some((item) => isPreviousYearDocument(item.file)) ||
+    evidence.frozenCompanyFiles.some((item) => item.previousYear === true || isPreviousYearDocument(item.file)) ||
     thisYearTranscripts.length < transcripts.length;
   if (thisYearTranscripts.length === 0) {
     // The files this draft reads (not archived, with text, not left out),
@@ -988,6 +997,7 @@ export async function retryFromSummaryHandler(
       projectDocumentId: current.projectDocumentId,
       companyFileId: current.companyFileId,
       clientId: current.clientId,
+      ...(current.fiscalYear !== undefined ? { fiscalYear: current.fiscalYear } : {}),
       label: current.label,
       // B1, second part: an old row's own copy, or a new row's reference.
       ...(current.content !== undefined ? { content: current.content } : {}),

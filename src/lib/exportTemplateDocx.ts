@@ -38,8 +38,22 @@ const COURIER_INFERRED_RPR =
 const BLANK_PARAGRAPH =
   '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr></w:p>';
 
-function escapeXml(value: string): string {
+/**
+ * XML 1.0 has no way to write most control characters, so Word refuses to
+ * open a file that holds one. Text pasted from Word or a PDF can carry them.
+ * A vertical tab or form feed is white space to the line counts
+ * (convex/lib/lineLimits.ts splits on \s), so each becomes a space; the
+ * others, and half of a broken surrogate pair, are invisible and are dropped.
+ */
+function xmlSafeText(value: string): string {
   return value
+    .replace(/[\u000B\u000C]/g, " ")
+    .replace(/[\u0000-\u0008\u000E-\u001F\uFFFE\uFFFF]/g, "")
+    .replace(/[\uD800-\uDFFF]/gu, "");
+}
+
+function escapeXml(value: string): string {
+  return xmlSafeText(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -146,23 +160,42 @@ function fillTitleBox(xml: string, title: string): string {
   return xml.slice(0, cellEnd) + courierParagraph({ kind: "paragraph", text: title }) + xml.slice(cellEnd);
 }
 
+/**
+ * Write `value` after `label`, in the label's own cell. In the Schedule 60
+ * template each header label sits alone in a wide cell with room after it;
+ * the cell that follows is a different field ("Project: 01" after the
+ * claimant name) or the black divider row (after the taxation year).
+ */
 function fillHeaderField(xml: string, label: string, value: string): string {
   if (!value.trim()) throw new Error(`${label} value is required`);
   const labelIndex = xml.indexOf(label);
   if (labelIndex < 0) throw new Error(`Template header label "${label}" was not found`);
-  const cellStart = xml.indexOf("<w:tc>", labelIndex);
-  const cellEnd = xml.indexOf("</w:tc>", cellStart);
-  const paragraphEnd = xml.indexOf("</w:p>", cellStart);
-  if (
-    cellStart < 0 ||
-    cellEnd < 0 ||
-    paragraphEnd < 0 ||
-    paragraphEnd > cellEnd
-  ) {
+  const cellEnd = xml.indexOf("</w:tc>", labelIndex);
+  const paragraphEnd = xml.indexOf("</w:p>", labelIndex);
+  if (cellEnd < 0 || paragraphEnd < 0 || paragraphEnd > cellEnd) {
     throw new Error(`Template header cell for "${label}" was not found`);
   }
   const run = `<w:r><w:rPr><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${escapeXml(value)}</w:t></w:r>`;
   return xml.slice(0, paragraphEnd) + run + xml.slice(paragraphEnd);
+}
+
+export function formatExportProjectNumber(projectNumber?: string | null): string {
+  const trimmed = projectNumber?.trim();
+  if (!trimmed) return "01";
+  if (/^\d+$/.test(trimmed)) return trimmed.padStart(2, "0");
+  return trimmed;
+}
+
+function fillProjectNumber(xml: string, projectNumber?: string): string {
+  const marker = "<w:t>Project: 01</w:t>";
+  const index = xml.indexOf(marker);
+  if (index < 0) throw new Error('Template header field "Project: 01" was not found');
+  const formatted = formatExportProjectNumber(projectNumber);
+  return (
+    xml.slice(0, index) +
+    `<w:t>Project: ${escapeXml(formatted)}</w:t>` +
+    xml.slice(index + marker.length)
+  );
 }
 
 function fillScienceCode(xml: string, value: CraScienceCode): string {
@@ -208,20 +241,25 @@ export async function exportToTemplateDocx(
   xml = fillSectionCell(xml, SECTION_MARKERS.s244, report.body.sections.s244);
   xml = fillSectionCell(xml, SECTION_MARKERS.s246, report.body.sections.s246);
   xml = fillTitleBox(xml, report.title);
-  xml = fillHeaderField(xml, "Name of Claimant:", ` ${report.clientName}`);
+  // Each label is already followed by a space in the template.
+  xml = fillHeaderField(xml, "Name of Claimant:", report.clientName);
+  xml = fillProjectNumber(xml, report.projectNumber);
   if (!report.fiscalYearEnd) throw new Error("Taxation year end is required");
   const taxationYear = new Date(report.fiscalYearEnd);
   if (Number.isNaN(taxationYear.getTime())) {
     throw new Error("Taxation year end is invalid");
   }
+  // The year end is a calendar day stored as a UTC midnight timestamp; read
+  // in UTC so the chosen day prints identically in every browser time zone.
   xml = fillHeaderField(
     xml,
     "Taxation Year Ending",
-    ` ${taxationYear.toLocaleDateString("en-CA", {
+    taxationYear.toLocaleDateString("en-CA", {
       year: "numeric",
       month: "long",
       day: "numeric",
-    })}`
+      timeZone: "UTC",
+    })
   );
   xml = fillScienceCode(xml, scienceCode);
 

@@ -4,6 +4,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import CommentInput from "./CommentInput.svelte";
+  import { userErrorMessage } from "$lib/errors";
   import { popoverPop } from "$lib/motion";
 
   /**
@@ -29,6 +30,7 @@
     hoveredCommentId,
     pendingHighlight,
     onClearPending,
+    onBeforeAcceptEdit,
   }: {
     projectId: Id<"projects">;
     reportId: Id<"reports">;
@@ -43,14 +45,39 @@
       y?: number;
     } | null;
     onClearPending: () => void;
+    onBeforeAcceptEdit?: () => Promise<unknown>;
   } = $props();
 
   const commentsQ = useQuery(api.comments.listComments, () => ({ projectId, reportId }));
   const commentersQ = useQuery(api.comments.listCommenters, () => ({ projectId }));
   const addComment = useMutation(api.comments.addComment);
   const resolveComment = useMutation(api.comments.resolveComment);
+  const acceptEdit = useMutation(api.comments.acceptEdit);
   type Comment = NonNullable<typeof commentsQ.data>[number];
   type Commenter = NonNullable<typeof commentersQ.data>[number];
+
+  let acceptErrors = $state<Record<string, string>>({});
+  let accepting = $state<Record<string, boolean>>({});
+
+  async function handleAcceptEdit(commentId: Id<"comments">) {
+    if (accepting[commentId]) return;
+    accepting = { ...accepting, [commentId]: true };
+    acceptErrors = Object.fromEntries(Object.entries(acceptErrors).filter(([id]) => id !== commentId));
+    try {
+      if (onBeforeAcceptEdit) {
+        await onBeforeAcceptEdit();
+      }
+      await acceptEdit({ commentId });
+      activeId = null;
+    } catch (error) {
+      acceptErrors = {
+        ...acceptErrors,
+        [commentId]: userErrorMessage(error, "The suggested edit could not be applied."),
+      };
+    } finally {
+      accepting = Object.fromEntries(Object.entries(accepting).filter(([id]) => id !== commentId));
+    }
+  }
 
   const commenterMap = $derived.by(() => {
     const map = new Map<string, Commenter>();
@@ -100,13 +127,15 @@
 {#snippet commentCard(comment: Comment, commenter: Commenter | undefined)}
   {@const color = commenter?.color ?? "var(--color-ink-faint)"}
   {@const name = commenter?.name ?? "Consultant"}
+  {@const isAccepting = Boolean(accepting[comment._id])}
+  {@const acceptError = acceptErrors[comment._id]}
   <div class="rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
     <p class="line-clamp-1 text-xs leading-relaxed text-gray-400">
       &ldquo;{comment.highlightText}&rdquo;
     </p>
     <div class="mt-1.5 flex items-center gap-1.5">
       <div
-        class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-bold text-white"
+        class="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[0.5625rem] font-medium text-white"
         style={`background-color: ${color}`}
       >
         {name[0]?.toUpperCase()}
@@ -121,22 +150,37 @@
     <p class="mt-1 text-sm leading-relaxed text-gray-800">{comment.body}</p>
     {#if comment.suggestedEdit}
       <div class="mt-1.5 rounded border border-primary/20 bg-primary/5 px-2 py-1.5">
-        <p class="mb-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-dark">
+        <p class="mb-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-primary-dark">
           Suggested edit
         </p>
         <p class="text-xs text-gray-700">{comment.suggestedEdit}</p>
       </div>
     {/if}
-    <button
-      type="button"
-      onclick={() => {
-        resolveComment({ commentId: comment._id });
-        activeId = null;
-      }}
-      class="mt-1.5 text-xs text-gray-400 transition-colors hover:text-green-600"
-    >
-      Resolve
-    </button>
+    {#if acceptError}
+      <p class="mt-1.5 text-xs text-red-600" role="alert">{acceptError}</p>
+    {/if}
+    <div class="mt-2 flex items-center gap-3">
+      {#if comment.suggestedEdit}
+        <button
+          type="button"
+          disabled={isAccepting}
+          onclick={() => handleAcceptEdit(comment._id)}
+          class="rounded bg-primary px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:opacity-50"
+        >
+          {isAccepting ? "Applying..." : "Accept edit"}
+        </button>
+      {/if}
+      <button
+        type="button"
+        onclick={() => {
+          resolveComment({ commentId: comment._id });
+          activeId = null;
+        }}
+        class="text-xs font-medium text-gray-400 transition-colors hover:text-green-600"
+      >
+        Resolve
+      </button>
+    </div>
   </div>
 {/snippet}
 

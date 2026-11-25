@@ -273,26 +273,38 @@ export function requireWorkflowStageEdge(args: {
 }
 
 /**
- * The fail-closed requirements and the open-work rule for entering a stage.
- * `review_decision` is not handled here: `setWorkflowStage` records it and
- * `handOff` refuses those edges before calling this.
+ * Checks stage-entry requirements and open-work rules.
+ * `review_decision` is handled by `setWorkflowStage`; `handOff` refuses
+ * review-decision and outcome-pinned edges before calling this.
+ * Returns the latest report revision when the transition pins a production
+ * outcome (`ready_for_delivery` or `delivered`).
  */
 export async function requireWorkflowStageRequirements(
   ctx: MutationCtx,
   project: Doc<"projects">,
   transition: WorkflowTransitionRule
-) {
-  if (transition.requirements?.includes("delivery_outcome")) {
-    domainError(
-      "OUTCOME_REQUIRED",
-      "Record the exact delivered or filing outcome before marking this project delivered"
-    );
-  }
-  if (transition.requirements?.includes("promoted_branch")) {
-    domainError(
-      "INVALID_STATE",
-      "A promoted report branch is required before marking this project ready for delivery"
-    );
+): Promise<Doc<"reports"> | null> {
+  let pinnedReport: Doc<"reports"> | null = null;
+  const needsDeliveryOutcome = transition.requirements?.includes("delivery_outcome") === true;
+  const needsPromotedReport = transition.requirements?.includes("promoted_branch") === true;
+  if (needsDeliveryOutcome || needsPromotedReport) {
+    pinnedReport = await ctx.db
+      .query("reports")
+      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
+      .order("desc")
+      .first();
+    if (!pinnedReport) {
+      if (needsDeliveryOutcome) {
+        domainError(
+          "OUTCOME_REQUIRED",
+          "A report revision is required before marking this project delivered"
+        );
+      }
+      domainError(
+        "INVALID_STATE",
+        "A report revision is required before marking this project ready for delivery"
+      );
+    }
   }
   if (transition.to === "abandoned") {
     const openWork = await ctx.db
@@ -308,6 +320,7 @@ export async function requireWorkflowStageRequirements(
       );
     }
   }
+  return pinnedReport;
 }
 
 /**
@@ -483,7 +496,7 @@ export const setWorkflowStage = mutation({
       );
     }
     let reviewedReport: Doc<"reports"> | null = null;
-    let reviewedStage: "edits" | "ready_for_delivery" | null = null;
+    let reviewedStage: "edits" | "client_review" | "ready_for_delivery" | null = null;
     if (needsDecision) {
       if (!args.reviewDecision) {
         domainError(
@@ -491,13 +504,11 @@ export const setWorkflowStage = mutation({
           "Record an approve or return decision to complete this review"
         );
       }
-      // Derive the audited destination explicitly rather than by construction,
-      // and do it BEFORE comparing against `expectedDecision`: if a third edge
-      // ever gains `review_decision`, `reviewDecisionForStage` returns
-      // undefined, so the comparison below would always fire and mask the real
-      // problem behind an "does not match" INVALID_INPUT. Fail closed here
-      // instead of silently recording it as one of the two completion stages.
-      if (args.toStage !== "edits" && args.toStage !== "ready_for_delivery") {
+      if (
+        args.toStage !== "edits" &&
+        args.toStage !== "client_review" &&
+        args.toStage !== "ready_for_delivery"
+      ) {
         domainError(
           "INVALID_STATE",
           "This transition requires a reviewer decision but is not an internal-review completion edge"
@@ -507,8 +518,6 @@ export const setWorkflowStage = mutation({
         domainError("INVALID_INPUT", "The reviewer decision does not match this transition");
       }
       reviewedStage = args.toStage;
-      // The decision is pinned to the project's latest report revision; with
-      // no report there is nothing to pin it to.
       reviewedReport = await ctx.db
         .query("reports")
         .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
@@ -521,7 +530,7 @@ export const setWorkflowStage = mutation({
         );
       }
     }
-    await requireWorkflowStageRequirements(ctx, project, transition);
+    const pinnedReport = await requireWorkflowStageRequirements(ctx, project, transition);
 
     const now = Date.now();
     const nextVersion = version + 1;
@@ -536,36 +545,70 @@ export const setWorkflowStage = mutation({
         workflowVersion: nextVersion,
       },
     });
+    let resolvedPinned: { reportId: Id<"reports">; revisionNumber: number; contentHash: string } | null = null;
+    const resolvePinned = async (target: Doc<"reports">) => {
+      if (resolvedPinned && resolvedPinned.reportId === target._id) return resolvedPinned;
+      const currentReport = await reportWithBody(ctx, target);
+      resolvedPinned = {
+        reportId: target._id,
+        revisionNumber: currentReport.revisionNumber ?? 0,
+        contentHash: currentReport.contentHash || (await sha256(currentReport.content)),
+      };
+      return resolvedPinned;
+    };
     if (needsDecision) {
-      // Fail closed: the insert is keyed off the requirement, not off the
-      // resolved values, so a stage patch + stage_changed event can never
-      // commit without its decision row. The checks above should make this
-      // unreachable; if they ever do not, the whole transaction aborts.
       if (!reviewedReport || !reviewedStage || !args.reviewDecision) {
         domainError(
           "INVALID_STATE",
           "The reviewer decision could not be recorded for this transition"
         );
       }
-      // Same transaction as the stage patch and the stage_changed event: the
-      // decision and the stage move are one atomic audit fact.
-      const currentReport = await reportWithBody(ctx, reviewedReport);
+      const pin = await resolvePinned(reviewedReport);
       const reviewDecisionId = await ctx.db.insert("reviewDecisions", {
         projectId: project._id,
-        reportId: reviewedReport._id,
+        reportId: pin.reportId,
         reviewerId: user._id,
-        revisionNumber: currentReport.revisionNumber ?? 0,
-        // Falsy, not nullish: a stored empty hash is as unusable as an absent
-        // one and must be recomputed rather than pinned as "".
-        contentHash: currentReport.contentHash || (await sha256(currentReport.content)),
+        revisionNumber: pin.revisionNumber,
+        contentHash: pin.contentHash,
         decision: args.reviewDecision.decision,
         toStage: reviewedStage,
         ...(note ? { note } : {}),
         createdAt: now,
       });
-      // Phase E (E2b): the decision as a learning signal.
       await scheduleSignalCapture(ctx, { reviewDecisionId });
     }
+    if (args.toStage === "ready_for_delivery" || args.toStage === "delivered") {
+      if (!pinnedReport) {
+        domainError(
+          args.toStage === "delivered" ? "OUTCOME_REQUIRED" : "INVALID_STATE",
+          "A report revision is required to record this production outcome"
+        );
+      }
+      const pin = await resolvePinned(pinnedReport);
+      await ctx.db.insert("productionOutcomes", {
+        projectId: project._id,
+        reportId: pin.reportId,
+        revisionNumber: pin.revisionNumber,
+        contentHash: pin.contentHash,
+        outcomeType: args.toStage,
+        recordedBy: user._id,
+        recordedAt: now,
+        ...(note ? { note } : {}),
+      });
+    }
     return { status: "updated" as const, version: nextVersion };
+  },
+});
+
+export const listProductionOutcomes = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return [];
+    return await ctx.db
+      .query("productionOutcomes")
+      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(100);
   },
 });

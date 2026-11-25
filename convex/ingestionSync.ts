@@ -33,6 +33,10 @@ import {
 } from "./lib/ingestionClassify";
 import { createHash } from "node:crypto";
 import { readFileOnServer } from "./ai/fileReader";
+import { scienceCodeFromText } from "./lib/scienceCodeFromText";
+import { IMPORT_TEXT_CUT_NOTE } from "./lib/ingestionSheet";
+import { writerNamesFromText } from "../shared/writerNameFromText";
+import { clientNamesFromSectionC } from "../shared/pdSectionC";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 // Full extracted text is byte-capped (UTF-8) and stored as a blob; only a
@@ -171,7 +175,8 @@ async function finishExtraction(
   itemId: Id<"ingestionItems">,
   storageId: Id<"_storage">,
   bytes: ArrayBuffer,
-  fileName: string
+  fileName: string,
+  expectedContentHash: string
 ) {
   const { text, note } = await extractText(bytes, fileName);
   const trimmed = text?.trim();
@@ -179,7 +184,9 @@ async function finishExtraction(
     await ctx.runMutation(internal.ingestion.markItemProcessed, {
       itemId,
       storageId,
+      expectedContentHash,
       extractNote: note,
+      textCut: false,
     });
     return;
   }
@@ -190,11 +197,23 @@ async function finishExtraction(
   await ctx.runMutation(internal.ingestion.markItemProcessed, {
     itemId,
     storageId,
+    expectedContentHash,
     text: bounded.text.slice(0, PREVIEW_CHARS),
     textStorageId,
+    textCut: bounded.truncated,
     extractNote: bounded.truncated
-      ? `${note ? `${note}; ` : ""}text truncated at ${MAX_TEXT_BYTES} bytes`
+      ? `${note ? `${note}; ` : ""}${IMPORT_TEXT_CUT_NOTE} ${MAX_TEXT_BYTES} bytes`
       : note,
+    // Read from the whole text, not the preview; the mutation keeps it only
+    // for a final PD with no science code a person set.
+    documentScienceCode: scienceCodeFromText(bounded.text),
+    // The same for who wrote it ("Prepared by Dana Whitlock"): the mutation
+    // names a past writer the check made only from a name matching the
+    // file's writer initials.
+    documentWriterNames: writerNamesFromText(bounded.text),
+    // Client-side technical contacts from CRA Schedule 60 Section C (lines 254,
+    // 256, 260/261 table), used for client initials matching and Brain PII redaction.
+    documentClientNames: clientNamesFromSectionC(bounded.text),
   });
 }
 
@@ -211,7 +230,8 @@ async function processBatches(
   const flushGroups = async () => {
     const keys = [...groupKeys];
     groupKeys.clear();
-    // recomputePairs bounds itself to 25 groups per mutation.
+    // recomputePairs recomputes two groups per mutation and schedules itself
+    // for the rest.
     for (let i = 0; i < keys.length; i += 25) {
       await ctx.runMutation(internal.ingestion.recomputePairs, {
         groupKeys: keys.slice(i, i + 25),
@@ -239,6 +259,7 @@ async function processBatches(
         if (item.size > MAX_FILE_BYTES) {
           await ctx.runMutation(internal.ingestion.markItemFailed, {
             itemId: item._id,
+            expectedContentHash: item.contentHash,
             error: `File too large to ingest (${Math.round(item.size / 1024 / 1024)}MB)`,
           });
           groupKeys.add(item.pairGroupKey);
@@ -257,11 +278,12 @@ async function processBatches(
           await ctx.runMutation(internal.ingestion.attachUpload, {
             itemId: item._id,
             storageId,
+            expectedContentHash: item.contentHash,
             delayMs: pdfsHandedOff * PDF_READ_SPACING_MS,
           });
           pdfsHandedOff++;
         } else {
-          await finishExtraction(ctx, item._id, storageId, bytes, item.name);
+          await finishExtraction(ctx, item._id, storageId, bytes, item.name, item.contentHash);
         }
         groupKeys.add(item.pairGroupKey);
         processed++;
@@ -269,6 +291,7 @@ async function processBatches(
         // markItemFailed recomputes the group itself.
         await ctx.runMutation(internal.ingestion.markItemFailed, {
           itemId: item._id,
+          expectedContentHash: item.contentHash,
           error: err instanceof Error ? err.message : String(err),
         });
       }
@@ -378,6 +401,8 @@ async function walkDelta(
       batch.length > 0
         ? await ctx.runMutation(internal.ingestion.upsertDiscoveredBatch, {
             items: batch as never,
+            // The run's Import batch counts what arrived (2026-11-12).
+            runId,
           })
         : 0;
     await ctx.runMutation(internal.ingestion.updateSyncRun, {
@@ -476,7 +501,7 @@ export const extractUploadedItem = internalAction({
       const blob = await ctx.storage.get(item.storageId);
       if (!blob) throw new Error("Stored bytes not found");
       const bytes = await blob.arrayBuffer();
-      await finishExtraction(ctx, item._id, item.storageId, bytes, item.name);
+      await finishExtraction(ctx, item._id, item.storageId, bytes, item.name, item.contentHash);
       await ctx.runMutation(internal.ingestion.recomputePairs, {
         groupKeys: [item.pairGroupKey],
       });
@@ -485,6 +510,8 @@ export const extractUploadedItem = internalAction({
       // extraction still surfaces its gap (e.g. lone-PD missing_transcript).
       await ctx.runMutation(internal.ingestion.markItemFailed, {
         itemId: args.itemId,
+        expectedContentHash: item.contentHash,
+        expectedStorageId: item.storageId,
         error: err instanceof Error ? err.message : String(err),
       });
     }

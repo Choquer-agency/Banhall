@@ -23,7 +23,7 @@
   import DatePicker from "$lib/components/ui/DatePicker.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import ScienceCodePicker from "$lib/components/project/details/ScienceCodePicker.svelte";
-  import { fiscalYearParts, formatEdited, scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
+  import { fiscalYearParts, formatEdited, fromDateInput, scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
   import { isSupportedFile, parseFileToText, SUPPORTED_ACCEPT, SUPPORTED_LABEL } from "$lib/parseDocument";
   import { CONTEXT_CATEGORIES, type ContextCategoryId } from "$lib/contextCategories";
   import { MAX_TOTAL_TRANSCRIPT_CHARS, MAX_TRANSCRIPTS_PER_PROJECT } from "../../../../convex/lib/transcripts";
@@ -208,11 +208,7 @@
     { label: "Sep 30", month: 9, day: 30 },
     { label: "Dec 31", month: 12, day: 31 },
   ] as const;
-  const fiscalDisplay = $derived(
-    /^\d{4}-\d{2}-\d{2}$/.test(fiscalYearEnd)
-      ? fiscalYearParts(new Date(`${fiscalYearEnd}T00:00:00`).getTime())
-      : null
-  );
+  const fiscalDisplay = $derived(fiscalYearParts(fromDateInput(fiscalYearEnd)));
   const scienceDisplay = $derived(scienceCodeDisplay(scienceCode || null));
 
   // A picked client's usual year end and industry fill empty fields ("Usual
@@ -420,9 +416,7 @@
   // Fiscal years as the server reads them (dashboardFiscalYear on the stored
   // time), so the page and copyProjectContent agree on "later".
   const sourceFiscalYear = $derived(dashboardFiscalYear(sourceProjectQ.data?.fiscalYearEnd));
-  const fiscalYearEndMs = $derived(
-    /^\d{4}-\d{2}-\d{2}$/.test(fiscalYearEnd) ? new Date(`${fiscalYearEnd}T00:00:00`).getTime() : null
-  );
+  const fiscalYearEndMs = $derived(fromDateInput(fiscalYearEnd));
   const newFiscalYear = $derived(fiscalYearEndMs === null ? null : dashboardFiscalYear(fiscalYearEndMs));
   const fiscalYearMovedForward = $derived(
     sourceFiscalYear !== null && newFiscalYear !== null && newFiscalYear > sourceFiscalYear
@@ -965,7 +959,7 @@
       filled.push("title");
     }
     if (!filled.length) return;
-    if (parsed.revision) filled.push(`R${parsed.revision}`);
+    if (parsed.versionCode && parsed.revision) filled.push(`${parsed.versionCode}${parsed.revision}`);
     if (parsed.writerInitials) filled.push(`writer ${parsed.writerInitials}`);
     if (parsed.reviewerInitials) filled.push(`reviewer ${parsed.reviewerInitials}`);
     pdNameHint = `Filled from the file name: ${filled.join(", ")}`;
@@ -2500,7 +2494,7 @@
         <label for="projectNumber" class={labelClass}>Project number</label>
         <input id="projectNumber" bind:value={projectNumber} placeholder="For example, P01-A" class={`field-control w-full text-sm leading-[calc(10/7)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 ${fieldSize}`} aria-invalid={!projectNumberValid} />
         {#if !projectNumberValid}
-          <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 20, a letter a to z, or both, like 2a.</p>
+          <p class="text-xs text-danger-ink-muted" role="alert">Use 1 to 99, a letter a to z, or both, like 2a.</p>
         {/if}
       </div>
       {#if allTags.length > 0}

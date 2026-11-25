@@ -5,7 +5,8 @@ import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { normalizeEmail } from "./lib/email";
 import { hasCapability } from "./lib/roleCapabilities";
-import { userDisplayLabel } from "./lib/teamRoster";
+import { liveInvitesForEmail, TOO_MANY_PENDING_INVITES } from "./lib/inviteRows";
+import { userDisplayLabel, waitingWriterInvite } from "./lib/teamRoster";
 import { canManageInvite } from "../shared/capabilities";
 import { personInitials } from "../shared/personInitials";
 
@@ -73,6 +74,47 @@ async function requirePendingInvite(ctx: MutationCtx, inviteId: Id<"invites">) {
   return invite;
 }
 
+/**
+ * An invite for a past writer (2026-11-17): only an Admin, since accepting
+ * it links the writer to the account (linking is Admin only); one address;
+ * a writer with no login that has no invite waiting already.
+ */
+async function requirePastWriterInvite(
+  ctx: MutationCtx,
+  viewer: Doc<"users">,
+  writerId: Id<"pdWriters">,
+  emails: readonly string[],
+) {
+  if (!hasCapability(viewer.role, "roles.manage")) {
+    domainError("NOT_AUTHORIZED", "Only an Admin can invite a past writer");
+  }
+  if (emails.length !== 1) domainError("INVALID_INPUT", "Add one email address for this person");
+  const writer = await ctx.db.get(writerId);
+  if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+  if (writer.userId) domainError("INVALID_STATE", "This writer is linked to an account already.");
+  if ((await waitingWriterInvite(ctx, writerId)) !== null) {
+    domainError("INVALID_STATE", "This person has an invite waiting already. Manage it under Pending invites.");
+  }
+}
+
+/**
+ * Resending an invite for a past writer (2026-11-17) revives its link: only
+ * an Admin, only while the writer has no login, and only when no other
+ * invite for it waits.
+ */
+async function requirePastWriterResend(ctx: MutationCtx, viewer: Doc<"users">, invite: Doc<"invites">) {
+  if (!invite.pdWriterId) return;
+  if (!hasCapability(viewer.role, "roles.manage")) {
+    domainError("NOT_AUTHORIZED", "Only an Admin can resend an invite for a past writer");
+  }
+  const writer = await ctx.db.get(invite.pdWriterId);
+  if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+  if (writer.userId) domainError("INVALID_STATE", "This writer is linked to an account already.");
+  if ((await waitingWriterInvite(ctx, invite.pdWriterId, invite._id)) !== null) {
+    domainError("INVALID_STATE", "This person has a newer invite waiting. Use that one.");
+  }
+}
+
 const createResultValidator = v.union(
   v.object({
     email: v.string(),
@@ -95,11 +137,18 @@ const createResultValidator = v.union(
  * hidden). Names are not asked for (decision 51); the invitee enters them.
  */
 export const createInvites = mutation({
-  args: { emails: v.array(v.string()), role: roleValidator },
+  args: {
+    emails: v.array(v.string()),
+    role: roleValidator,
+    // 2026-11-17: an Admin inviting a past writer (Team, "Invite to
+    // Banhall"): one address, and accepting links the writer to the account.
+    pdWriterId: v.optional(v.id("pdWriters")),
+  },
   returns: v.array(createResultValidator),
   handler: async (ctx, args) => {
     // Actor first, so an ineligible caller learns nothing about the addresses.
     const viewer = await requireInviteManager(ctx, args.role);
+    if (args.pdWriterId !== undefined) await requirePastWriterInvite(ctx, viewer, args.pdWriterId, args.emails);
     if (args.emails.length === 0) {
       domainError("INVALID_INPUT", "Add at least one email address");
     }
@@ -125,17 +174,20 @@ export const createInvites = mutation({
         .query("users")
         .withIndex("by_email", (q) => q.eq("email", email))
         .take(5);
-      if (members.some((member) => member.authId)) {
+      if (
+        members.some(
+          (member) =>
+            member.authId ||
+            (member.role !== undefined && !canManageInvite(viewer.role, member.role))
+        )
+      ) {
         results.push({ email, status: "already_member" as const });
         continue;
       }
-      const pending = await ctx.db
-        .query("invites")
-        .withIndex("by_email_and_status", (q) =>
-          q.eq("email", email).eq("status", "pending"),
-        )
-        .take(10);
-      if (pending.some((invite) => invite.expiresAt > now)) {
+      const pending = await liveInvitesForEmail(ctx, email, now);
+      // More waiting rows than one call reads counts as already invited, so
+      // no second live invite is ever made.
+      if (!pending.complete || pending.live.length > 0) {
         results.push({ email, status: "already_invited" as const });
         continue;
       }
@@ -149,6 +201,7 @@ export const createInvites = mutation({
         sentAt: now,
         expiresAt: now + INVITE_TTL_MS,
         status: "pending",
+        ...(args.pdWriterId !== undefined ? { pdWriterId: args.pdWriterId } : {}),
       });
       results.push({ email, status: "created" as const, inviteId, token });
     }
@@ -169,6 +222,10 @@ export const listTeamInvites = query({
       expiresAt: v.number(),
       expired: v.boolean(),
       canManage: v.boolean(),
+      // Resend apart from canManage: an invite for a past writer is resent
+      // by an Admin only (requirePastWriterResend), so a Manager who may
+      // copy, change or revoke it sees no Resend.
+      canResend: v.boolean(),
       token: v.optional(v.string()),
     }),
   ),
@@ -196,6 +253,8 @@ export const listTeamInvites = query({
     return pending
       .map((invite) => {
         const canManage = canManageInvite(viewer.role, invite.role);
+        const canResend =
+          canManage && (!invite.pdWriterId || hasCapability(viewer.role, "roles.manage"));
         return {
           _id: invite._id,
           email: invite.email,
@@ -205,6 +264,7 @@ export const listTeamInvites = query({
           expiresAt: invite.expiresAt,
           expired: invite.expiresAt <= now,
           canManage,
+          canResend,
           // The link is only handed to someone who may copy or resend it.
           ...(canManage ? { token: invite.token } : {}),
         };
@@ -226,7 +286,16 @@ export const resendInvite = mutation({
     if (!canManageInvite(viewer.role, invite.role)) {
       domainError("NOT_AUTHORIZED", "You cannot resend this invite");
     }
+    await requirePastWriterResend(ctx, viewer, invite);
     const now = Date.now();
+    // One live invite per email, as createInvites keeps: sign-up takes the
+    // email's live invite (auth.ts onCreate), so two would let it pick the
+    // wrong one, and with it the wrong past writer to link.
+    const others = await liveInvitesForEmail(ctx, invite.email, now);
+    if (!others.complete) domainError("INVALID_STATE", TOO_MANY_PENDING_INVITES);
+    if (others.live.some((other) => other._id !== invite._id)) {
+      domainError("INVALID_STATE", "This email has a newer invite waiting. Use that one.");
+    }
     const token = generateInviteToken();
     await ctx.db.patch(invite._id, {
       token,

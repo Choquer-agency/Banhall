@@ -11,7 +11,9 @@ import {
   CONTEXT_WINDOW_STOP_REASON,
   MalformedOutputError,
   OutputLimitError,
+  RefusalError,
   isCutOffStopReason,
+  isRefusalStopReason,
   type GenerationClient,
   type GenerationMessageContent,
   type GenerationResponse,
@@ -650,7 +652,10 @@ async function structuredAttempts<T>(
       attempt === 0
         ? opts.user
         : typeof opts.user === "string"
-          ? `${opts.user}${repair}`
+          ? [
+              { type: "text", text: opts.user },
+              { type: "text", text: repair },
+            ]
           : [...opts.user, { type: "text", text: repair }];
     let res: GenerationResponse;
     const stream =
@@ -690,7 +695,7 @@ async function structuredAttempts<T>(
       }
       // The OpenRouter adapter decodes tool-call JSON inside create(), so a
       // truncated/malformed candidate response throws here instead of
-      // returning an invalid block — the same class of failure as a zod
+      // returning an invalid block - the same class of failure as a zod
       // rejection, so it spends the same single repair attempt. Provider
       // errors (auth, billing, rate limit) are not repairable by re-prompting
       // and keep failing fast; the transport already retries rate limits.
@@ -698,7 +703,7 @@ async function structuredAttempts<T>(
       if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
       validationSummary = error instanceof OutputLimitError ? afterCutOff() : error.message;
       console.warn(
-        `${opts.toolName}: retrying after malformed provider output — ${error.message}`
+        `${opts.toolName}: retrying after malformed provider output - ${error.message}`
       );
       continue;
     }
@@ -708,6 +713,15 @@ async function structuredAttempts<T>(
     // a failure of the model that answered (providers.ts).
     const settle = async (result: { ok: true } | { ok: false; code: string }) =>
       await res.settleOutcome?.(result);
+
+    // A content refusal will not succeed on a schema-repair retry; fail fast
+    // and settle as refusal (providers.ts leaves model health untouched).
+    if (isRefusalStopReason(res.stop_reason)) {
+      await settle({ ok: false, code: "refusal" });
+      throw new RefusalError(
+        `${opts.toolName}: model refused to answer (stop reason: ${res.stop_reason})`
+      );
+    }
 
     // An answer stopped at the output token limit is cut off, even when the
     // partial tool input would pass validation: most schemas default their

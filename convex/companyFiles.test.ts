@@ -15,10 +15,12 @@ import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import { getEffectiveCapabilityLevel } from "../shared/capabilities";
 import { readCompanyFileText } from "./lib/companyFileText";
 import { searchCompanyPieces } from "./lib/searchPieces";
-import { MAX_FORMER_NAMES, MERGE_COMPANY_FILE_LIMIT } from "./clients";
+import { MAX_FORMER_NAMES, MERGE_COMPANY_FILE_COUNT_SHOWN } from "./clients";
 import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { SERVER_READER_VERSION } from "./lib/serverReading";
 import { textPdf } from "./ai/testFiles.fixture";
+import { addImportedCompanyFile } from "./companyFiles";
+import { needsServerReading } from "./lib/serverReading";
 import { drainScheduledFunctions } from "./testScheduledFunctions";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -629,6 +631,31 @@ describe("the server's reading", () => {
   });
 });
 
+describe("an imported .vtt transcript (Greptile, 2026-11-19)", () => {
+  test("is read on the server when Import has no text for it, and the worker reads it", async () => {
+    const s = await setup();
+    const vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nThe graphite seal held at 4.2 bar.";
+    const storageId = await s.t.run(async (ctx) => ctx.storage.store(new Blob([vtt], { type: "text/vtt" })));
+    expect(needsServerReading({ fileName: "interview.vtt", storageId, hasReadText: false })).toBe(true);
+    const added = await s.t.run(async (ctx) => {
+      const now = Date.now();
+      const importItemId = await ctx.db.insert("ingestionItems", {
+        driveItemId: "drive-vtt", path: "Acme/2024/interview.vtt", name: "interview.vtt", docKind: "transcript", size: vtt.length,
+        lastModifiedAt: now, contentHash: "hash-vtt", status: "approved", pairGroupKey: "acme::2024", updatedAt: now, category: "transcript",
+      });
+      const admin = (await ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "cf-admin")).unique())!;
+      return await addImportedCompanyFile(ctx, {
+        clientId: s.acmeId, importItemId, fileName: "interview.vtt", category: "transcript", storageId, text: null, addedBy: admin,
+      });
+    });
+    expect(added).toMatchObject({ created: true, readOnServer: true });
+    await s.t.action(internal.ai.fileReading.readStoredCompanyFile, { companyFileId: added.companyFileId });
+    const file = (await s.t.run(async (ctx) => ctx.db.get(added.companyFileId)))!;
+    expect(file).toMatchObject({ serverReader: SERVER_READER_VERSION, hasText: true });
+    expect(await s.t.run(async (ctx) => readCompanyFileText(ctx, file))).toContain("The graphite seal held at 4.2 bar.");
+  });
+});
+
 describe("merging companies", () => {
   async function companyKeys(s: Setup) {
     await s.t.run(async (ctx) => {
@@ -718,11 +745,11 @@ describe("merging companies", () => {
     expect([...(kept?.formerNames ?? [])].sort()).toEqual(["Acme", "Borealis", "Borealis Old"]);
   });
 
-  test("a merge that would move more than the file limit is refused whole", async () => {
+  test("a merge past the old 500 file limit is no longer refused: the files move in steps (2026-11-18)", async () => {
     const s = await setup();
     await companyKeys(s);
     await s.t.run(async (ctx) => {
-      for (let i = 0; i <= MERGE_COMPANY_FILE_LIMIT; i++) {
+      for (let i = 0; i <= MERGE_COMPANY_FILE_COUNT_SHOWN; i++) {
         await ctx.db.insert("companyFiles", {
           clientId: s.otherId, fileName: `f${i}.txt`, fileType: "txt", textLength: 0, hasText: false, textHash: "empty",
           textPreview: "", wordCount: 0, processingStatus: "could_not_read", uploadedBy: s.writerId, createdAt: Date.now(),
@@ -730,10 +757,13 @@ describe("merging companies", () => {
       }
     });
     const preview = await s.manager.query(api.clients.previewClientMerge, { keepKey: "acme", mergeKeys: ["borealis"] });
-    expect(preview.tooManyCompanyFiles).toBe(true);
-    await expect(s.manager.mutation(api.clients.mergeClients, { keepKey: "acme", mergeKeys: ["borealis"] })).rejects.toThrow(
-      /company files/
+    expect(preview).toMatchObject({ companyFileCount: MERGE_COMPANY_FILE_COUNT_SHOWN, moreCompanyFiles: true, tooManyCompanyFiles: false });
+    await s.manager.mutation(api.clients.mergeClients, { keepKey: "acme", mergeKeys: ["borealis"] });
+    expect((await s.t.run(async (ctx) => ctx.db.get(s.otherId)))?.status).toBe("merged");
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const kept = await s.t.run(async (ctx) =>
+      ctx.db.query("companyFiles").withIndex("by_clientId_and_archived", (q) => q.eq("clientId", s.acmeId)).collect()
     );
-    expect((await s.t.run(async (ctx) => ctx.db.get(s.otherId)))?.status).toBe("active");
+    expect(kept).toHaveLength(MERGE_COMPANY_FILE_COUNT_SHOWN + 1);
   });
 });

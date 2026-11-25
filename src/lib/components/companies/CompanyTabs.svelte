@@ -11,13 +11,20 @@
     active,
     label,
     onSelect,
+    idPrefix = "company",
   }: {
-    tabs: readonly { id: T; label: string; count?: number | null }[];
+    /** A count may come formatted ("1,204"). */
+    tabs: readonly { id: T; label: string; count?: number | string | null }[];
     active: T;
     /** The tablist's name ("Cedarline Systems"). */
     label: string;
     /** `focus`: the tab was reached by the keyboard, so focus follows it. */
     onSelect: (id: T, focus: boolean) => void;
+    /**
+     * Ids are `<prefix>-tab-<id>` and point at `<prefix>-panel-<id>`. The
+     * Import page uses the same tabs (board ao5) with its own prefix.
+     */
+    idPrefix?: string;
   } = $props();
 
   function onKeydown(event: KeyboardEvent, index: number) {
@@ -38,9 +45,9 @@
     <button
       type="button"
       role="tab"
-      id={`company-tab-${tab.id}`}
+      id={`${idPrefix}-tab-${tab.id}`}
       aria-selected={selected}
-      aria-controls={`company-panel-${tab.id}`}
+      aria-controls={`${idPrefix}-panel-${tab.id}`}
       tabindex={selected ? 0 : -1}
       data-company-tab={tab.id}
       onclick={() => onSelect(tab.id, false)}

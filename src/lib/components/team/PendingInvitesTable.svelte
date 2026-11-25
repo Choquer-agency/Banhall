@@ -3,7 +3,8 @@
   // Status (170), actions (150); 36px header, 52px rows. Status dots: amber
   // (stale-dot) while pending, red once expired. Resend is a 28px chrome
   // button. Rows the viewer may not manage (a Manager looking at an Admin
-  // invite) show no actions.
+  // invite) show no actions; an invite for a past writer shows Resend to
+  // Admins only (canResend), in the row and in its menu.
   import { IconCheck } from "$lib/components/icons";
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import InviteRowMenu from "./InviteRowMenu.svelte";
@@ -19,6 +20,7 @@
     expiresAt: number;
     expired: boolean;
     canManage: boolean;
+    canResend: boolean;
     token?: string;
   };
 
@@ -87,7 +89,7 @@
                 <span role="status" data-link-copied class="flex items-center gap-[0.3125rem] text-[0.8125rem] leading-[calc(18/13)] font-medium text-success-ink-muted">
                   <IconCheck size={13} strokeWidth={2.2} class="shrink-0" />Link copied
                 </span>
-              {:else if invite.expired}
+              {:else if invite.expired && invite.canResend}
                 <button
                   type="button"
                   data-resend={invite.email}
@@ -99,6 +101,7 @@
                 email={invite.email}
                 role={invite.role}
                 {canInviteAdmin}
+                canResend={invite.canResend}
                 onCopy={() => onCopy(invite)}
                 onChangeRole={(role) => onChangeRole(invite, role)}
                 onResend={() => onResend(invite)}

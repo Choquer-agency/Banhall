@@ -105,12 +105,13 @@ describe("Home", () => {
     seed();
     __setPaginatedRows("myWork:listAssignedToMe", []);
     __setPaginatedRows("dashboard:listFlatProjects", []);
-    __setQueryData("dashboard:getFacets", { total: 42, truncated: false, stageCounts: {} });
     __setQueryData("clients:listClients", {
       clients: [{ key: "cedarline systems", clientId: null, name: "Cedarline Systems", projectCount: 10 }],
+      totalProjects: 42,
       truncated: false,
     });
     await mount();
+    expect(__isQueryActive("dashboard:getFacets")).toBe(false);
 
     const home = document.querySelector<HTMLElement>("[data-home]")!;
     expect(home.hasAttribute("data-frame-card")).toBe(true);

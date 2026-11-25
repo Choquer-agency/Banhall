@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
@@ -81,6 +82,7 @@ function factsResponse() {
 
 async function setup(mode: "off" | "long" | "all" = "long") {
   const t = convexTest(schema, modules);
+  rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "ff-writer", role: "writer", firstName: "Wren" });
     const projectId = await ctx.db.insert("projects", {

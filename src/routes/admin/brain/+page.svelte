@@ -6,15 +6,18 @@
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
   import { Tabs } from "bits-ui";
   import { goToLogin } from "$lib/auth/goToLogin";
-  import { useQuery } from "convex-svelte";
-  import { useStableQuery } from "$lib/stableQuery.svelte";
+  import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import BuildStamp from "$lib/components/BuildStamp.svelte";
   import SourceRow from "$lib/components/admin/SourceRow.svelte";
   import FeedbackRow from "$lib/components/admin/FeedbackRow.svelte";
+  import OldPageCopyRow from "$lib/components/admin/OldPageCopyRow.svelte";
 
-  type Tab = "pending" | "approved" | "revoked" | "feedback" | "audit";
+  type Tab = "pending" | "approved" | "revoked" | "old_page" | "feedback" | "audit";
+
+  /** Sources per page of the list (2026-11-17: the list loads in pages). */
+  const PAGE = 50;
 
   const ACTION_LABEL: Record<string, string> = {
     ingest: "Imported",
@@ -25,6 +28,9 @@
     unlearn_failed: "Erasure attempt failed",
     reweight: "Reweighted",
     revert: "Reverted",
+    relabel: "Details changed on Import",
+    switch_index: "Search index changed",
+    keep_old_page_copy: "Kept after the old page check",
   };
 
   const auth = useAuth();
@@ -38,12 +44,19 @@
   const statsQ = useQuery(api.brain.brainStats, () =>
     auth.isAuthenticated ? {} : "skip"
   );
-  // Stable across tab switches so pending→approved doesn't flash a spinner.
-  const sourcesQ = useStableQuery(api.brain.listBrainSources, () =>
-    auth.isAuthenticated &&
-    (tab === "pending" || tab === "approved" || tab === "revoked")
-      ? { status: tab }
-      : "skip"
+  // Pages of list cards. Kept across tab switches so the old rows stay
+  // until the new tab's first page arrives (no spinner flash).
+  const sourcesQ = usePaginatedQuery(
+    api.brain.listBrainSources,
+    () =>
+      auth.isAuthenticated &&
+      (tab === "pending" || tab === "approved" || tab === "revoked")
+        ? { status: tab }
+        : "skip",
+    { initialNumItems: PAGE, keepPreviousData: true }
+  );
+  const oldPageQ = useQuery(api.brain.listOldPageCopies, () =>
+    auth.isAuthenticated && tab === "old_page" ? {} : "skip"
   );
   const feedbackQ = useQuery(api.brain.listFeedbackQueue, () =>
     auth.isAuthenticated && tab === "feedback" ? {} : "skip"
@@ -59,14 +72,22 @@
   });
 
   const stats = $derived(statsQ.data);
-  const sources = $derived(sourcesQ.data);
+  // undefined until the first page arrives, as the list's spinner expects.
+  const sources = $derived(
+    sourcesQ.isLoading && sourcesQ.results.length === 0 ? undefined : sourcesQ.results
+  );
+  const canLoadMore = $derived(
+    sourcesQ.status === "CanLoadMore" || sourcesQ.status === "LoadingMore"
+  );
   const feedback = $derived(feedbackQ.data);
+  const oldPage = $derived(oldPageQ.data);
   const audit = $derived(auditQ.data);
 
   const tabs: { key: Tab; label: string; count?: number }[] = $derived([
     { key: "pending", label: "Queue", count: stats?.pending },
     { key: "approved", label: "In the Brain", count: stats?.approved },
     { key: "revoked", label: "Revoked" },
+    { key: "old_page", label: "Old page copies" },
     { key: "feedback", label: "Writer feedback" },
     { key: "audit", label: "Audit log" },
   ]);
@@ -146,6 +167,39 @@
               {#each sources as r (r._id)}
                 <SourceRow row={r} {onChanged} />
               {/each}
+              {#if canLoadMore}
+                <div class="flex justify-center border-t border-gray-50 py-3">
+                  <button
+                    type="button"
+                    data-brain-show-more
+                    disabled={sourcesQ.status === "LoadingMore"}
+                    onclick={() => sourcesQ.loadMore(PAGE)}
+                    class="inline-flex h-9 items-center rounded-md px-3 text-sm text-gray-500 transition-colors hover:bg-primary-wash hover:text-gray-700 disabled:opacity-50"
+                  >
+                    {sourcesQ.status === "LoadingMore" ? "Loading..." : "Show more"}
+                  </button>
+                </div>
+              {/if}
+            {/if}
+          {:else if tab === "old_page"}
+            {#if oldPage === undefined}
+              {@render spinner()}
+            {:else if !oldPage || oldPage.copies.length === 0}
+              <p class="px-4 py-8 text-center text-sm text-gray-400">
+                No copies wait for a decision.
+              </p>
+            {:else}
+              <p class="border-b border-gray-50 px-4 py-3 text-sm text-gray-600" data-old-page-intro>
+                The old Import page made these Brain copies, and the send back could not remove them for sure. Keep each one you want in the Brain, or remove it. The Brain build waits until every copy of unknown origin is decided.
+              </p>
+              {#each oldPage.copies as copy (copy._id)}
+                <OldPageCopyRow {copy} />
+              {/each}
+              {#if oldPage.more}
+                <p class="px-4 py-3 text-center text-sm text-gray-400">
+                  Showing the first 100. Decide these to see the rest.
+                </p>
+              {/if}
             {/if}
           {:else if tab === "feedback"}
             {#if feedback === undefined}

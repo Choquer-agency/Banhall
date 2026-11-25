@@ -43,6 +43,8 @@ export interface ResearchSelection {
 export interface WriterEditorHandle extends EditorHandle {
   /** Flush the visible document through the autosave callback and await queued saves. */
   flushPendingSave: () => Promise<void>;
+  /** True while a debounced or in-flight autosave is pending. */
+  hasPendingSave: () => boolean;
   /**
    * BNH-25: highlight every occurrence of the given passages, and scroll to
    * `scrollTo` (one of the passages) — or the first occurrence if omitted.

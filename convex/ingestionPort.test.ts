@@ -215,4 +215,38 @@ describe("ingestion port to project", () => {
       f.admin.action(api.ingestionPort.portItemToProject, { itemId: pending })
     ).rejects.toThrow(/Only approved/);
   });
+
+  it("refreshes dashboardCompanies derived fiscal year end when porting a newer fiscal year", async () => {
+    const f = await setup();
+    const older = await insertApprovedPd(f.t, {
+      fiscalYear: 2024,
+      fiscalYearLabel: "2024 - Mar 31",
+    });
+    await f.admin.action(api.ingestionPort.portItemToProject, { itemId: older });
+    const afterOlder = await f.t.run((ctx) =>
+      ctx.db
+        .query("dashboardCompanies")
+        .withIndex("by_companyKey", (q) => q.eq("companyKey", dashboardCompanyKey("Acme")))
+        .unique()
+    );
+    expect(afterOlder?.derivedFiscalYearEndMonth).toBe(3);
+    expect(afterOlder?.derivedFiscalYearEndDay).toBe(31);
+
+    const newer = await insertApprovedPd(f.t, {
+      fiscalYear: 2025,
+      fiscalYearLabel: "2025 - Sep 30",
+      name: "PD_2025.docx",
+      path: "Acme/2025 - Sep 30/Submitted/PD_2025.docx",
+      driveItemId: "drive-2025",
+    });
+    await f.admin.action(api.ingestionPort.portItemToProject, { itemId: newer });
+    const afterNewer = await f.t.run((ctx) =>
+      ctx.db
+        .query("dashboardCompanies")
+        .withIndex("by_companyKey", (q) => q.eq("companyKey", dashboardCompanyKey("Acme")))
+        .unique()
+    );
+    expect(afterNewer?.derivedFiscalYearEndMonth).toBe(9);
+    expect(afterNewer?.derivedFiscalYearEndDay).toBe(30);
+  });
 });

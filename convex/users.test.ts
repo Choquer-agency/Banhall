@@ -131,3 +131,45 @@ describe("developer-tool exposure", () => {
     });
   });
 });
+
+describe("deactivateUser (T2-4)", () => {
+  it("revokes role and authId for a target user while blocking self and last-admin deactivation", async () => {
+    const t = convexTest(schema, modules);
+    const ids = await t.run(async (ctx) => ({
+      admin1: await ctx.db.insert("users", {
+        authId: "deact-admin-1",
+        role: "admin",
+        firstName: "Ada",
+      }),
+      admin2: await ctx.db.insert("users", {
+        authId: "deact-admin-2",
+        role: "admin",
+        firstName: "Ben",
+      }),
+      writer: await ctx.db.insert("users", {
+        authId: "deact-writer",
+        role: "writer",
+        firstName: "Cam",
+      }),
+    }));
+    const admin1 = t.withIdentity({ subject: "deact-admin-1" });
+    const writer = t.withIdentity({ subject: "deact-writer" });
+
+    await expect(
+      writer.mutation(api.users.deactivateUser, { userId: ids.admin2 })
+    ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+
+    await expect(
+      admin1.mutation(api.users.deactivateUser, { userId: ids.admin1 })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+
+    await admin1.mutation(api.users.deactivateUser, { userId: ids.writer });
+    const deactivatedWriter = await t.run((ctx) => ctx.db.get(ids.writer));
+    expect(deactivatedWriter?.role).toBeUndefined();
+    expect(deactivatedWriter?.authId).toBeUndefined();
+
+    // Admin 1 can deactivate Admin 2 because Admin 1 remains active.
+    await admin1.mutation(api.users.deactivateUser, { userId: ids.admin2 });
+    expect((await t.run((ctx) => ctx.db.get(ids.admin2)))?.role).toBeUndefined();
+  });
+});

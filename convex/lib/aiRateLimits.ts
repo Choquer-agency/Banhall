@@ -38,6 +38,12 @@ export const AI_RATE_LIMITS = {
   // 2026-10-29: one token per company website read a person's save asks
   // for (no AI call, but a fetch from the server). Spent by the save.
   websiteReadPerUser: { kind: "token bucket", rate: 20, period: HOUR },
+  // 2026-11-21: per-project public review link caps and per-user LLM caps.
+  clientCommentPerProject: { kind: "token bucket", rate: 60, period: HOUR },
+  clientCommenterPerProject: { kind: "token bucket", rate: 30, period: HOUR },
+  clientViewPerProject: { kind: "token bucket", rate: 120, period: HOUR },
+  transcriptFactsPerUser: { kind: "token bucket", rate: 30, period: HOUR },
+  writerMemorySavePerUser: { kind: "token bucket", rate: 30, period: HOUR },
 } as const satisfies Record<string, RateLimitConfig>;
 
 /** Generation starts one user may make in one firm day (America/Vancouver). */
@@ -50,6 +56,11 @@ export const aiRateLimiter = new RateLimiter(rateLimiterComponent, AI_RATE_LIMIT
 
 type LimitCtx = Pick<MutationCtx, "runQuery" | "runMutation"> | Pick<ActionCtx, "runQuery" | "runMutation">;
 type HourlyLimit = keyof typeof AI_RATE_LIMITS;
+type ProjectHourlyLimit =
+  | "generationPerProject"
+  | "clientCommentPerProject"
+  | "clientCommenterPerProject"
+  | "clientViewPerProject";
 /** Whose count refused: the caller's hour, the caller's firm day, or the project's hour. */
 export type RateLimitScope = "user" | "firmDay" | "project";
 type Bucket =
@@ -147,11 +158,20 @@ export async function limitGenerationStart(
   ]);
 }
 
-/** One per-user hourly bucket (Seeds, QA, PD reviews, research, science codes, style analysis, chat web search). */
+/** One per-user hourly bucket (Seeds, QA, PD reviews, research, science codes, style analysis, chat web search, transcript facts, writer memory). */
 export async function limitUserAction(
   ctx: LimitCtx,
-  name: Exclude<HourlyLimit, "generationPerUser" | "generationPerProject">,
+  name: Exclude<HourlyLimit, "generationPerUser" | ProjectHourlyLimit>,
   userId: Id<"users">
 ): Promise<void> {
   await enforce(ctx, [{ kind: "hour", name, key: userId, scope: "user" }]);
+}
+
+/** One per-project hourly bucket (client review link writes and views). */
+export async function limitProjectAction(
+  ctx: LimitCtx,
+  name: Exclude<ProjectHourlyLimit, "generationPerProject">,
+  projectId: Id<"projects">
+): Promise<void> {
+  await enforce(ctx, [{ kind: "hour", name, key: projectId, scope: "project" }]);
 }

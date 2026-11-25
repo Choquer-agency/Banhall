@@ -1,4 +1,4 @@
-import { capContent } from "$lib/parseDocument";
+import { capContent } from "$lib/documentFileTypes";
 
 // One-use Home → New Project intake handoff.
 //

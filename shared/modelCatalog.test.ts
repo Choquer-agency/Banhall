@@ -499,8 +499,9 @@ describe("settings, endpoints and routing", () => {
   });
 
   test("requires parameters on tool calls and raises max price to an explicit pick", () => {
-    expect(openRouterProviderPreferences({ usesTools: false })).toBeUndefined();
+    expect(openRouterProviderPreferences({ usesTools: false })).toEqual({ data_collection: "deny" });
     expect(openRouterProviderPreferences({ usesTools: true, maxPrice: { prompt: 5, completion: 30 } })).toEqual({
+      data_collection: "deny",
       require_parameters: true,
       max_price: { prompt: 5, completion: 30 },
     });
@@ -518,6 +519,7 @@ describe("settings, endpoints and routing", () => {
       expect(openRouterProviderPreferences({ usesTools: false, anthropicModel: isAnthropicOpenRouterModel(id) })).toEqual({
         only: ["anthropic"],
         allow_fallbacks: false,
+        data_collection: "deny",
       });
     }
     expect(isAnthropicOpenRouterModel("~anthropic/claude-sonnet-latest")).toBe(true);
@@ -558,10 +560,18 @@ const liveRow = (id: string) => {
 };
 
 describe("roles follow tracks", () => {
-  test("every Sonnet role follows claude-sonnet and the five Haiku roles follow claude-haiku", () => {
+  test("every Sonnet role follows claude-sonnet and the seven Haiku roles follow claude-haiku", () => {
     const haikuRoles = MODEL_ROLES.filter((role) => ROLE_POLICIES[role].track === "claude-haiku").sort();
-    // file_labels: 2026-10-26, Phase B4.
-    expect(haikuRoles).toEqual(["brain_context", "feedback_summary", "file_labels", "retrieval_brief", "structured_helper"]);
+    // file_labels: 2026-10-26, Phase B4. science_code & analysis: 2026-11-21 (Haiku).
+    expect(haikuRoles).toEqual([
+      "analysis",
+      "brain_context",
+      "feedback_summary",
+      "file_labels",
+      "retrieval_brief",
+      "science_code",
+      "structured_helper",
+    ]);
     for (const role of MODEL_ROLES) {
       const policy = ROLE_POLICIES[role];
       expect(policy.track === "claude-haiku" || policy.track === "claude-sonnet", role).toBe(true);

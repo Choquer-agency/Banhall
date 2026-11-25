@@ -36,8 +36,8 @@ export type StageMenuGroup = { label: string; options: StageMenuOption[] };
 
 export const NOT_AVAILABLE_YET = "not available yet";
 
-/** Delivery stages that cannot be reached until their records can be stored (decision 18). */
-const UNAVAILABLE_STAGES: ReadonlySet<WorkflowStage> = new Set(["ready_for_delivery", "delivered"]);
+/** Stages disabled because required storage is absent; empty since 2026-11-21 productionOutcomes amendment. */
+const UNAVAILABLE_STAGES: ReadonlySet<WorkflowStage> = new Set();
 
 function authorized(
   authorities: readonly TransitionAuthority[] | undefined,
@@ -95,7 +95,8 @@ export function stageMenuGroups(
  * Stages a hand off may target: keeping the current stage or any enabled
  * move, minus every stage `workItems.handOff` refuses (the shared
  * `handoffStageRefusal`): Abandoned, keeping Delivered or Abandoned in place,
- * the review-completion edges and edges whose requirement fails closed.
+ * the review-completion edges and outcome-pinned edges (`ready_for_delivery`,
+ * `delivered`).
  */
 export function handOffStageOptions(
   current: WorkflowStage,
@@ -121,5 +122,7 @@ export function confirmLabel(to: WorkflowStage, move: StageMove): string {
   if (to === "on_hold") return "Put on hold";
   if (to === "abandoned") return "Abandon project";
   if (move === "decision" && to === "edits") return "Return for edits";
+  if (move === "decision" && to === "client_review") return "Approve for client review";
+  if (move === "decision" && to === "ready_for_delivery") return "Approve and submit";
   return `Move to ${WORKFLOW_STAGE_LABELS[to]}`;
 }

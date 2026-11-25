@@ -435,7 +435,10 @@ test("OpenRouter, 100 s left: the attempt timer is cut to 100 s, no retry follow
   await vi.advanceTimersByTimeAsync(0);
   expect(timeout).toHaveBeenCalledWith(100_000);
   expect(transport).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(String(transport.mock.calls[0][1]?.body))).toEqual(body);
+  expect(JSON.parse(String(transport.mock.calls[0][1]?.body))).toEqual({
+    ...body,
+    provider: { data_collection: "deny" },
+  });
 
   timer.abort(new DOMException("The operation timed out.", "TimeoutError"));
   const outcome = await result;

@@ -36,6 +36,7 @@ export { default as IconInfo } from "./IconInfo.svelte";
 export { default as IconInfoWide } from "./IconInfoWide.svelte";
 export { default as IconUpload } from "./IconUpload.svelte";
 export { default as IconCloudDownload } from "./IconCloudDownload.svelte";
+export { default as IconImport } from "./IconImport.svelte";
 export { default as IconBook } from "./IconBook.svelte";
 export { default as IconDocument } from "./IconDocument.svelte";
 export { default as IconDocumentSmall } from "./IconDocumentSmall.svelte";

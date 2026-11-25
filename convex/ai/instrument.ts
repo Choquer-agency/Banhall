@@ -467,9 +467,30 @@ function cacheGenerationPrefix(params: unknown): unknown {
           return message;
         }
         sawUser = true;
-        return "content" in message && typeof message.content === "string" && message.content.length > 0
-          ? { ...message, content: cachedText(message.content) }
-          : message;
+        if ("content" in message && typeof message.content === "string" && message.content.length > 0) {
+          return { ...message, content: cachedText(message.content) };
+        }
+        if ("content" in message && Array.isArray(message.content) && message.content.length > 0) {
+          const [first, ...rest] = message.content;
+          if (
+            first &&
+            typeof first === "object" &&
+            "type" in first &&
+            first.type === "text" &&
+            "text" in first &&
+            typeof first.text === "string" &&
+            first.text.length > 0
+          ) {
+            return {
+              ...message,
+              content: [
+                { ...first, cache_control: { type: "ephemeral" } },
+                ...rest,
+              ],
+            };
+          }
+        }
+        return message;
       }),
     } : {}),
   };
@@ -481,13 +502,15 @@ function cacheGenerationPrefix(params: unknown): unknown {
  * (generations, helpers, evaluations) keeps its portable request. On this
  * gateway such a model is a Claude model whose thinking is always on (Opus
  * 5.5, Fable 5.1), the cause of both rejections:
- * - A forced `tool_choice` becomes `auto` plus one system line
+ * - A forced `tool_choice` becomes `auto` plus one instruction line
  *   (toolRequestForModel, shared with the OpenRouter conversion), and the
  *   request's tools become strict (strictTools.ts), so the answer still
- *   matches the tool's schema.
+ *   matches the tool's schema. When messages already carry explicit
+ *   `cache_control`, the instruction line goes at the end of the last user
+ *   message so `system` and the cached prefix stay byte-identical.
  * - `thinking: {type: "disabled"}` (the section drafts) is dropped and the
- *   effort set to "low", the closest the API allows to no thinking; an
- *   explicit budget (`{type: "enabled"}`) is dropped and adaptive runs.
+ *   effort set to "low" if no explicit effort was supplied; an explicit
+ *   budget (`{type: "enabled"}`) is dropped and adaptive runs.
  * - `max_tokens` gains room for the thinking (2026-09-25, cutoff review
  *   P2-1): thinking is billed from the same output budget as the answer, so
  *   a 4,096-token judge answer (QA, Self-check, consistency, chronology) was
@@ -496,7 +519,7 @@ function cacheGenerationPrefix(params: unknown): unknown {
  *   (alwaysThinkingMaxTokens). The caller's answer limits are unchanged.
  * Every other model's request passes through as the same object. Runs
  * before cacheGenerationPrefix, so the system line is part of the cached
- * prefix.
+ * prefix when no explicit breakpoints exist.
  */
 export function adaptAnthropicRequest(params: unknown): unknown {
   if (!params || typeof params !== "object") return params;
@@ -522,10 +545,12 @@ export function adaptAnthropicRequest(params: unknown): unknown {
     const tools = toolRequestForModel(
       request.model,
       choice as { type: string; name?: string },
-      adapted.system
+      adapted.system,
+      adapted.messages
     );
     adapted.tool_choice = tools.toolChoice;
     adapted.system = tools.system;
+    if (tools.messages !== undefined) adapted.messages = tools.messages;
     // 2026-10-26 (live check): the tools a forced call would have used are
     // strict, so the answer keeps a forced call's schema guarantee.
     if (choice.type === "tool" && "name" in choice && typeof choice.name === "string" && Array.isArray(adapted.tools)) {
@@ -959,6 +984,24 @@ export function instrumentedAnthropic(
             console.warn(
               `Anthropic model ${model} was served by ${charge.servedProvider} through OpenRouter, not Anthropic; check the provider pin and the OpenRouter account's provider settings`
             );
+          }
+          if (
+            (stopReason === "max_tokens" || stopReason === "length") &&
+            response &&
+            typeof response === "object" &&
+            "content" in response &&
+            Array.isArray(response.content)
+          ) {
+            const hasUsableOutput = response.content.some((block: unknown) => {
+              if (!block || typeof block !== "object" || !("type" in block)) return false;
+              if (block.type === "tool_use") return true;
+              return block.type === "text" && "text" in block && typeof block.text === "string" && block.text.trim().length > 0;
+            });
+            if (!hasUsableOutput) {
+              console.warn(
+                `Anthropic model ${model} (${meta.callSite}) stopped at ${stopReason} with no text or tool_use output (possible thinking-budget starvation)`
+              );
+            }
           }
           if (usage) {
             meta.onUsage?.({

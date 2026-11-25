@@ -30,7 +30,7 @@ import {
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
-import { withCurrentCompanyFiles } from "./lib/briefEvidence";
+import { hasOwnPreviousYearReport, withCurrentCompanyFiles } from "./lib/briefEvidence";
 import { hasCapability, requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   RULE_OVERRIDE_CONFIRM_MESSAGE,
@@ -170,6 +170,13 @@ import {
   webSearchKnownNames,
   type PreparedChatWebSearch,
 } from "./ai/chatWebSearch";
+import {
+  activeClientAfterMerges,
+  activeClientForKey,
+  companyIdentityNames,
+} from "./lib/clients";
+import { dashboardCompanyKey } from "../shared/dashboardProjection";
+import { domainStem, websiteHost } from "./lib/importBrainCopy";
 import {
   listThreadWebSources,
   resolveThreadWebSearch,
@@ -493,30 +500,56 @@ export const listProposals = query({
     const path = await loadChatPath(ctx, args.threadId, thread);
     const turns = await windowTurns(ctx, { agentThreadId: args.threadId, ...window }, path);
     const onPath = (promptMessageId: string | undefined) => !path || path.onPathPrompt(promptMessageId);
-    const promptMessageIds = [
-      ...new Set(turns.filter((turn) => onPath(turn.promptMessageId)).map((turn) => turn.promptMessageId)),
-    ];
-    const proposalsByTurn = await Promise.all(
-      promptMessageIds.map(async (promptMessageId) =>
-        ctx.db
-          .query("chatProposals")
-          .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
-            q
-              .eq("agentThreadId", args.threadId)
-              .eq("promptMessageId", promptMessageId)
-          )
-          .order("asc")
-          .collect()
-      )
+    const promptMessageIdSet = new Set(
+      turns
+        .filter((turn) => onPath(turn.promptMessageId))
+        .map((turn) => turn.promptMessageId)
     );
-
-    const unanchored = await ctx.db
+    const THREAD_PROPOSAL_SCAN_LIMIT = 500;
+    const scanned = await ctx.db
       .query("chatProposals")
-      .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
-        q.eq("agentThreadId", args.threadId).eq("promptMessageId", undefined)
-      )
+      .withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", args.threadId))
       .order("desc")
-      .take(UNANCHORED_PROPOSAL_LIMIT);
+      .take(THREAD_PROPOSAL_SCAN_LIMIT);
+
+    let anchored: Doc<"chatProposals">[];
+    let unanchored: Doc<"chatProposals">[];
+    if (scanned.length < THREAD_PROPOSAL_SCAN_LIMIT) {
+      // Single index scan covered the whole thread: partition in memory.
+      anchored = scanned.filter(
+        (proposal) =>
+          proposal.promptMessageId !== undefined &&
+          promptMessageIdSet.has(proposal.promptMessageId)
+      );
+      unanchored = scanned
+        .filter((proposal) => proposal.promptMessageId === undefined)
+        .slice(0, UNANCHORED_PROPOSAL_LIMIT);
+    } else {
+      // Very long thread (>500 proposals): fall back to targeted per-turn reads.
+      const promptMessageIds = [...promptMessageIdSet];
+      const proposalsByTurn = await Promise.all(
+        promptMessageIds.map(async (promptMessageId) =>
+          ctx.db
+            .query("chatProposals")
+            .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+              q
+                .eq("agentThreadId", args.threadId)
+                .eq("promptMessageId", promptMessageId)
+            )
+            .order("asc")
+            .collect()
+        )
+      );
+      anchored = proposalsByTurn.flat();
+      unanchored = await ctx.db
+        .query("chatProposals")
+        .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+          q.eq("agentThreadId", args.threadId).eq("promptMessageId", undefined)
+        )
+        .order("desc")
+        .take(UNANCHORED_PROPOSAL_LIMIT);
+    }
+
     const placed = unanchored.flatMap((proposal) => {
       const match = matchProposalTurn(proposal.createdAt, turns);
       return match.kind === "match" && onPath(match.turn.promptMessageId)
@@ -531,7 +564,7 @@ export const listProposals = query({
     // this read never loads it: the pointer is enough. A row with the
     // deprecated on-card record (never deployed; tests and local data) is
     // still undoable, and that record is never sent either.
-    return [...proposalsByTurn.flat(), ...placed]
+    return [...anchored, ...placed]
       .sort((left, right) => {
         const creationTimeDifference = left._creationTime - right._creationTime;
         if (creationTimeDifference !== 0) return creationTimeDifference;
@@ -1124,7 +1157,19 @@ export const setActiveAlternative = mutation({
     await requireInternalActor(ctx);
     const thread = await threadRow(ctx, args.threadId);
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
-    const { user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const { project, user } = await requireInternalProjectAccess(ctx, thread.projectId);
+    const canSwitch =
+      thread.createdBy === user._id ||
+      project.ownerId === user._id ||
+      project.createdBy === user._id ||
+      user.role === "manager" ||
+      user.role === "admin";
+    if (!canSwitch) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only the conversation starter, project owner, or a manager can switch active responses"
+      );
+    }
     await refuseWhileReplyRuns(ctx, args.threadId, user._id);
     const path = await readChatPath(ctx, args.threadId, thread.activeTipPromptMessageId);
     const leaf = path.newestLeafUnder(args.promptMessageId);
@@ -1151,7 +1196,7 @@ export const abortStreaming = mutation({
     // 2026-10-19 (Phase A): a domain refusal, so the panel explains it and
     // the crash toast stays quiet.
     if (!thread) domainError("NOT_FOUND", "This conversation no longer exists");
-    await requireInternalProjectAccess(ctx, thread.projectId);
+    const { project, user } = await requireInternalProjectAccess(ctx, thread.projectId);
 
     const turn = await ctx.db
       .query("chatTurns")
@@ -1159,6 +1204,19 @@ export const abortStreaming = mutation({
         q.eq("agentThreadId", args.threadId).eq("order", args.order)
       )
       .unique();
+    const canAbort =
+      turn?.userId === user._id ||
+      thread.createdBy === user._id ||
+      project.ownerId === user._id ||
+      project.createdBy === user._id ||
+      user.role === "manager" ||
+      user.role === "admin";
+    if (!canAbort) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only the sender, project owner, or a manager can stop this reply"
+      );
+    }
     const appTurnStopped =
       turn?.status === "queued" || turn?.status === "running";
     if (appTurnStopped) {
@@ -1449,17 +1507,15 @@ export const applyProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
-    // Phase B (W3): what changed, so a human can undo it (chat cards only;
-    // a research card's row reaches the browser whole through research).
-    const appliedChange = isResearchProposal(proposal)
-      ? undefined
-      : appliedChangeFor({
-          before: parsed,
-          after: updated,
-          revisionNumber: revisionNumber + 1,
-          appliedAt: now,
-          appliedBy: applier._id,
-        });
+    // Phase B (W3): what changed, so a human can undo it (chat and research
+    // cards alike; research.getSessionDetails strips appliedChange before send).
+    const appliedChange = appliedChangeFor({
+      before: parsed,
+      after: updated,
+      revisionNumber: revisionNumber + 1,
+      appliedAt: now,
+      appliedBy: applier._id,
+    });
     await markAppliedWithRecord(
       ctx,
       proposal,
@@ -1616,17 +1672,15 @@ export const markProposalApplied = mutation({
     });
     await persistDeterministicFindings(ctx, report._id);
     // Phase B (W3): what the stepped document changed, for Undo.
-    const appliedChange = isResearchProposal(proposal)
-      ? undefined
-      : appliedChangeFor({
-          before: parseReportDocument(report.content),
-          after: parseReportDocument(args.content),
-          revisionNumber: revisionNumber + 1,
-          appliedAt: now,
-          appliedBy: user._id,
-          // Review R2 P3-1: only the runs this card's pairs touched.
-          touchedBy: proposalPairs(proposal),
-        });
+    const appliedChange = appliedChangeFor({
+      before: parseReportDocument(report.content),
+      after: parseReportDocument(args.content),
+      revisionNumber: revisionNumber + 1,
+      appliedAt: now,
+      appliedBy: user._id,
+      // Review R2 P3-1: only the runs this card's pairs touched.
+      touchedBy: proposalPairs(proposal),
+    });
     await markAppliedWithRecord(
       ctx,
       proposal,
@@ -3015,13 +3069,18 @@ export const listProposalItems = query({
 /** Project metadata for the searchBrain tool. */
 export const getThreadBrainContext = internalQuery({
   args: { agentThreadId: v.string() },
-  handler: async (ctx, args): Promise<{ industry: string | null; scienceCode: string | null }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ industry: string | null; scienceCode: string | null; projectId: Id<"projects"> | null }> => {
     const thread = await threadRow(ctx, args.agentThreadId);
-    if (!thread) return { industry: null, scienceCode: null };
+    if (!thread) return { industry: null, scienceCode: null, projectId: null };
     const project = await ctx.db.get(thread.projectId);
     return {
       industry: project?.industry ?? null,
       scienceCode: normalizeCraScienceCode(project?.scienceCode) ?? null,
+      // 2026-11-17: the Brain leaves out this project's company's own imported PDs.
+      projectId: project?._id ?? null,
     };
   },
 });
@@ -3039,16 +3098,45 @@ export const prepareChatWebSearch = internalQuery({
     if (!thread || (await isProjectDeleting(ctx, thread.projectId))) return null;
     const project = await ctx.db.get(thread.projectId);
     if (!project) return null;
+    const rawClient = project.clientId
+      ? await ctx.db.get(project.clientId)
+      : await activeClientForKey(ctx, dashboardCompanyKey(project.clientName));
+    const client = rawClient ? await activeClientAfterMerges(ctx, rawClient) : null;
+    const companyNames = client
+      ? await companyIdentityNames(ctx, client, project._id)
+      : undefined;
     const placeholders = await projectPlaceholderMap(
       ctx,
       project,
-      await listProjectTranscripts(ctx, project._id)
+      await listProjectTranscripts(ctx, project._id),
+      [],
+      companyNames
     );
+    const baseKnown = webSearchKnownNames(project, placeholders);
+    const host = websiteHost(client?.website);
+    const stem = host ? domainStem(host) : null;
+    const knownNames = {
+      organizations: [
+        ...new Set([
+          ...baseKnown.organizations,
+          ...(companyNames?.organizations ?? []),
+          ...(host ? [host] : []),
+          ...(stem ? [stem] : []),
+        ]),
+      ],
+      people: [
+        ...new Set([
+          ...baseKnown.people,
+          ...(companyNames?.people ?? []),
+        ]),
+      ],
+      titles: baseKnown.titles,
+    };
     return {
       projectId: project._id,
       ...prepareWebSearchQuery(args.query, {
         placeholders,
-        knownNames: webSearchKnownNames(project, placeholders),
+        knownNames,
       }),
     };
   },
@@ -3130,6 +3218,13 @@ function chatReadBudget() {
     used += getConvexSize(value) + CHAT_DOCUMENT_OVERHEAD;
   }
   return {
+    /**
+     * Whether one more maximum-size row fits, before a read a helper makes
+     * on its own (a `ReadCounter`'s `mayRead`); false marks the budget spent.
+     */
+    hasRoom(): boolean {
+      return reserve();
+    },
     /** Charge a point read (`ctx.db.get`, a `.take`) that already happened. */
     charge<T extends Value | null | undefined>(value: T): T {
       if (Array.isArray(value)) value.forEach((row) => account(row));
@@ -3646,7 +3741,25 @@ export const getChatContextV2 = internalQuery({
     // Phase C (W1): whether the chat may see PDFs and images.
     const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
     // 2026-10-26 (Phase C): the company's files, facts only (at most 30).
-    const companyFilesRead = await budget.read(() => chatCompanyFilesFor(ctx, report.projectId, args.userId), 64 * 1024);
+    // 2026-11-17: every company file row it reads is charged as read (final
+    // PDs by year, the newest hand-added and Import files), not a flat guess,
+    // and the budget is asked before each row: once it has no room, the
+    // list ends with what it has (review, 2026-11-17).
+    const companyFilesRead = await budget.read(
+      () =>
+        chatCompanyFilesFor(
+          ctx,
+          report.projectId,
+          args.userId,
+          {
+            mayRead: () => budget.hasRoom(),
+            read: (row) => void budget.charge(row as Value | null | undefined),
+          },
+          // 2026-11-18 (third): from the file rows read above, in a draft's order.
+          hasOwnPreviousYearReport(documents)
+        ),
+      4 * 1024
+    );
 
     // BNH-24: archived docs are out of AI context.
     const activeDocuments = documents.filter((d) => !d.archived);

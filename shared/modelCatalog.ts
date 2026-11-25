@@ -278,13 +278,13 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
   analysis: {
     label: "Style analysis",
     description: "Classifies writer settings documents and saved style instructions.",
-    defaultModelId: MODEL,
-    track: "claude-sonnet",
+    defaultModelId: HAIKU,
+    track: "claude-haiku",
     gateways: ["anthropic", "openrouter"],
-    minContextTokens: 200_000,
-    minOutputTokens: 16_000,
+    minContextTokens: 128_000,
+    minOutputTokens: 4_000,
     autoSwitch: true,
-    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
     evalTasks: ["style_classification"],
     frozenPerGeneration: true,
   },
@@ -345,15 +345,15 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
   science_code: {
     label: "Science code suggestion",
     description: "Suggests the CRA field of science code for a project.",
-    defaultModelId: MODEL,
-    track: "claude-sonnet",
+    defaultModelId: HAIKU,
+    track: "claude-haiku",
     gateways: ["anthropic", "openrouter"],
-    minContextTokens: 200_000,
+    minContextTokens: 128_000,
     minOutputTokens: 1_000,
     autoSwitch: false,
     manualOnlyReason:
       "More than one science code can be right for a project and the writer always confirms it, so no fixture has a single correct answer; an admin chooses its model.",
-    defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
     evalTasks: [],
     frozenPerGeneration: false,
   },
@@ -1496,6 +1496,7 @@ export type OpenRouterProviderPreferences = {
   allow_fallbacks?: false;
   require_parameters?: true;
   max_price?: MaxPrice;
+  data_collection?: "allow" | "deny";
 };
 
 /**
@@ -1549,15 +1550,17 @@ export function openRouterProviderPreferences(args: {
   maxPrice?: MaxPrice;
   /** The request's model is Anthropic's (isAnthropicOpenRouterModel). */
   anthropicModel?: boolean;
-}): OpenRouterProviderPreferences | undefined {
-  const preferences: OpenRouterProviderPreferences = {};
+}): OpenRouterProviderPreferences {
+  const preferences: OpenRouterProviderPreferences = {
+    data_collection: "deny",
+  };
   if (args.anthropicModel) {
     preferences.only = OPENROUTER_ANTHROPIC_PROVIDER.only;
     preferences.allow_fallbacks = OPENROUTER_ANTHROPIC_PROVIDER.allow_fallbacks;
   }
   if (args.usesTools) preferences.require_parameters = true;
   if (args.maxPrice) preferences.max_price = args.maxPrice;
-  return Object.keys(preferences).length > 0 ? preferences : undefined;
+  return preferences;
 }
 
 // ─── Tracks (2026-10-22 decision) ───────────────────────────────────────────

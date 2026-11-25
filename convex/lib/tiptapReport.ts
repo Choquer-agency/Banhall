@@ -18,7 +18,8 @@ const REPORT_BLOCK_TYPES = new Set([
 
 /** Body of a section the chain never drafted (AD-24 stop): keeps AD-8's
  * three-heading contract while making the gap explicit to editor and export. */
-export const NOT_GENERATED_PLACEHOLDER = "[NOT GENERATED]";
+import { NOT_GENERATED_PLACEHOLDER } from "../../shared/report/lineLimits";
+export { NOT_GENERATED_PLACEHOLDER };
 
 /** The one paragraph split shared by the editor document and Self-check
  * paragraph indices: blank-line separated, empty paragraphs dropped. */

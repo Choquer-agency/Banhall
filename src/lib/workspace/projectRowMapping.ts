@@ -111,6 +111,7 @@ export function toProjectsTableRow(project: DashboardProjectionRow): ProjectsTab
         }
       : undefined,
     ...(project.createdBy !== undefined ? { createdBy: project.createdBy } : {}),
+    ...(project.ownerId !== undefined ? { ownerId: project.ownerId } : {}),
     ...(project.deleting ? { deleting: true } : {}),
   };
 }

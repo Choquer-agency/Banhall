@@ -116,7 +116,7 @@ erDiagram
   learningDigests ||--o{ learningDigestSelections : "append-only ledger"
 ```
 
-`projects` carries three state axes that never cross-write (AD-2): `workflowStage` (human), `generations.status` via `activeGenerationId` (technical), and legacy `status` (compatibility only). Planned but absent: `reportBranches`, `productionOutcomes`, `clients`, `claimPeriods`, `notifications`.
+`projects` carries three state axes that never cross-write (AD-2): `workflowStage` (human), `generations.status` via `activeGenerationId` (technical), and legacy `status` (compatibility only). `productionOutcomes` pins `ready_for_delivery` and `delivered` directly to `(reportId, revisionNumber, contentHash)`. Deferred: `reportBranches`, `claimPeriods`.
 
 ## 6. Workflow stages
 
@@ -128,11 +128,12 @@ stateDiagram-v2
   interview_complete --> drafting
   drafting --> internal_review : also via workItems.create(confirmedStageChange)
   internal_review --> edits : + handoff_assignee authority, requires review_decision (return)
-  internal_review --> ready_for_delivery : + handoff_assignee, requires review_decision (approve) then promoted_branch (fails closed)
+  internal_review --> client_review : + handoff_assignee authority, requires review_decision (approve)
+  internal_review --> ready_for_delivery : + handoff_assignee, requires review_decision (approve) + pins productionOutcomes
   edits --> client_review
   client_review --> revisions
-  revisions --> ready_for_delivery : requires promoted_branch (fails closed)
-  ready_for_delivery --> delivered : requires delivery_outcome (fails closed)
+  revisions --> ready_for_delivery : requires report revision, pins productionOutcomes
+  ready_for_delivery --> delivered : requires report revision, pins productionOutcomes
   drafting --> on_hold : note required
   drafting --> abandoned : note required, no open workItems
   delivered --> on_hold : manager/admin only, note required
@@ -140,7 +141,7 @@ stateDiagram-v2
   delivered --> revisions : note required
 ```
 
-Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. `ready_for_delivery` and `delivered` fail closed because `reportBranches` and `productionOutcomes` do not exist: **no project can reach a terminal stage today (Q1)**. The two internal-review completion edges also fail closed without a recorded reviewer decision (2026-09-04 amendment): `setWorkflowStage` requires a `reviewDecision` agreeing with the destination and writes one `reviewDecisions` row — reviewer, report, `revisionNumber`, `contentHash` — in the same transaction, typed `REVIEW_DECISION_REQUIRED` when absent and `INVALID_STATE` when the project has no report to pin. Checked before `promoted_branch` so it is observable on the approve edge.
+Every stage write goes through `patchProjectWorkflowStage`, which moves the dashboard `stageCounts` bucket in the same transaction and appends a `projectEvents` row. Per the 2026-11-21 amendment, `ready_for_delivery` (Submitted) and `delivered` (Delivered) pin directly to the latest report revision (`reportId`, `revisionNumber`, `contentHash`) and append an immutable `productionOutcomes` row in the same transaction (refusing only if the project has no report revision yet). The internal-review completion edges (`edits`, `client_review`, `ready_for_delivery`) require a matching `reviewDecision` (`return` or `approve`) and write one `reviewDecisions` row in the same transaction.
 
 ## 7. Routes
 
@@ -427,7 +428,7 @@ Full register (51 rows, 8 fixed) is in the spine.
 
 ## 15. Stack
 
-svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18, svelte-tiptap 3.0, convex 1.42.3, convex-svelte 0.14, @convex-dev/agent 0.6.4, @convex-dev/rag 0.7.5, @convex-dev/better-auth 0.12, ai 6.0.230 (v6 line by decision until AD-11 CAP-4 lands), @ai-sdk/anthropic 3.0, vitest 4.1, Node 24 in CI (from `.nvmrc`). Default model `claude-sonnet-5` direct; `openai/*` and `google/*` via OpenRouter; Voyage `voyage-3-large` + `rerank-2.5`.
+svelte 5.56.6, @sveltejs/kit 2.70.1, vite 8.1.5, tailwindcss 4.3.3, bits-ui 2.18, svelte-tiptap 3.0, convex 1.42.3, convex-svelte 0.14, @convex-dev/agent 0.6.4, @convex-dev/rag 0.7.5, @convex-dev/better-auth 0.12, ai 6.0.230 (v6 line by decision until AD-11 CAP-4 lands), @ai-sdk/anthropic 3.0, vitest 4.1, Node 24 in CI (from `.nvmrc`). Default model `claude-sonnet-5` direct; `openai/*` and `google/*` via OpenRouter; Voyage `voyage-4-large` + `rerank-3` for the Brain's new index, `voyage-3-large` + `rerank-2.5` for the old one until its drop (a stored pointer chooses; `docs/the-brain.md`).
 
 ## 15a. 2026-09-09 addition: PD generation better than the dump
 

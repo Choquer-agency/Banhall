@@ -49,6 +49,7 @@
   import {
     reportSectionKeyForHeading,
     reportSectionMetrics,
+    reportSectionMetricsFromDoc,
     type ReportSectionKey,
     type ReportSectionMetricMap,
   } from "$lib/reportSections";
@@ -692,6 +693,7 @@
 
   let {
     content,
+    reportId,
     onUpdate,
     onComment,
     onAskAI,
@@ -708,7 +710,8 @@
     evidenceClaims,
   }: {
     content: string;
-    onUpdate?: (json: string) => void | Promise<void>;
+    reportId?: string;
+    onUpdate?: (json: string, reportId?: string) => void | Promise<void>;
     onComment?: (selection: {
       from: number;
       to: number;
@@ -749,6 +752,8 @@
   } = $props();
   // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
   const reading = presentation === "reading";
+  // svelte-ignore state_referenced_locally -- bound at mount so unmount flushes target the original report
+  const mountedReportId = reportId;
 
   // A short, polite note when an edit is refused because it would change a
   // hidden Section heading (review g1): otherwise the key press does nothing.
@@ -787,9 +792,11 @@
   let wordCount = $state(0);
   let charCount = $state(0);
   let measuredDoc: PMNode | undefined;
+  let serializedDoc: PMNode | undefined;
   let currentDocumentJson = "";
 
   let saveTimeout: ReturnType<typeof setTimeout> | undefined;
+  let slashMenuTimeout: ReturnType<typeof setTimeout> | undefined;
   let pendingSaveChain: Promise<void> = Promise.resolve();
   let lastQueuedContent: string | null = null;
   // Apply external content changes (AI replace, restore, regenerate). Echoes
@@ -807,14 +814,18 @@
   function settleOutstanding(json: string, acknowledged: boolean) {
     const index = outstandingSaves.indexOf(json);
     if (index >= 0) outstandingSaves = [...outstandingSaves.slice(0, index), ...outstandingSaves.slice(index + 1)];
-    if (acknowledged) lastAcknowledgedSave = json;
+    if (acknowledged) {
+      lastAcknowledgedSave = json;
+    } else if (lastQueuedContent === json) {
+      // Allow a subsequent retry or flush to resend the failed document.
+      lastQueuedContent = null;
+    }
   }
 
-  function refreshDocumentMetrics(ed: Editor | CoreEditor): string {
-    if (measuredDoc === ed.state.doc) return currentDocumentJson;
+  function refreshDocumentMetrics(ed: Editor | CoreEditor) {
+    if (measuredDoc === ed.state.doc) return;
     measuredDoc = ed.state.doc;
-    currentDocumentJson = JSON.stringify(ed.getJSON());
-    sectionLimitMetrics = reportSectionMetrics(currentDocumentJson);
+    sectionLimitMetrics = reportSectionMetricsFromDoc(ed.state.doc);
     lineCount = REPORT_SECTION_DEFINITIONS.reduce(
       (total, { key }) => total + sectionLimitMetrics[key].lines,
       0
@@ -826,6 +837,14 @@
     charCount = (
       ed.storage as unknown as { characterCount: { characters: () => number } }
     ).characterCount.characters();
+  }
+
+  function serializeDocument(ed: Editor | CoreEditor): string {
+    refreshDocumentMetrics(ed);
+    if (serializedDoc !== ed.state.doc) {
+      serializedDoc = ed.state.doc;
+      currentDocumentJson = JSON.stringify(ed.getJSON());
+    }
     return currentDocumentJson;
   }
 
@@ -846,7 +865,7 @@
     const save = pendingSaveChain.then(async () => {
       if (epoch !== contentEpoch) return;
       try {
-        await update(json);
+        await update(json, mountedReportId);
         if (epoch === contentEpoch) settleOutstanding(json, true);
       } catch (error) {
         if (epoch === contentEpoch) settleOutstanding(json, false);
@@ -857,12 +876,13 @@
     return save;
   }
 
-  function scheduleSave(json: string) {
+  function scheduleSave(ed: Editor | CoreEditor) {
     if (!onUpdate) return;
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
       saveTimeout = undefined;
-      void enqueueSave(json).catch(() => {});
+      if (ed.isDestroyed) return;
+      void enqueueSave(serializeDocument(ed)).catch(() => {});
     }, 1000);
   }
 
@@ -883,7 +903,10 @@
         handleKeyDown: (view, event) => {
           // Slash command trigger
           if (event.key === "/" && !slashMenu.isOpen) {
-            setTimeout(() => {
+            if (slashMenuTimeout) clearTimeout(slashMenuTimeout);
+            slashMenuTimeout = setTimeout(() => {
+              slashMenuTimeout = undefined;
+              if (view.isDestroyed) return;
               const { from } = view.state.selection;
               const coords = view.coordsAtPos(from);
               slashMenu = {
@@ -908,18 +931,28 @@
           slashMenu.isOpen = false;
         }
 
-        scheduleSave(refreshDocumentMetrics(ed));
+        refreshDocumentMetrics(ed);
+        scheduleSave(ed);
       },
     });
     // Keep the store's editor alive for the component lifetime. The document
-    // identity guard avoids re-parsing metrics on selection-only transactions.
+    // identity guard avoids re-measuring metrics on selection-only transactions.
     const unsubscribe = editorStore.subscribe((e) => {
       editor = e;
       refreshDocumentMetrics(e);
     });
     return () => {
-      if (saveTimeout) clearTimeout(saveTimeout);
-      saveTimeout = undefined;
+      if (slashMenuTimeout) {
+        clearTimeout(slashMenuTimeout);
+        slashMenuTimeout = undefined;
+      }
+      if (saveTimeout) {
+        clearTimeout(saveTimeout);
+        saveTimeout = undefined;
+        if (editor && onUpdate && !editor.isDestroyed) {
+          void enqueueSave(serializeDocument(editor)).catch(() => {});
+        }
+      }
       unsubscribe();
     };
   });
@@ -1011,8 +1044,15 @@
         outstandingSaves = [];
         lastAcknowledgedSave = null;
         // The server's copy may replace the Section headings; the reading
-        // presentation otherwise refuses any change to them.
-        ed.chain().setMeta(SECTION_HEADINGS_EXTERNAL, true).setContent(parsed, { emitUpdate: false }).run();
+        // presentation otherwise refuses any change to them. Keep external
+        // replacements out of the undo stack so Cmd+Z never reverts to a
+        // previous report or pre-restore document.
+        ed
+          .chain()
+          .setMeta(SECTION_HEADINGS_EXTERNAL, true)
+          .setMeta("addToHistory", false)
+          .setContent(parsed, { emitUpdate: false })
+          .run();
         refreshDocumentMetrics(ed);
       }
     }
@@ -1280,7 +1320,12 @@
       await pendingSaveChain;
       return;
     }
-    await enqueueSave(refreshDocumentMetrics(editor));
+    await enqueueSave(serializeDocument(editor));
+  }
+
+  /** True while a debounced or in-flight autosave has not yet settled. */
+  export function hasPendingSave(): boolean {
+    return saveTimeout !== undefined || outstandingSaves.length > 0;
   }
 
   /** Scroll the surrounding `.overflow-y-auto` container to a doc position. */

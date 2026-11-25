@@ -44,7 +44,7 @@ With 10 to 50 times more files, these break next:
 | Run the company backfill (`api.clients.backfillClients`): dry run on dev, then prod | Admin | Week 2 company files | Not run as of 2026-10-14; check |
 | Create the Azure account and free OCR resource (steps below) | Owner | Week 2 scan reading | Not done |
 | Give the go to build the company page (Paper Z8) | Owner | Week 2 company file upload | Go given 2026-10-26; UI may change |
-| Add a card to the Voyage account | Owner | Bulk import of past reports into the Brain | `docs/the-brain.md` says no card, capped at 3 requests a minute (BNH-17); may be out of date |
+| Add a card to the Voyage account | Owner | Bulk import of past reports into the Brain | Done: as of 2026-11-17 a card is on file (owner confirmed); before that the account was capped at 3 requests a minute (BNH-17) |
 | 50 to 100 test pages for the OCR side-by-side: made-up, public, or from a client who agrees | Owner | OCR test | Not gathered |
 | 20 to 50 real past cases (inputs plus the final approved PD) and someone to judge a blind test | Owner, senior writer | Week 4 proof | Not gathered |
 | Check whether client agreements limit which outside services may see their files | Owner | Sending real client files to Azure | Unknown |

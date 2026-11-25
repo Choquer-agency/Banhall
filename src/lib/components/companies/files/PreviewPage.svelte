@@ -10,7 +10,7 @@
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../../convex/_generated/api";
   import LazyModule from "$lib/components/ui/LazyModule.svelte";
-  import { normalizeExtractedText } from "$lib/parseDocument";
+  import { normalizeExtractedText } from "$lib/documentFileTypes";
   import { quotableFileText } from "../../../../../shared/wordMarkdown";
   import type { ListedCompanyFile } from "./fileMeta";
   import {

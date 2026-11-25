@@ -327,7 +327,10 @@ test("Fable 5.1: a text-only answer spends the one repair, and both requests sta
     expect(body.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
     expect(body.system).toBe(`${options.system}\n\n${TOOL_ONLY_LINE}`);
   }
-  expect(String(bodies[1].messages[0].content)).toContain("the required tool was not called");
+  expect(bodies[1].messages[0].content).toEqual([
+    { type: "text", text: options.user },
+    expect.objectContaining({ type: "text", text: expect.stringContaining("the required tool was not called") }),
+  ]);
 });
 
 test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonnet 5 is unchanged", async () => {
@@ -378,4 +381,75 @@ test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonn
   const { output_config: _opusEffort, model: _opusModel, max_tokens: _opusMax, stream: _opusStream, ...opusRest } = opus;
   void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel; void _sonnetMax; void _opusMax; void _opusStream;
   expect(opusRest).toEqual(sonnetRest);
+});
+
+test("Seed 1h prompt cache prefix stays byte-identical on always-thinking models when tool names vary", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: Array<{ system?: unknown; messages: Array<{ content: unknown }>; tool_choice?: unknown }> = [];
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
+    const body = await new Request(input, init).json() as (typeof bodies)[number];
+    bodies.push(body);
+    const toolName = (body as { tools?: Array<{ name: string }> }).tools?.[0]?.name ?? options.toolName;
+    return anthropicReply([{ type: "tool_use", id: `tool_${bodies.length}`, name: toolName, input: { summary: "Ok", accepted: true } }], "claude-sonnet-5-5");
+  })));
+
+  const cachedPrefix = { type: "text" as const, text: "Frozen shared seed context.", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } };
+  await t.action(async (ctx) => {
+    const client = instrumentedAnthropic(ctx, { callSite: "sdk-contract" });
+    for (const toolName of ["submit_seed_batch", "submit_seed_revision"]) {
+      await generateStructured(client, {
+        ...options,
+        model: "claude-sonnet-5-5",
+        toolName,
+        user: [cachedPrefix, { type: "text", text: `Task for ${toolName}` }],
+      });
+    }
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(bodies).toHaveLength(2);
+  // System prompt and cached user prefix block[0] stay byte-identical across tool names.
+  expect(bodies[0].system).toBe(options.system);
+  expect(bodies[1].system).toBe(options.system);
+  const firstBlocks = bodies[0].messages[0].content as Array<{ type: string; text: string; cache_control?: unknown }>;
+  const secondBlocks = bodies[1].messages[0].content as Array<{ type: string; text: string; cache_control?: unknown }>;
+  expect(firstBlocks[0]).toEqual(cachedPrefix);
+  expect(secondBlocks[0]).toEqual(cachedPrefix);
+  // The unforced tool-only reply instruction is placed on the uncached tail, never mutating system.
+  expect(firstBlocks.at(-1)?.text).toContain("submit_seed_batch");
+  expect(secondBlocks.at(-1)?.text).toContain("submit_seed_revision");
+  expect(firstBlocks.at(-1)?.cache_control).toBeUndefined();
+});
+
+test("structured repair retries mark block[0] of a large user prompt for ephemeral caching", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: Array<{ messages: Array<{ content: unknown }> }> = [];
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
+    const body = await new Request(input, init).json() as (typeof bodies)[number];
+    bodies.push(body);
+    return anthropicReply(
+      bodies.length === 1
+        ? [{ type: "text", text: "Forgot to call the tool." }]
+        : [{ type: "tool_use", id: "tool_repair", name: options.toolName, input: { summary: "Ok", accepted: true } }],
+      "claude-sonnet-5"
+    );
+  })));
+  const largeUser = "Evidence paragraph. ".repeat(400);
+  await t.action(async (ctx) => {
+    const client = instrumentedAnthropic(ctx, {
+      callSite: "generation:analyzer",
+      attribution: { generationId: "generation-repair-cache" as never },
+    });
+    return await generateStructured(client, { ...options, model: "claude-sonnet-5", user: largeUser });
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0].messages[0].content).toEqual([
+    { type: "text", text: largeUser, cache_control: { type: "ephemeral" } },
+  ]);
+  expect(bodies[1].messages[0].content).toEqual([
+    { type: "text", text: largeUser, cache_control: { type: "ephemeral" } },
+    expect.objectContaining({ type: "text", text: expect.stringContaining("the required tool was not called") }),
+  ]);
 });

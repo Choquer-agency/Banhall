@@ -16,6 +16,7 @@ export const NOTIFICATION_KINDS = [
   "qa_finished",
   "handoff",
   "invite_accepted",
+  "client_comment",
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -40,6 +41,7 @@ export const NOTIFICATION_SETTING_KEYS = [
   "qaFinished",
   "handoff",
   "inviteAccepted",
+  "clientComment",
 ] as const;
 
 export type NotificationSettingKey = (typeof NOTIFICATION_SETTING_KEYS)[number];
@@ -53,6 +55,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   qaFinished: true,
   handoff: true,
   inviteAccepted: true,
+  clientComment: true,
 };
 
 const SETTING_KEY_BY_KIND: Record<NotificationKind, NotificationSettingKey> = {
@@ -61,6 +64,7 @@ const SETTING_KEY_BY_KIND: Record<NotificationKind, NotificationSettingKey> = {
   qa_finished: "qaFinished",
   handoff: "handoff",
   invite_accepted: "inviteAccepted",
+  client_comment: "clientComment",
 };
 
 export function settingKeyForKind(kind: NotificationKind): NotificationSettingKey {
@@ -98,6 +102,12 @@ export const notificationCopy = {
     return {
       title: `${name} joined Banhall`,
       body: `They accepted your invite as ${role}.`,
+    };
+  },
+  clientComment({ project, reviewer }: { project: string; reviewer: string }): NotificationCopy {
+    return {
+      title: `New client comment on ${project}`,
+      body: `${reviewer} commented on the shared review link.`,
     };
   },
 } as const;

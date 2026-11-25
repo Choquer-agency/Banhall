@@ -43,28 +43,23 @@ describe("workflow labels and options", () => {
     expect(workflowStageOptions("drafting", [])).toEqual([]);
   });
 
-  it("marks storage-gated transitions unavailable with plain reasons", () => {
+  it("keeps review and outcome-pinned transitions available now that productionOutcomes records them", () => {
     const drafting = workflowStageOptions("drafting", ["owner"]);
-    expect(drafting.find((option) => option.to === "ready_for_delivery")?.disabledReason).toMatch(
-      /promoted report branch/i
-    );
+    expect(drafting.find((option) => option.to === "ready_for_delivery")?.disabledReason).toBeNull();
     const delivery = workflowStageOptions("ready_for_delivery", ["owner"]);
-    expect(delivery.find((option) => option.to === "delivered")?.disabledReason).toMatch(
-      /delivery or filing outcome/i
-    );
+    expect(delivery.find((option) => option.to === "delivered")?.disabledReason).toBeNull();
     const resume = workflowStageOptions("on_hold", ["owner"]);
     expect(resume.find((option) => option.to === "internal_review")?.disabledReason).toBeNull();
-    // `review_decision` is satisfied in the same request (the caller supplies
-    // the decision), so it must NOT disable a row: a non-null disabledReason
-    // hard-disables the option in StageChangeDialog and would make completing
-    // an internal review unreachable from the UI.
+    // `review_decision`, `promoted_branch`, and `delivery_outcome` are all
+    // satisfied inline on `setWorkflowStage`, so none hard-disable UI options.
     const review = workflowStageOptions("internal_review", ["owner"]);
     expect(review.find((option) => option.to === "edits")?.disabledReason).toBeNull();
-    // The approve edge still shows exactly the promoted-branch reason — the
-    // review requirement must not be concatenated onto it.
+    expect(review.find((option) => option.to === "client_review")?.disabledReason).toBeNull();
     expect(review.find((option) => option.to === "ready_for_delivery")?.disabledReason).toBe(
       TRANSITION_REQUIREMENT_BLOCKERS.promoted_branch
     );
+    expect(TRANSITION_REQUIREMENT_BLOCKERS.promoted_branch).toBeNull();
+    expect(TRANSITION_REQUIREMENT_BLOCKERS.delivery_outcome).toBeNull();
   });
 
   it("carries audit-note requirements from the matrix", () => {

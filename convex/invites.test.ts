@@ -60,6 +60,7 @@ async function insertInvite(
     status: "pending" | "accepted" | "revoked";
     firstName: string;
     lastName: string;
+    pdWriterId: Id<"pdWriters">;
   }> = {},
 ) {
   const now = Date.now();
@@ -226,6 +227,42 @@ describe("listTeamInvites", () => {
     expect(boss).toMatchObject({ canManage: false });
     expect(boss && "token" in boss).toBe(false);
     expect(asManager.find((row) => row.email === "old@banhall.com")?.canManage).toBe(true);
+  });
+
+  test("offers Resend on an invite for a past writer to Admins only, as resendInvite allows", async () => {
+    const s = await setup();
+    const now = Date.now();
+    const pdWriterId = await s.t.run((ctx) =>
+      ctx.db.insert("pdWriters", { initials: "DW", name: "Dana Whitlock", createdVia: "person", createdAt: 1, fileCount: 0 }),
+    );
+    const pastWriter = await insertInvite(s, {
+      email: "dana@example.com",
+      pdWriterId,
+      createdAt: now - 9 * DAY,
+      expiresAt: now - 2 * DAY,
+    });
+    await insertInvite(s, { email: "plain@example.com", role: "manager", createdAt: now - DAY });
+    await insertInvite(s, { email: "boss@example.com", role: "admin", createdAt: now - DAY });
+    const permissions = (rows: Array<{ email: string; canManage: boolean; canResend: boolean }>) =>
+      Object.fromEntries(rows.map((row) => [row.email, { canManage: row.canManage, canResend: row.canResend }]));
+
+    expect(permissions(await s.admin.query(api.invites.listTeamInvites, {}))).toEqual({
+      "dana@example.com": { canManage: true, canResend: true },
+      "plain@example.com": { canManage: true, canResend: true },
+      "boss@example.com": { canManage: true, canResend: true },
+    });
+    expect(permissions(await s.manager.query(api.invites.listTeamInvites, {}))).toEqual({
+      "dana@example.com": { canManage: true, canResend: false },
+      "plain@example.com": { canManage: true, canResend: true },
+      "boss@example.com": { canManage: false, canResend: false },
+    });
+    // The server agrees: the Manager is refused, the Admin resends it.
+    await expect(s.manager.mutation(api.invites.resendInvite, { inviteId: pastWriter })).rejects.toThrow(
+      "Only an Admin can resend an invite for a past writer",
+    );
+    await expect(s.admin.mutation(api.invites.resendInvite, { inviteId: pastWriter })).resolves.toMatchObject({
+      token: expect.any(String),
+    });
   });
 
   test("returns nothing to Consultants, roleless and signed-out callers", async () => {
@@ -519,5 +556,53 @@ describe("signupAllowed", () => {
         token: "wrong-token",
       }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("invite escalation guards (T0-5)", () => {
+  test("blocks a manager from inviting a deactivated admin row and blocks inviting any active authId account", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("users", {
+        email: "former-admin@banhall.com",
+        role: "admin",
+      });
+    });
+
+    const mgrResults = await s.manager.mutation(api.invites.createInvites, {
+      emails: ["former-admin@banhall.com", "roleless@banhall.com"],
+      role: "writer",
+    });
+    expect(mgrResults.map((r) => [r.email, r.status])).toEqual([
+      ["former-admin@banhall.com", "already_member"],
+      ["roleless@banhall.com", "already_member"],
+    ]);
+  });
+
+  test("onCreate always applies invite.role instead of resurrecting a higher prior role on an unlinked row", async () => {
+    const s = await setup();
+    const preExistingId = await s.t.run(async (ctx) =>
+      ctx.db.insert("users", {
+        email: "demoted@banhall.com",
+        role: "admin",
+      }),
+    );
+    await insertInvite(s, {
+      email: "demoted@banhall.com",
+      token: "demoted-token",
+      role: "writer",
+    });
+    await s.t.mutation(api.invites.confirmInviteNames, {
+      token: "demoted-token",
+      firstName: "Dev",
+      lastName: "One",
+    });
+    await s.t.mutation(internal.auth.onCreate, {
+      model: "user",
+      doc: { _id: "auth-demoted", email: "demoted@banhall.com", name: "Dev One" },
+    });
+    const updated = await s.t.run((ctx) => ctx.db.get(preExistingId));
+    expect(updated?.authId).toBe("auth-demoted");
+    expect(updated?.role).toBe("writer");
   });
 });

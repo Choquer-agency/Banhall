@@ -1,4 +1,10 @@
 import { CRA_SCIENCE_CODES } from "../../../../../shared/craScienceCodes";
+import {
+  fiscalYearFromTimestampUtc,
+  formatFiscalYearEndUtc,
+  parseCalendarDateUtc,
+  toCalendarDateInputUtc,
+} from "../../../../../shared/fiscalYearDate";
 import type { WorkflowStage } from "../../../../../shared/workflowStages";
 import { WORKFLOW_STAGE_GROUPS } from "$lib/workflow/stageGroups";
 
@@ -49,28 +55,23 @@ export function scienceCodeGroups(query = ""): ScienceCodeGroup[] {
   return groups;
 }
 
-/** "2026 (June 30, 2026)": the fiscal year takes the year of its end date. */
+/** "2026 (June 30, 2026)": the fiscal year takes the UTC calendar year of its end date. */
 export function fiscalYearParts(fiscalYearEnd: number | null | undefined): { year: string; date: string } | null {
   if (fiscalYearEnd == null) return null;
-  const date = new Date(fiscalYearEnd);
   return {
-    year: String(date.getFullYear()),
-    date: date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+    year: String(fiscalYearFromTimestampUtc(fiscalYearEnd)),
+    date: formatFiscalYearEndUtc(fiscalYearEnd, "en-US"),
   };
 }
 
-/** yyyy-mm-dd in local time, the DatePicker's value format. */
+/** yyyy-mm-dd in UTC, the DatePicker's value format. */
 export function toDateInput(timestamp: number | null | undefined): string {
-  if (timestamp == null) return "";
-  const date = new Date(timestamp);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
+  return toCalendarDateInputUtc(timestamp);
 }
 
-/** Local midnight of a yyyy-mm-dd value, the timestamp updateProjectFiscalYear stores. */
+/** UTC midnight of a yyyy-mm-dd value, the canonical timestamp updateProjectFiscalYear stores. */
 export function fromDateInput(value: string): number | null {
-  return value ? new Date(`${value}T00:00:00`).getTime() : null;
+  return parseCalendarDateUtc(value);
 }
 
 export function formatCreated(timestamp: number): string {

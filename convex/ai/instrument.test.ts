@@ -450,20 +450,49 @@ describe("generation prefix caching at the SDK boundary", () => {
     },
   );
 
-  it("does not mark an empty prefix or replace multimodal blocks", async () => {
+  it("does not mark an empty prefix and caches leading text without replacing multimodal blocks", async () => {
     const { client, providerCreate } = setup();
+    const imageBlock = {
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: "image/png" as const,
+        data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGxQAAAAASUVORK5CYII=",
+      },
+    };
+    const documentBlock = {
+      type: "document" as const,
+      source: { type: "text" as const, media_type: "text/plain" as const, data: "Frozen evidence document" },
+    };
     const params = {
       ...request,
       system: "",
       messages: [{ role: "user", content: [
         { type: "text", text: "Multimodal input" },
-        { type: "image", source: { type: "base64", media_type: "image/png",
-          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aGxQAAAAASUVORK5CYII=" } },
-        { type: "document", source: { type: "text", media_type: "text/plain", data: "Frozen evidence document" } },
+        imageBlock,
+        documentBlock,
       ] }],
     } satisfies Anthropic.MessageCreateParamsNonStreaming;
     await client.messages.create(params);
-    expect(providerCreate.mock.calls[0][0]).toEqual(params);
+    expect(providerCreate.mock.calls[0][0]).toEqual({
+      ...params,
+      messages: [{ role: "user", content: [
+        { type: "text", text: "Multimodal input", cache_control: { type: "ephemeral" } },
+        imageBlock,
+        documentBlock,
+      ] }],
+    });
+
+    const emptyTextParams = {
+      ...request,
+      system: "",
+      messages: [{ role: "user", content: [
+        { type: "text", text: "" },
+        imageBlock,
+      ] }],
+    } satisfies Anthropic.MessageCreateParamsNonStreaming;
+    await client.messages.create(emptyTextParams);
+    expect(providerCreate.mock.calls[1][0]).toEqual(emptyTextParams);
   });
 });
 

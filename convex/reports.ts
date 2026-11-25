@@ -23,7 +23,7 @@ import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
-import { reportSectionMetrics } from "../src/lib/reportSections";
+import { parseCanonicalReport, reportSectionMetrics } from "../shared/report/reportSections";
 import { getPendingReportProvenance, getReportBody, reportWithBody, writeReportBody, type ReportWithBody } from "./lib/reportBodies";
 import { deleteProvenanceIfUnheld, materializePendingReportProvenance, stageProvenanceForEdit } from "./lib/editProvenance";
 import { internal } from "./_generated/api";
@@ -40,7 +40,21 @@ export const getLatestReport = query({
       if (!reportId) return null;
       const report = await ctx.db.get(reportId);
       if (!report || report.projectId !== args.projectId) return null;
-      return await reportWithBody(ctx, report);
+      const snapshotId = access.project.sharedReportSnapshotId;
+      if (!snapshotId) return null;
+      const snapshot = await ctx.db.get(snapshotId);
+      if (!snapshot || snapshot.reportId !== report._id || snapshot.projectId !== args.projectId) {
+        return null;
+      }
+      return {
+        ...report,
+        content: snapshot.content,
+        contentHash: snapshot.contentHash ?? report.contentHash,
+        revisionNumber:
+          access.project.sharedReportRevisionNumber ??
+          snapshot.sourceRevisionNumber ??
+          0,
+      };
     }
     const report = await ctx.db
       .query("reports")
@@ -347,10 +361,9 @@ export const listReportVersions = query({
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
-      .take(1_000);
+      .take(200);
     return await Promise.all(
-      reports.map(async (stored) => {
-        const report = await reportWithBody(ctx, stored);
+      reports.map(async (report) => {
         const provenance = report.provenanceId
           ? await ctx.db.get(report.provenanceId)
           : null;
@@ -358,7 +371,7 @@ export const listReportVersions = query({
           reportId: report._id,
           reportVersion: report.version,
           revisionNumber: report.revisionNumber ?? 0,
-          content: report.content,
+          contentHash: report.contentHash,
           generatedAt: report.generatedAt,
           updatedAt: report.updatedAt,
           generationId: report.generationId,
@@ -366,6 +379,24 @@ export const listReportVersions = query({
         };
       })
     );
+  },
+});
+
+export const getReportVersionContent = query({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, args) => {
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, stored.projectId))) return null;
+    const report = await reportWithBody(ctx, stored);
+    return {
+      reportId: report._id,
+      reportVersion: report.version,
+      revisionNumber: report.revisionNumber ?? 0,
+      contentHash: report.contentHash,
+      content: report.content,
+      updatedAt: report.updatedAt,
+    };
   },
 });
 
@@ -396,6 +427,7 @@ async function exportSnapshot(
       clientName: project.clientName,
       fiscalYearEnd: project.fiscalYearEnd,
       scienceCode: project.scienceCode?.trim() || undefined,
+      projectNumber: project.projectNumber?.trim() || undefined,
     },
   };
 }
@@ -477,6 +509,12 @@ export const authorizeExport = mutation({
         "A valid CRA T4088 line 206 field-of-science code is required for export"
       );
     }
+    // Refuse exporting unfinished sections that still hold [NOT GENERATED]
+    // server-side as well as in the export dialog.
+    const notDrafted = parseCanonicalReport(report.content)
+      .diagnostics.filter((diagnostic) => diagnostic.code === "NOT_DRAFTED")
+      .map((diagnostic) => diagnostic.message);
+    if (notDrafted.length > 0) domainError("INVALID_INPUT", notDrafted.join("\n"));
     // 2026-11-02 (owner): a manager may apply an Assistant change that runs a
     // Line past its CRA limit (report.overrideRules), but the filing form
     // cannot hold it: the export dialog already refuses, and the server

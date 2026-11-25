@@ -26,6 +26,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { useStableQuery } from "$lib/stableQuery.svelte";
+  import { userErrorMessage } from "$lib/errors";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
 
   type Tab = "review" | "gaps" | "approved" | "rejected" | "failed" | "deleted" | "sync";
@@ -51,7 +52,6 @@
 
   let industry = $state("");
   let writerName = $state("");
-  let writerTier = $state("0.4");
   let scienceCode = $state("");
   let rejectNote = $state("");
 
@@ -67,6 +67,11 @@
   });
   const gapsQ = useQuery(api.ingestion.listGaps, () => auth.isAuthenticated && tab === "gaps" ? {} : "skip");
   const runsQ = useQuery(api.ingestion.listSyncRuns, () => auth.isAuthenticated ? {} : "skip");
+  const reviewTextQ = useQuery(api.ingestion.getItemText, () =>
+    auth.isAuthenticated && reviewDialogOpen && reviewTarget
+      ? { itemId: reviewTarget._id }
+      : "skip"
+  );
 
   $effect(() => {
     if (!auth.isLoading && !auth.isAuthenticated) goToLogin();
@@ -74,6 +79,7 @@
 
   const stats = $derived(statsQ.data);
   const items = $derived(itemsQ.data);
+  const reviewPreviewText = $derived(reviewTextQ.data ?? reviewTarget?.text ?? null);
   const gaps = $derived(gapsQ.data);
   const runs = $derived(runsQ.data);
   const latestRun = $derived(runs?.[0]);
@@ -114,7 +120,6 @@
   function resetReviewForm() {
     industry = "";
     writerName = "";
-    writerTier = "0.4";
     scienceCode = "";
     rejectNote = "";
     errorMsg = null;
@@ -160,26 +165,6 @@
     deleteDialogOpen = true;
   }
 
-  async function approve(item: Item) {
-    busyId = item._id;
-    errorMsg = null;
-    try {
-      await client.action(api.ingestion.approveItem, {
-        itemId: item._id,
-        industry,
-        writerName: writerName || undefined,
-        writerTier: Number(writerTier),
-        scienceCode: scienceCode || undefined,
-      });
-      selectedIds = selectedIds.filter((id) => id !== item._id);
-      closeReview(true);
-    } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
-    } finally {
-      busyId = null;
-    }
-  }
-
   async function reject(item: Item) {
     busyId = item._id;
     errorMsg = null;
@@ -192,10 +177,6 @@
     } finally {
       busyId = null;
     }
-  }
-
-  function approveCurrentReview() {
-    if (reviewTarget) void approve(reviewTarget);
   }
 
   function rejectCurrentReview() {
@@ -653,8 +634,12 @@
                     <WarningCircleIcon class="mt-0.5 shrink-0" size="0.9375rem" aria-hidden="true" />{reviewTarget.error}
                   </p>
                 {/if}
-                {#if reviewTarget.text}
-                  <pre class="whitespace-pre-wrap font-sans text-sm leading-[calc(12/7)] text-ink-secondary">{reviewTarget.text}</pre>
+                {#if reviewPreviewText}
+                  <pre class="whitespace-pre-wrap font-sans text-sm leading-[calc(12/7)] text-ink-secondary">{reviewPreviewText}</pre>
+                {:else if reviewTextQ.isLoading && (reviewTarget.textLength ?? 0) > 0}
+                  <div class="flex min-h-64 flex-col items-center justify-center text-center">
+                    <p class="text-sm font-medium text-ink-muted">Loading extracted text...</p>
+                  </div>
                 {:else}
                   <div class="flex min-h-64 flex-col items-center justify-center text-center">
                     <WarningCircleIcon size="1.5rem" class="text-amber-700" aria-hidden="true" />
@@ -683,18 +668,10 @@
                     Writer
                     <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={writerName} placeholder="Optional" />
                   </label>
-                  <div class="grid grid-cols-2 gap-3">
-                    <label class="text-xs font-medium text-ink-secondary">
-                      Writer tier
-                      <select class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={writerTier}>
-                        <option value="1">1.0</option><option value="0.7">0.7</option><option value="0.4">0.4</option><option value="0.2">0.2</option>
-                      </select>
-                    </label>
-                    <label class="text-xs font-medium text-ink-secondary">
-                      Science code
-                      <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={scienceCode} placeholder="Optional" />
-                    </label>
-                  </div>
+                  <label class="block text-xs font-medium text-ink-secondary">
+                    Science code
+                    <input class="field-control mt-1.5 w-full rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={scienceCode} placeholder="Optional" />
+                  </label>
                   <label class="block text-xs font-medium text-ink-secondary">
                     Rejection note
                     <textarea class="field-control mt-1.5 min-h-20 w-full resize-y rounded-lg px-3 py-2.5 text-sm text-ink" bind:value={rejectNote} placeholder="Optional context for rejection"></textarea>
@@ -704,9 +681,10 @@
                 {#if errorMsg}<p class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700" role="alert">{errorMsg}</p>{/if}
 
                 <div class="mt-5 space-y-2 border-t border-line-soft pt-4">
-                  <Button type="button" class="min-h-11 w-full justify-center" disabled={busyId === reviewTarget._id || !reviewTarget.text || !industry.trim()} onclick={approveCurrentReview}>
-                    {busyId === reviewTarget._id ? "Working…" : "Approve into the Brain"}
-                  </Button>
+                  <!-- 2026-11-17: Approve is switched off here (the server refuses it too). -->
+                  <p data-old-approve-off class="rounded-lg bg-chrome px-3 py-2.5 text-sm leading-[1.5] text-ink-secondary">
+                    Approving here is switched off. Approve files on the <a href={resolve("/admin/import")} class="font-medium text-action-primary underline-offset-2 hover:underline">Import page</a>: they go on their company's page, and final PDs get a Brain check.
+                  </p>
                   <Button type="button" variant="secondary" class="min-h-11 w-full justify-center" disabled={busyId === reviewTarget._id} onclick={rejectCurrentReview}>Reject file</Button>
                   <button
                     type="button"

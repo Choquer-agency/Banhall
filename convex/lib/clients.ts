@@ -83,6 +83,24 @@ export async function activeClientAfterMerges(
   return current?.status === "active" ? current : null;
 }
 
+/**
+ * 2026-11-18 (a company holds all its files): whether files of a company
+ * merged into this one are still moving here (`clients.companyFilesMovingTo`
+ * on the merge tombstone). A draft of the company's projects waits until
+ * none is. False for a project with no company.
+ */
+export async function companyFilesMovingInto(
+  ctx: Ctx,
+  clientId: Id<"clients"> | undefined
+): Promise<boolean> {
+  if (!clientId) return false;
+  const moving = await ctx.db
+    .query("clients")
+    .withIndex("by_companyFilesMovingTo", (q) => q.eq("companyFilesMovingTo", clientId))
+    .first();
+  return moving !== null;
+}
+
 /** The dashboardCompanies projection row for a company key, or null. */
 export async function dashboardCompanyForKey(
   ctx: Ctx,
@@ -157,6 +175,30 @@ const IDENTITY_PROJECTS = 50;
 const IDENTITY_PROJECT_READ = 1_000;
 
 /**
+ * A company's 50 newest live projects (not being deleted, and not
+ * `ownProjectId`), the ones whose people `companyIdentityNames` reads.
+ * `complete` is false when 1,000 project rows held fewer than 50 live ones,
+ * so a caller can refuse rather than check part of them (2026-11-19, the
+ * writer check on an approved Import file reads the same projects).
+ */
+export async function liveCompanyProjects(
+  ctx: Ctx,
+  clientId: Id<"clients">,
+  ownProjectId?: Id<"projects">
+): Promise<{ projects: Doc<"projects">[]; complete: boolean }> {
+  const projects: Doc<"projects">[] = [];
+  let read = 0;
+  for await (const project of ctx.db.query("projects").withIndex("by_clientId", (q) => q.eq("clientId", clientId)).order("desc")) {
+    read += 1;
+    if (read > IDENTITY_PROJECT_READ) return { projects, complete: false };
+    if (project.deletionStartedAt !== undefined || project._id === ownProjectId) continue;
+    projects.push(project);
+    if (projects.length >= IDENTITY_PROJECTS) break;
+  }
+  return { projects, complete: true };
+}
+
+/**
  * Every name tied to a company that its files may carry (2026-10-26, Phase
  * C): its other names (`companyOtherNames`), the names its projects carry
  * for it, and the people on its 50 newest live projects (interviewer,
@@ -177,25 +219,28 @@ export async function companyIdentityNames(
 ): Promise<{ organizations: string[]; people: string[] }> {
   const organizations = new Set<string>(await companyOtherNames(ctx, client));
   const people: string[] = [];
-  let live = 0;
-  let read = 0;
-  for await (const project of ctx.db.query("projects").withIndex("by_clientId", (q) => q.eq("clientId", client._id)).order("desc")) {
-    read += 1;
-    if (read > IDENTITY_PROJECT_READ) {
-      throw new Error(
-        `Read ${IDENTITY_PROJECT_READ} projects without finding ${IDENTITY_PROJECTS} live ones; nothing goes out with a name it could not hide`
-      );
-    }
-    if (project.deletionStartedAt !== undefined || project._id === ownProjectId) continue;
-    live += 1;
+  const live = await liveCompanyProjects(ctx, client._id, ownProjectId);
+  if (!live.complete) {
+    throw new Error(
+      `Read ${IDENTITY_PROJECT_READ} projects without finding ${IDENTITY_PROJECTS} live ones; nothing goes out with a name it could not hide`
+    );
+  }
+  for (const project of live.projects) {
     for (const name of [project.interviewer, project.writer, ...(project.interviewees ?? [])]) {
       if (name?.trim()) people.push(name.trim());
     }
     if (project.clientName !== client.name) organizations.add(project.clientName);
-    if (live >= IDENTITY_PROJECTS) break;
+  }
+  const contacts = await ctx.db
+    .query("companyContacts")
+    .withIndex("by_clientId", (q) => q.eq("clientId", client._id))
+    .take(500);
+  for (const contact of contacts) {
+    const fullName = `${contact.firstName} ${contact.lastName}`.trim();
+    if (fullName) people.push(fullName);
   }
   // The company's own name too: a project may write it with other case or
   // accents (review, 2026-10-26); a map that already hides it adds nothing.
   organizations.add(client.name);
-  return { organizations: [...organizations], people };
+  return { organizations: [...organizations], people: [...new Set(people)] };
 }

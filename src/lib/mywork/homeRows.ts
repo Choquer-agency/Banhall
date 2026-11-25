@@ -20,6 +20,8 @@ export type HomeRow = {
    * out: they always carry the viewer's open work, which refuses a delete.
    */
   createdBy?: string;
+  /** Current owner of the project, when the source says. */
+  ownerId?: string;
 };
 
 type AssignedItem = {
@@ -59,6 +61,7 @@ type LiveProject = {
   workflowStage: WorkflowStage;
   updatedAt: number;
   createdBy?: string;
+  ownerId?: string;
 };
 
 export function liveProjectRows(rows: readonly LiveProject[]): HomeRow[] {
@@ -69,6 +72,7 @@ export function liveProjectRows(rows: readonly LiveProject[]): HomeRow[] {
     stage: row.workflowStage,
     editedAt: row.updatedAt,
     ...(row.createdBy !== undefined ? { createdBy: row.createdBy } : {}),
+    ...(row.ownerId !== undefined ? { ownerId: row.ownerId } : {}),
   }));
 }
 

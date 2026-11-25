@@ -78,9 +78,9 @@ describe("E6 project already exists", () => {
   });
 
   it("names the fiscal year when one is set", async () => {
-    // The page stores the picked day at local midnight.
-    const local = new Date(2026, 5, 30).getTime();
-    __setQueryDataForArgs("projects:findSameProject", { ...ARGS, fiscalYearEnd: local }, MATCH);
+    // The page stores the picked day at UTC midnight so it matches every time zone.
+    const utcMidnight = Date.UTC(2026, 5, 30);
+    __setQueryDataForArgs("projects:findSameProject", { ...ARGS, fiscalYearEnd: utcMidnight }, MATCH);
     __setPageUrl("/project/new?fye=2026-06-30");
     await render(NewProjectPage, {});
     await fillBasics(ARGS.title, ARGS.clientName);

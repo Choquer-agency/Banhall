@@ -93,6 +93,17 @@ it("fills the empty fields from a scheme-named PD and shows the hint", async () 
   );  expect(await createdSredTitle()).toBe(TITLE_FROM_NAME);
 });
 
+it("shows the file's own version letter in the hint", async () => {
+  await openReviewMode();
+  await dropPd("03 3GAMarine 2025-12-31 T2.LR.mo SolarTracker.txt");
+
+  await expect.poll(() => field("projectNumber")?.value).toBe("3");
+  expect(document.body.textContent).toContain(
+    "Filled from the file name: project 3, 3GA Marine, FYE 2025-12-31, title, T2, writer LR, reviewer MO"
+  );
+  expect(document.body.textContent).not.toContain("R2");
+});
+
 it("never overwrites what the writer already typed", async () => {
   await openReviewMode();
   type("clientName", "Acme Labs");

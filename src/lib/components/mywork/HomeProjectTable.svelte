@@ -145,7 +145,7 @@
                       class="min-w-0 truncate text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-fir"
                     >{row.title}</a>
                     <DuplicateProjectButton projectId={row.projectId} projectTitle={row.title} deleting={row.deleting} class="ml-auto" />
-                    <DeleteProjectButton projectId={row.projectId} projectTitle={row.title} createdBy={row.createdBy} deleting={row.deleting} />
+                    <DeleteProjectButton projectId={row.projectId} projectTitle={row.title} createdBy={row.createdBy} ownerId={row.ownerId} deleting={row.deleting} />
                   </div>
                 </td>
                 <td class="pr-3 max-sm:hidden">

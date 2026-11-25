@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { describeFile, draggedTypeLabel, fiscalYearOf, fiscalYearOptions, groupFiles, type ListedCompanyFile } from "./fileMeta";
+import {
+  CATEGORY_OPTIONS,
+  categoryOptionsFor,
+  describeFile,
+  draggedTypeLabel,
+  fiscalYearOf,
+  fiscalYearOptions,
+  groupFiles,
+  type ListedCompanyFile,
+} from "./fileMeta";
 import { uniqueNames } from "./downloadOriginals";
 import { uploadStatus } from "./uploads";
 
@@ -87,5 +96,24 @@ describe("words", () => {
 describe("uniqueNames", () => {
   it("keeps two files of the same name apart in a zip", () => {
     expect(uniqueNames(["a.pdf", "A.pdf", "a.pdf", "notes"])).toEqual(["a.pdf", "A (2).pdf", "a (3).pdf", "notes"]);
+  });
+});
+
+describe("Import categories (2026-11-17)", () => {
+  it("names a file Import filed, and offers its category only on that file", () => {
+    expect(describeFile(file("a", { category: "final_pd" }))).toBe("Final PD");
+    expect(describeFile(file("a", { category: "review_copy" }))).toBe("Review copy");
+    expect(describeFile(file("a", { category: "supporting" }))).toBe("Supporting file");
+    expect(categoryOptionsFor(file("a", { category: "final_pd" })).map((option) => option.value)).toEqual([
+      "final_pd",
+      ...CATEGORY_OPTIONS.map((option) => option.value),
+    ]);
+    expect(categoryOptionsFor(file("a", { category: "background" }))).toBe(CATEGORY_OPTIONS);
+    expect(categoryOptionsFor(file("a"))).toBe(CATEGORY_OPTIONS);
+    // A person moved an Import final PD to Background: it can be given back.
+    expect(categoryOptionsFor(file("a", { category: "background", importCategory: "final_pd" }))[0]).toEqual({
+      value: "final_pd",
+      label: "Final PD",
+    });
   });
 });

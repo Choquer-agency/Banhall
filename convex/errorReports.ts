@@ -2,7 +2,7 @@ import { query, mutation, internalMutation, type MutationCtx } from "./_generate
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { getCurrentUserOrNull } from "./lib/auth";
+import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { hasCapability, requireCapability } from "./lib/roleCapabilities";
 import { ANTHROPIC_CREDIT_NOTICE_SOURCE } from "../shared/anthropicCreditFallback";
 
@@ -121,9 +121,17 @@ async function withinBudget(
   return (await countSince(bySession, ERROR_REPORT_BUDGET.perSession)) < ERROR_REPORT_BUDGET.perSession;
 }
 
+export function redactReviewShareTokens(value: string): string {
+  return value.replace(/(\/review\/)[^/?#\s]+/gi, "$1[redacted]");
+}
+
+function redactOptional(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : redactReviewShareTokens(value);
+}
+
 /**
  * Record an error report. Intentionally public and usable while unauthenticated
- * — the whole point is that anyone hitting an error (including clients on a
+ * - the whole point is that anyone hitting an error (including clients on a
  * shared review link) can send it. If the caller is signed in we stamp their
  * id/email so we know who reported it. Field sizes are capped and each sender
  * has a per-minute budget (ERROR_REPORT_LIMITS, ERROR_REPORT_BUDGET).
@@ -157,15 +165,15 @@ export const reportError = mutation({
       // rows are never feature requests, so the retention sweep always covers
       // them (deletion review, 2026-09-25).
       reportType: userId === undefined ? "bug" : (args.reportType ?? "bug"),
-      message: cap(args.message, L.message),
-      stack: capOptional(args.stack, userId === undefined ? L.signedOutStack : L.stack),
+      message: cap(redactReviewShareTokens(args.message), L.message),
+      stack: capOptional(redactOptional(args.stack), userId === undefined ? L.signedOutStack : L.stack),
       source: capOptional(clientSource(args.source), L.source),
-      url: cap(args.url, L.url),
+      url: cap(redactReviewShareTokens(args.url), L.url),
       userNote: capOptional(args.userNote, L.userNote),
       breadcrumbs: args.breadcrumbs.slice(-L.breadcrumbs).map((crumb) => ({
         type: cap(crumb.type, L.breadcrumbType),
-        label: cap(crumb.label, L.breadcrumbLabel),
-        detail: capOptional(crumb.detail, L.breadcrumbDetail),
+        label: cap(redactReviewShareTokens(crumb.label), L.breadcrumbLabel),
+        detail: capOptional(redactOptional(crumb.detail), L.breadcrumbDetail),
         at: crumb.at,
       })),
       userAgent: capOptional(args.userAgent, L.userAgent),
@@ -322,7 +330,7 @@ export const listFeatureRequests = query({
   args: {},
   handler: async (ctx) => {
     const user = await getCurrentUserOrNull(ctx);
-    if (!user) return [];
+    if (!user || user.isAnonymous === true || !user.role) return [];
     const reports = await ctx.db.query("errorReports").order("desc").take(300);
     return reports
       .filter((r) => r.reportType === "feature")
@@ -343,8 +351,7 @@ export const listFeatureRequests = query({
 export const toggleUpvote = mutation({
   args: { id: v.id("errorReports") },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrNull(ctx);
-    if (!user) throw new Error("Not authenticated");
+    const user = await requireInternalActor(ctx);
     const report = await ctx.db.get(args.id);
     if (!report || report.reportType !== "feature") {
       throw new Error("Feature request not found");

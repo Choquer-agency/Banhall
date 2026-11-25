@@ -150,7 +150,15 @@ test("a cut-off tool answer that would validate spends the repair, then fails cl
   expect(bodies[0].messages).toEqual([{ role: "user", content: options.user }]);
   // The repair keeps the same output limit and asks for a shorter answer.
   expect(bodies[1].max_tokens).toBe(options.maxTokens);
-  expect(bodies[1].messages).toEqual([{ role: "user", content: `${options.user}${REPAIR_NOTE}` }]);
+  expect(bodies[1].messages).toEqual([
+    {
+      role: "user",
+      content: [
+        { type: "text", text: options.user },
+        { type: "text", text: REPAIR_NOTE },
+      ],
+    },
+  ]);
   const scaffold = STRUCTURED_OUTPUT_PROGRAM.repairScaffold;
   expect(`${scaffold.prefix}${scaffold.cutOffSummary}${scaffold.suffix}`).toBe(REPAIR_NOTE);
 
@@ -184,7 +192,15 @@ test("a cut-off tool answer followed by a complete one returns the complete answ
 
   expect(value).toEqual(COMPLETE);
   expect(bodies).toHaveLength(2);
-  expect(bodies[1].messages).toEqual([{ role: "user", content: `${options.user}${REPAIR_NOTE}` }]);
+  expect(bodies[1].messages).toEqual([
+    {
+      role: "user",
+      content: [
+        { type: "text", text: options.user },
+        { type: "text", text: REPAIR_NOTE },
+      ],
+    },
+  ]);
   const usage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
   expect(usage.map((row) => row.stopReason)).toEqual(["max_tokens", "tool_use"]);
 });
@@ -328,7 +344,13 @@ test("Claude over the OpenRouter transport: a whole-allowance repair refused wit
   // The step's 256, the model's whole 128,000 (streamed), then 256 again.
   expect(bodies.map((body) => [body.max_tokens, body.stream === true])).toEqual([[256, false], [128_000, true], [256, false]]);
   expect(JSON.stringify(bodies[1].messages)).toContain("this attempt has more room, so give the complete answer");
-  expect(bodies[2].messages.at(-1)).toEqual({ role: "user", content: `${options.user}${REPAIR_NOTE}` });
+  expect(bodies[2].messages.at(-1)).toEqual({
+    role: "user",
+    content: [
+      { type: "text", text: options.user },
+      { type: "text", text: REPAIR_NOTE },
+    ],
+  });
 });
 
 test("a section draft cut off at the output limit is refused, never delivered; an uncut draft is unchanged", async () => {

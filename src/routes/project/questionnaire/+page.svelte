@@ -17,7 +17,7 @@
   const createProject = useMutation(api.projects.createProject);
   const generateReport = useMutation(api.generations.requestGeneration);
 
-  let step = $state(0);
+  let step = $state(-1);
   let title = $state("");
   let clientName = $state("");
   let answers = $state<Record<string, string>>({});
@@ -67,7 +67,9 @@
       error =
         userErrorCode(cause) === "RATE_LIMITED"
           ? `The run did not start. ${userErrorMessage(cause, "Try again later.")} Your answers are saved. The run will use them when you start it again.`
-          : "Failed to create project. Please try again.";
+          : createdProjectId
+            ? `Your project and answers are saved, but the report run could not start. ${userErrorMessage(cause, "Try again.")}`
+            : userErrorMessage(cause, "Failed to create project. Please try again.");
       submitting = false;
     }
   }

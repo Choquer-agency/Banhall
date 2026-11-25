@@ -205,6 +205,7 @@ export const logUsage = internalMutation({
       ...(args.costUsd !== undefined ? { costUsd: args.costUsd } : {}),
     });
 
+    const createdAt = args.createdAt ?? Date.now();
     await ctx.db.insert("aiUsage", {
       ...(projectId ? { projectId } : {}),
       ...(args.generationId ? { generationId: args.generationId } : {}),
@@ -248,8 +249,46 @@ export const logUsage = internalMutation({
         : {}),
       ...(characterCount(args.requestChars) !== undefined ? { requestChars: characterCount(args.requestChars) } : {}),
       ...(characterCount(args.evidenceChars) !== undefined ? { evidenceChars: characterCount(args.evidenceChars) } : {}),
-      createdAt: args.createdAt ?? Date.now(),
+      createdAt,
     });
+    // Maintain hourly rollup totals so long-range reporting and retention
+    // pruning never lose aggregate spend or token counts.
+    const bucketStart = Math.floor(createdAt / (60 * 60 * 1000)) * (60 * 60 * 1000);
+    const existingRollup = await ctx.db
+      .query("aiUsageRollups")
+      .withIndex("by_bucketStart_and_model_and_callSite", (q) =>
+        q
+          .eq("bucketStart", bucketStart)
+          .eq("model", args.model)
+          .eq("callSite", args.callSite)
+      )
+      .unique();
+    if (existingRollup) {
+      await ctx.db.patch(existingRollup._id, {
+        calls: existingRollup.calls + 1,
+        inputTokens: existingRollup.inputTokens + inputTokens,
+        outputTokens: existingRollup.outputTokens + outputTokens,
+        cacheCreationInputTokens:
+          existingRollup.cacheCreationInputTokens + cacheCreationInputTokens,
+        cacheReadInputTokens:
+          existingRollup.cacheReadInputTokens + cacheReadInputTokens,
+        costUsd: existingRollup.costUsd + cost.costUsd,
+        updatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.insert("aiUsageRollups", {
+        bucketStart,
+        model: args.model,
+        callSite: args.callSite,
+        calls: 1,
+        inputTokens,
+        outputTokens,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+        costUsd: cost.costUsd,
+        updatedAt: Date.now(),
+      });
+    }
     // Decision 65: the preparation's spend settles from its usage rows, in
     // the same transaction as the row, so it is counted once.
     if (args.briefPreparationId) {
@@ -323,10 +362,12 @@ function rankedRows(
     .sort((a, b) => b.costUsd - a.costUsd);
 }
 
+const USAGE_REPORT_MAX_ROWS = 20_000;
+
 /**
- * Admin-only usage report for a date range. Aggregation streams the complete
- * indexed range instead of silently truncating at 10,000 rows. Project/user
- * IDs are the grouping keys; mutable display labels are attached afterward.
+ * Admin-only usage report for a date range. Bounded to USAGE_REPORT_MAX_ROWS
+ * so large ranges never hit the Convex per-query read limit; reports
+ * `truncated: true` when more rows exist in the window.
  */
 export const usageReport = query({
   args: {
@@ -364,7 +405,14 @@ export const usageReport = query({
         q.gte("createdAt", start).lte("createdAt", end)
       )
       .order("desc");
+    let count = 0;
+    let truncated = false;
     for await (const row of range) {
+      if (count >= USAGE_REPORT_MAX_ROWS) {
+        truncated = true;
+        break;
+      }
+      count += 1;
       addUsage(totals, row);
 
       const projectKey = row.projectId ?? "project:unattributed";
@@ -392,7 +440,7 @@ export const usageReport = query({
       projectLabels.set(
         key,
         project
-          ? `${project.clientName} — ${project.title}`
+          ? `${project.clientName} - ${project.title}`
           : `Deleted project · ${projectId.slice(-6)}`
       );
     }
@@ -418,6 +466,8 @@ export const usageReport = query({
 
     return {
       totals,
+      truncated,
+      maxRows: USAGE_REPORT_MAX_ROWS,
       byProject: rankedRows(byProject, projectLabels),
       byWriter: rankedRows(byWriter, writerLabels),
       byModel: rankedRows(byModel, modelLabels),

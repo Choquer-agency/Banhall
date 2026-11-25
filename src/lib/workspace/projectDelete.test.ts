@@ -5,13 +5,14 @@ import { canDeleteProject } from "./projectDelete";
 // offered to people who can use it.
 describe("canDeleteProject", () => {
   const creator = { _id: "u-1", role: "writer" };
-  it("lets the creator and any admin delete", () => {
+  it("lets the creator, current owner, and any admin delete", () => {
     expect(canDeleteProject(creator, "u-1")).toBe(true);
+    expect(canDeleteProject({ _id: "u-2", role: "writer" }, "u-1", false, "u-2")).toBe(true);
     expect(canDeleteProject({ _id: "u-9", role: "admin" }, "u-1")).toBe(true);
   });
-  it("refuses everyone else, including managers and the owner by role alone", () => {
+  it("refuses everyone else, including managers and unrelated writers", () => {
     expect(canDeleteProject({ _id: "u-2", role: "writer" }, "u-1")).toBe(false);
-    expect(canDeleteProject({ _id: "u-3", role: "manager" }, "u-1")).toBe(false);
+    expect(canDeleteProject({ _id: "u-3", role: "manager" }, "u-1", false, "u-2")).toBe(false);
   });
   it("reads unknowns as no", () => {
     expect(canDeleteProject(null, "u-1")).toBe(false);

@@ -15,58 +15,10 @@
 
   const SLASH_ITEMS: SlashItem[] = [
     {
-      title: "Heading 1",
-      description: "Large section heading",
-      icon: "H1",
-      command: (editor) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-    },
-    {
-      title: "Heading 2",
-      description: "Medium section heading",
-      icon: "H2",
-      command: (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-    },
-    {
-      title: "Heading 3",
-      description: "Small section heading",
-      icon: "H3",
-      command: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
-    },
-    {
       title: "Paragraph",
-      description: "Plain text block",
+      description: "Plain text block (Schedule 60 format)",
       icon: "P",
-      command: (editor) => editor.chain().focus().setParagraph().run(),
-    },
-    {
-      title: "Divider",
-      description: "Horizontal line separator",
-      icon: "—",
-      command: (editor) => editor.chain().focus().setHorizontalRule().run(),
-    },
-    {
-      title: "Quote",
-      description: "Block quote",
-      icon: '"',
-      command: (editor) => editor.chain().focus().toggleBlockquote().run(),
-    },
-    {
-      title: "Code Block",
-      description: "Code block with syntax",
-      icon: "<>",
-      command: (editor) => editor.chain().focus().toggleCodeBlock().run(),
-    },
-    {
-      title: "Bullet List",
-      description: "Unordered list",
-      icon: "•",
-      command: (editor) => editor.chain().focus().toggleBulletList().run(),
-    },
-    {
-      title: "Numbered List",
-      description: "Ordered list",
-      icon: "1.",
-      command: (editor) => editor.chain().focus().toggleOrderedList().run(),
+      command: (editor) => editor.chain().focus().clearNodes().setParagraph().run(),
     },
   ];
 </script>

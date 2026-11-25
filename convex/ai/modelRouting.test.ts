@@ -185,7 +185,7 @@ describe("OpenRouter request fields", () => {
         messages: [{ role: "user", content: "Hi." }],
       });
     });
-    expect(captured[0].body.provider).toBeUndefined();
+    expect(captured[0].body.provider).toEqual({ data_collection: "deny" });
   });
 
   it("resolves a catalog-only model from the generation's freeze before its first call", async () => {
@@ -577,7 +577,7 @@ describe("owner, 2026-10-28: a refusal never counts against the model", () => {
     await t.action(async (ctx) => {
       const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "routing-test" });
       await expect(generateStructured(client, structuredArgs("openai/gpt-5.6-sol"))).rejects.toThrow(
-        /did not return structured output/
+        /model refused to answer/
       );
     });
     await drain(t);
@@ -660,25 +660,30 @@ describe("round 3: financial extraction settles after its own validation", () =>
         });
       return { projectId, uploads: [await upload(), await upload()] };
     });
-    const anthropicText = (text: string) =>
+    const anthropicTool = (input: unknown) =>
       Response.json({
-        id: "msg", type: "message", role: "assistant", model: "claude-sonnet-5",
-        content: [{ type: "text", text }], stop_reason: "end_turn", stop_sequence: null,
+        id: "msg", type: "message", role: "assistant", model: "claude-sonnet-5-5",
+        content: [{ type: "tool_use", id: "tool_1", name: "extract_timesheet_entries", input }],
+        stop_reason: "tool_use", stop_sequence: null,
         usage: { input_tokens: 10, output_tokens: 10 },
       });
-    reply = () => anthropicText("I could not find any timesheet entries.");
+    reply = () => anthropicTool({ entries: "not-an-array" });
     await t.action(internal.ai.financialAgent.processFinancialUpload, { projectId, uploadId: uploads[0] });
     reply = () =>
-      anthropicText(JSON.stringify({
+      anthropicTool({
         entries: [{
           personName: "Priya", date: "2025-03-03", hours: 4, hoursBasis: "explicit",
           description: "Latency tests.", sredEligible: true, confidence: "high", source: "Slack",
         }],
-      }));
+      });
     await t.action(internal.ai.financialAgent.processFinancialUpload, { projectId, uploadId: uploads[1] });
     const [failed, done] = await t.run((ctx) => Promise.all(uploads.map((id) => ctx.db.get(id))));
     expect(failed?.processingStatus).toBe("failed");
     expect(done?.processingStatus).toBe("completed");
+    // Prompt-injection fencing: raw upload content is wrapped inside <untrusted_source_data>.
+    const userPayload = JSON.stringify(captured[0].body.messages);
+    expect(userPayload).toContain("<untrusted_source_data");
+    expect(userPayload).toContain("</untrusted_source_data>");
     const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
     expect(buckets).toMatchObject([
       // The timesheet role follows the Claude Sonnet tier (2026-10-22).
@@ -722,8 +727,15 @@ describe("models that reject forced tool calls at the OpenRouter boundary", () =
       expect(JSON.stringify(request.body)).not.toContain('"function":{"name":"record"}}');
       expect(request.body.thinking).toBeUndefined();
     }
-    const repair = captured[1].body.messages as Array<{ role: string; content: string }>;
-    expect(repair.at(-1)?.content).toContain("the required tool was not called");
+    const repair = captured[1].body.messages as Array<{ role: string; content: string | Array<{ type: string; text?: string }> }>;
+    const repairContent = repair.at(-1)?.content;
+    const repairText =
+      typeof repairContent === "string"
+        ? repairContent
+        : Array.isArray(repairContent)
+          ? repairContent.map((part) => part.text ?? "").join("")
+          : "";
+    expect(repairText).toContain("the required tool was not called");
     await drain(t);
     const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
     expect(buckets).toMatchObject([

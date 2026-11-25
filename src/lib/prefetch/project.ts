@@ -4,16 +4,16 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { loadPreviewProjectPage } from "$lib/components/project/projectPageModules";
 import { prefetchQuery } from "$lib/convex/queryKeepAlive";
 
+const HOVER_PREFETCH_DELAY_MS = 150;
+
 /** The one entry point for project navigation prefetches. On link intent it
- * also subscribes the project page's first queries, with the same arguments
- * the page uses, so the held results are ready when the page mounts. The idle
- * pass only warms the page code. */
+ * warms lightweight project metadata (not heavy report or generation bodies)
+ * so the held results are ready when the page mounts. The idle pass only warms
+ * the page code. */
 export async function prefetchProject(projectId?: string): Promise<void> {
   if (projectId) {
     const args = { projectId: projectId as Id<"projects"> };
     prefetchQuery(api.projects.getProject, args);
-    prefetchQuery(api.reports.getLatestReport, args);
-    prefetchQuery(api.generations.getLatestGeneration, args);
     prefetchQuery(api.projects.getProjectEditAccess, args);
   }
   await loadPreviewProjectPage();
@@ -47,17 +47,62 @@ export function startProjectPrefetch(root: Document | HTMLElement = document): (
     cancelIdle = () => window.clearTimeout(handle);
   }
 
-  const onIntent = (event: Event) => {
+  let hoverTimer: number | undefined;
+  let hoveredAnchor: HTMLAnchorElement | null = null;
+  const cancelHover = () => {
+    if (hoverTimer !== undefined) {
+      window.clearTimeout(hoverTimer);
+      hoverTimer = undefined;
+    }
+    hoveredAnchor = null;
+  };
+
+  const onPointerOver = (event: Event) => {
     if (!(event.target instanceof Element)) return;
     const anchor = event.target.closest("a[href]");
     if (!(anchor instanceof HTMLAnchorElement)) return;
     const id = projectIdFromLink(anchor);
-    if (id) void prefetchProject(id).catch(() => undefined);
+    if (!id) return;
+    if (hoveredAnchor === anchor && hoverTimer !== undefined) return;
+    cancelHover();
+    hoveredAnchor = anchor;
+    hoverTimer = window.setTimeout(() => {
+      hoverTimer = undefined;
+      hoveredAnchor = null;
+      void prefetchProject(id).catch(() => undefined);
+    }, HOVER_PREFETCH_DELAY_MS);
   };
-  const events = ["pointerover", "focusin", "touchstart"] as const;
-  for (const event of events) root.addEventListener(event, onIntent, { capture: true, passive: true });
+
+  const onPointerOut = (event: Event) => {
+    if (!hoveredAnchor || !(event.target instanceof Element)) return;
+    const related = (event as PointerEvent).relatedTarget;
+    if (related instanceof Node && hoveredAnchor.contains(related)) return;
+    if (hoveredAnchor.contains(event.target)) cancelHover();
+  };
+
+  const onImmediateIntent = (event: Event) => {
+    if (!(event.target instanceof Element)) return;
+    const anchor = event.target.closest("a[href]");
+    if (!(anchor instanceof HTMLAnchorElement)) return;
+    const id = projectIdFromLink(anchor);
+    if (!id) return;
+    cancelHover();
+    void prefetchProject(id).catch(() => undefined);
+  };
+
+  const immediateEvents = ["focusin", "touchstart"] as const;
+  root.addEventListener("pointerover", onPointerOver, { capture: true, passive: true });
+  root.addEventListener("pointerout", onPointerOut, { capture: true, passive: true });
+  for (const event of immediateEvents) {
+    root.addEventListener(event, onImmediateIntent, { capture: true, passive: true });
+  }
   return () => {
     cancelIdle();
-    for (const event of events) root.removeEventListener(event, onIntent, { capture: true });
+    cancelHover();
+    root.removeEventListener("pointerover", onPointerOver, { capture: true });
+    root.removeEventListener("pointerout", onPointerOut, { capture: true });
+    for (const event of immediateEvents) {
+      root.removeEventListener(event, onImmediateIntent, { capture: true });
+    }
   };
 }

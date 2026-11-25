@@ -327,10 +327,10 @@ describe("the science code suggestion (review P2-6)", () => {
           type: "message",
           role: "assistant",
           model: MODEL,
-          content: [{ type: "text", text: "2.02.01" }],
-          stop_reason: "end_turn",
+          content: [{ type: "tool_use", id: "toolu_sc_20201", name: "select_science_code", input: { code: "2.02.01" } }],
+          stop_reason: "tool_use",
           stop_sequence: null,
-          usage: { input_tokens: 10, output_tokens: 2 },
+          usage: { input_tokens: 10, output_tokens: 8 },
         });
       })
     );

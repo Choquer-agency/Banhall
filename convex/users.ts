@@ -3,13 +3,49 @@ import {
   mutation,
   internalMutation,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
-import { listTeamRoster, userDisplayLabel } from "./lib/teamRoster";
+import { paginationOptsValidator } from "convex/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import {
+  forgetWriterMatches,
+  isLoginMember,
+  linkedWriterOf,
+  listTeamRoster,
+  linkWriterToUser,
+  waitingWriterInvite,
+  liveWriter,
+  membersWithInitials,
+  setPersonWriterStaffRole,
+  setPersonWriterWeight,
+  userDisplayLabel,
+  writerLabelFor,
+  writerInUse,
+} from "./lib/teamRoster";
+import { writerStaffRoleValidator } from "./lib/ingestionSheetValidators";
+import {
+  canManageWriterWeights,
+  isWriterWeight,
+  storedWriterWeight,
+  writerWeight,
+  WRITER_WEIGHT_RULE,
+} from "../shared/writerWeight";
+import { sameWriterName } from "../shared/writerNameFromText";
+import { cleanWriterName } from "./lib/ingestionSheet";
+import { hasCapability } from "./lib/roleCapabilities";
+import {
+  initialsFromName,
+  INITIALS_RULE,
+  savedInitials,
+  writerInitialsKey,
+} from "../shared/importSheetRules";
 import {
   getCurrentUserOrNull,
   requireCurrentUser,
   requireRole,
+  requireWeightManager,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { authComponent, createAuth } from "./auth";
@@ -197,7 +233,10 @@ export const updateMyProfile = mutation({
     if (!firstName || !lastName) {
       domainError("INVALID_INPUT", "First and last name are required");
     }
-    await ctx.db.patch(user._id, { firstName, lastName });
+    // 2026-11-16: initials are prefilled once, while none are saved, for a
+    // team member with a role. No file is checked again: files keep their writer.
+    const initials = user.initials === undefined && isLoginMember(user) ? initialsFromName(firstName, lastName) : null;
+    await ctx.db.patch(user._id, { firstName, lastName, ...(initials ? { initials } : {}) });
   },
 });
 
@@ -334,5 +373,579 @@ export const setDeveloper = internalMutation({
     if (!user) throw new Error(`No user with email ${email}`);
     await ctx.db.patch(user._id, { isDeveloper: args.isDeveloper });
     return user._id;
+  },
+});
+
+// ─── Writers from initials (2026-11-16, docs/product-domain.md) ─────────────
+// A team member's saved initials match the writer initials in imported file
+// names ("T1.DW.PN"); a writer with no login (a past writer) is listed on
+// Team under Past writers. Admins change initials and manage past writers;
+// every function here checks that on the server. The freeze rule: a file's
+// writer, once it has one, moves only on a firm-wide pick (and its Undo), a
+// person setting it on the file, or here an Admin's Link or Unlink, which
+// change a writer's account and never a file's writer. A change of a
+// member's initials only fills files that have no writer yet (in scheduled
+// pages on To review and Deleted, convex/ingestion.ts applyWriterInitials).
+
+/** Checks again the files with these file initials (two or three letters) that have no writer or follow a pick, in scheduled pages. */
+async function recheckInitials(ctx: MutationCtx, ...values: Array<string | undefined | null>) {
+  const seen = new Set<string>();
+  for (const value of values) {
+    const initials = writerInitialsKey(value);
+    if (initials === null || seen.has(initials)) continue;
+    seen.add(initials);
+    await ctx.scheduler.runAfter(0, internal.ingestion.applyWriterInitials, { initials, tab: "review", cursor: null });
+  }
+}
+
+/** Writes a writer's files on To review and Deleted again with its new label, in scheduled pages. */
+async function refreshFilesOf(ctx: MutationCtx, writerId: Id<"pdWriters">) {
+  await ctx.scheduler.runAfter(0, internal.ingestion.refreshWriterFiles, { writerId, tab: "review", cursor: null });
+}
+
+/**
+ * Sets a team member's initials (Team, "Edit initials"). Admin only. 1 to 4
+ * letters, saved upper case; empty means none, so the member never matches
+ * a file. Another member may have the same initials (files with them that
+ * have no writer yet then show "Choose writer"). Returns what was saved and
+ * the other members who share it. Files with the old and new initials that
+ * have no writer yet are checked again; a file that has a writer keeps it
+ * (the freeze rule).
+ */
+export const setUserInitials = mutation({
+  args: { userId: v.id("users"), initials: v.string() },
+  returns: v.object({ initials: v.string(), sharedWith: v.array(v.string()) }),
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["admin"]);
+    const initials = savedInitials(args.initials);
+    if (initials === null) domainError("INVALID_INPUT", INITIALS_RULE);
+    const target = await ctx.db.get(args.userId);
+    if (!isLoginMember(target)) domainError("NOT_FOUND", "User not found");
+    const before = target.initials;
+    if (before !== initials) {
+      await ctx.db.patch(target._id, { initials });
+      forgetWriterMatches(ctx);
+      await recheckInitials(ctx, before, initials);
+    }
+    const sharedWith = initials
+      ? (await membersWithInitials(ctx, initials)).filter((user) => user._id !== target._id).map(userDisplayLabel)
+      : [];
+    return { initials, sharedWith };
+  },
+});
+
+const USER_INITIALS_BATCH = 100;
+
+/**
+ * Prefills saved initials from first and last names (2026-11-16): each team
+ * member with a role, no initials saved and both names gets the first
+ * letter of each. A value an Admin saved (even empty) is kept. Paged,
+ * schedules the rest; safe to run again. It checks no file again (files
+ * keep their writer): run it before ingestion.migrateImportWriterInitials.
+ */
+export const backfillUserInitials = internalMutation({
+  args: { paginationOpts: v.optional(paginationOptsValidator) },
+  returns: v.object({ updated: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("users")
+      .paginate(args.paginationOpts ?? { cursor: null, numItems: USER_INITIALS_BATCH });
+    let updated = 0;
+    for (const user of page.page) {
+      if (user.initials !== undefined || !isLoginMember(user)) continue;
+      const initials = initialsFromName(user.firstName, user.lastName);
+      if (!initials) continue;
+      await ctx.db.patch(user._id, { initials });
+      updated += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.users.backfillUserInitials, {
+        paginationOpts: { cursor: page.continueCursor, numItems: args.paginationOpts?.numItems ?? USER_INITIALS_BATCH },
+      });
+    }
+    return { updated, done: page.isDone };
+  },
+});
+
+/** Past writers one read lists. */
+const PAST_WRITERS_LIMIT = 200;
+
+const pastWriterValidator = v.object({
+  _id: v.id("pdWriters"),
+  name: v.union(v.string(), v.null()),
+  initials: v.union(v.string(), v.null()),
+  label: v.string(),
+  // 2026-11-16: its name was read from a PD ("Prepared by ..."), not typed
+  // by a person: Team says "From a PD" beside it.
+  nameFromDocument: v.boolean(),
+  fileCount: v.number(),
+  reviewCount: v.number(),
+  // No file points at it as writer or reviewer, and none remembers it from before a pick: Delete is offered.
+  canDelete: v.boolean(),
+  // 2026-11-17: an Admin invited this person from Team and the invite is
+  // still waiting (pending, not expired): Team says "Invite sent" and does
+  // not offer a second invite.
+  invitePending: v.boolean(),
+  // 2026-11-23: Banhall PD staff role and active/former status for people
+  // without a login yet.
+  staffRole: v.union(writerStaffRoleValidator, v.null()),
+  isActive: v.boolean(),
+  // 2026-11-18 (second): the weight an Admin set for this writer on Team
+  // (0 to 1), or null when it uses the role/global default. Admin-only:
+  // omitted for Managers and other roles.
+  weight: v.optional(v.union(v.number(), v.null())),
+  // The one team member whose saved initials are this writer's, if there is
+  // exactly one: a hint, never a link. `canLink`: Link may name them.
+  sameInitialsAs: v.union(
+    v.object({ userId: v.id("users"), name: v.string(), canLink: v.boolean() }),
+    v.null(),
+  ),
+});
+
+/** Whether a team member may take a past writer by Link: they have no past writer an Admin linked already. */
+async function canTakeLink(ctx: QueryCtx | MutationCtx, userId: Id<"users">): Promise<boolean> {
+  return (await linkedWriterOf(ctx, userId)) === null;
+}
+
+/**
+ * The writers with no login (Team, Past writers), by label. Managers and
+ * Admins (team.view) read it; everyone else gets an empty list. Weight is
+ * included only for Admins (roles.manage). Bounded: 200 writers.
+ */
+export const listPastWriters = query({
+  args: {},
+  returns: v.array(pastWriterValidator),
+  handler: async (ctx) => {
+    const viewer = await getCurrentUserOrNull(ctx);
+    if (!viewer || viewer.isAnonymous === true || !hasCapability(viewer.role, "team.view")) return [];
+    const canSeeWeight = canManageWriterWeights(viewer);
+    const writers = await ctx.db
+      .query("pdWriters")
+      .withIndex("by_userId", (q) => q.eq("userId", undefined))
+      .take(PAST_WRITERS_LIMIT);
+    const rows = [];
+    for (const writer of writers) {
+      let sameInitialsAs: { userId: Id<"users">; name: string; canLink: boolean } | null = null;
+      if (writer.initials) {
+        const members = await membersWithInitials(ctx, writer.initials);
+        if (members.length === 1) {
+          sameInitialsAs = {
+            userId: members[0]._id,
+            name: userDisplayLabel(members[0]),
+            canLink: await canTakeLink(ctx, members[0]._id),
+          };
+        }
+      }
+      rows.push({
+        _id: writer._id,
+        name: writer.name ?? null,
+        initials: writer.initials ?? null,
+        label: writerLabelFor(writer, null),
+        nameFromDocument: Boolean(writer.name) && writer.nameSource === "document",
+        fileCount: writer.fileCount,
+        reviewCount: writer.reviewCount ?? 0,
+        // Since 2026-11-17 a file that names it as its reviewer counts too.
+        canDelete: !writerInUse(writer),
+        invitePending: (await waitingWriterInvite(ctx, writer._id)) !== null,
+        staffRole: writer.staffRole ?? null,
+        isActive: writer.isActive === true,
+        ...(canSeeWeight ? { weight: storedWriterWeight(writer.tier) } : {}),
+        sameInitialsAs,
+      });
+    }
+    return rows.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  },
+});
+
+/** A writer with no login, for an Admin's change; refuses one that is gone or has a login. */
+async function pastWriterOrRefuse(ctx: MutationCtx, writerId: Id<"pdWriters">): Promise<Doc<"pdWriters">> {
+  const writer = await liveWriter(ctx, writerId);
+  if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+  if (writer.userId) domainError("INVALID_INPUT", "This writer is linked to an account. Unlink it first.");
+  return writer;
+}
+
+/**
+ * Adds a person without a login on Team (current staff without an account yet
+ * or former writers/reviewers) so their initials, role, and weight are ready
+ * before historical PDs are uploaded. Admin only; setting a custom weight
+ * requires workspace Owner or Developer access.
+ */
+export const createPastWriter = mutation({
+  args: {
+    name: v.string(),
+    initials: v.optional(v.string()),
+    staffRole: v.optional(v.union(writerStaffRoleValidator, v.null())),
+    isActive: v.optional(v.boolean()),
+    weight: v.optional(v.union(v.number(), v.null())),
+  },
+  returns: v.object({ writerId: v.id("pdWriters"), label: v.string() }),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    if (args.weight !== undefined && args.weight !== null && !canManageWriterWeights(admin)) {
+      domainError(
+        "NOT_AUTHORIZED",
+        "Only workspace owners and developers can set writer weights.",
+      );
+    }
+    const name = cleanWriterName(args.name);
+    let initials: string | undefined;
+    if (args.initials !== undefined) {
+      const cleaned = savedInitials(args.initials);
+      if (cleaned === null) domainError("INVALID_INPUT", INITIALS_RULE);
+      if (cleaned) initials = cleaned;
+    }
+    if (args.weight !== undefined && args.weight !== null && !isWriterWeight(args.weight)) {
+      domainError("INVALID_INPUT", WRITER_WEIGHT_RULE);
+    }
+    const existingPast = await ctx.db
+      .query("pdWriters")
+      .withIndex("by_userId", (q) => q.eq("userId", undefined))
+      .take(PAST_WRITERS_LIMIT);
+    if (existingPast.some((row) => row.name && sameWriterName(row.name, name))) {
+      domainError("INVALID_INPUT", "A person with that name is already listed.");
+    }
+    const now = Date.now();
+    const writerId = await ctx.db.insert("pdWriters", {
+      name,
+      nameSource: "person",
+      ...(initials !== undefined ? { initials } : {}),
+      ...(args.staffRole ? { staffRole: args.staffRole } : {}),
+      isActive: args.isActive === true,
+      ...(args.weight !== undefined && args.weight !== null ? { tier: args.weight } : {}),
+      createdVia: "person",
+      createdBy: admin._id,
+      createdAt: now,
+      updatedBy: admin._id,
+      updatedAt: now,
+      fileCount: 0,
+    });
+    forgetWriterMatches(ctx);
+    if (initials !== undefined) await recheckInitials(ctx, initials);
+    const created = (await ctx.db.get(writerId))!;
+    return { writerId, label: writerLabelFor(created, null) };
+  },
+});
+
+/**
+ * Updates a past writer's name, initials, PD staff role, or active/former
+ * status on Team. Admin only. Refreshes linked import rows if the label
+ * changed, rechecks files if initials changed, and re-tiers Brain copies if
+ * the effective weight changed via staffRole.
+ */
+export const updatePastWriter = mutation({
+  args: {
+    writerId: v.id("pdWriters"),
+    name: v.optional(v.string()),
+    initials: v.optional(v.string()),
+    staffRole: v.optional(v.union(writerStaffRoleValidator, v.null())),
+    isActive: v.optional(v.boolean()),
+  },
+  returns: v.object({ label: v.string() }),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    const writer = await pastWriterOrRefuse(ctx, args.writerId);
+    const nextInitials =
+      args.initials === undefined
+        ? writer.initials
+        : (() => {
+            const cleaned = savedInitials(args.initials);
+            if (cleaned === null) domainError("INVALID_INPUT", INITIALS_RULE);
+            return cleaned || undefined;
+          })();
+    const nextName =
+      args.name === undefined
+        ? writer.name
+        : (() => {
+            const typed = args.name.trim();
+            if (!typed && !nextInitials) domainError("INVALID_INPUT", "Type the writer's name or enter initials.");
+            return typed ? cleanWriterName(typed) : undefined;
+          })();
+    if (nextName && nextName !== writer.name) {
+      const existingPast = await ctx.db
+        .query("pdWriters")
+        .withIndex("by_userId", (q) => q.eq("userId", undefined))
+        .take(PAST_WRITERS_LIMIT);
+      if (existingPast.some((row) => row._id !== writer._id && row.name && sameWriterName(row.name, nextName))) {
+        domainError("INVALID_INPUT", "A person with that name is already listed.");
+      }
+    }
+    const nextStaffRole = args.staffRole === undefined ? writer.staffRole : (args.staffRole ?? undefined);
+    const nextIsActive =
+      args.isActive !== undefined
+        ? args.isActive
+        : writer.isActive !== undefined
+          ? writer.isActive
+          : args.initials !== undefined && nextInitials !== undefined
+            ? false
+            : undefined;
+    const beforeLabel = writerLabelFor(writer, null);
+    const beforeWeight = writerWeight(writer.tier, writer.staffRole);
+    const afterWeight = writerWeight(writer.tier, nextStaffRole);
+    const nameChanged = nextName !== writer.name;
+    const initialsChanged = nextInitials !== writer.initials;
+    const roleChanged = nextStaffRole !== writer.staffRole;
+    const activeChanged = nextIsActive !== writer.isActive;
+    const confirmDocName = args.name !== undefined && writer.nameSource !== "person" && (nextName !== undefined || Boolean(writer.name));
+    if (nameChanged || initialsChanged || roleChanged || activeChanged || confirmDocName) {
+      await ctx.db.patch(writer._id, {
+        name: nextName,
+        ...(args.name !== undefined && (nextName !== undefined || Boolean(writer.name)) ? { nameSource: "person" as const } : {}),
+        initials: nextInitials,
+        staffRole: nextStaffRole,
+        isActive: nextIsActive,
+        updatedBy: admin._id,
+        updatedAt: Date.now(),
+      });
+      forgetWriterMatches(ctx);
+      const afterLabel = writerLabelFor({ ...writer, name: nextName, initials: nextInitials }, null);
+      if (afterLabel !== beforeLabel) await refreshFilesOf(ctx, writer._id);
+      if (initialsChanged) await recheckInitials(ctx, writer.initials, nextInitials);
+      if (beforeWeight !== afterWeight) {
+        await ctx.scheduler.runAfter(0, internal.ingestion.retierWriterBrainCopies, {
+          writerId: writer._id,
+          cursor: null,
+          actorId: admin._id,
+        });
+      }
+    }
+    return { label: writerLabelFor({ ...writer, name: nextName, initials: nextInitials }, null) };
+  },
+});
+
+/**
+ * Names a past writer, or with an empty name goes back to its initials
+ * (Team, "Edit name" and "Add a name"). Admin only. The name follows the
+ * writer name rules. Its files show the name at once; those on To review
+ * and Deleted are written again in scheduled pages. Since 2026-11-16 the
+ * name is a person's (nameSource "person"), even when it is the name a PD
+ * gave, and a cleared one stays cleared: no PD names the writer again.
+ * Saving an empty name on a writer that has none changes nothing.
+ */
+export const renamePastWriter = mutation({
+  args: { writerId: v.id("pdWriters"), name: v.string() },
+  returns: v.object({ label: v.string() }),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    const writer = await pastWriterOrRefuse(ctx, args.writerId);
+    const typed = args.name.trim();
+    if (!typed && !writer.initials) domainError("INVALID_INPUT", "Type the writer's name.");
+    const name = typed ? cleanWriterName(typed) : undefined;
+    // An empty name on a writer with none changes nothing (PDs may still name it).
+    const nothingToDo = name === undefined && !writer.name;
+    if (!nothingToDo && (name !== writer.name || writer.nameSource !== "person")) {
+      await ctx.db.patch(writer._id, { name, nameSource: "person", updatedBy: admin._id, updatedAt: Date.now() });
+      forgetWriterMatches(ctx);
+      if (name !== writer.name) await refreshFilesOf(ctx, writer._id);
+    }
+    return { label: writerLabelFor({ ...writer, name }, null) };
+  },
+});
+
+/**
+ * Links a past writer to a team member's account (Team, "Link to an
+ * account"): its PDs, approved ones included, show under that person from
+ * then on, and files with no writer yet whose initials it was made from
+ * get it (and so that person). Admin only; never automatic. The member must
+ * not have a past writer linked already. No file changes writer: the past
+ * writer's account changes, so Unlink puts back exactly what there was
+ * (the member's own writer and every pick are untouched). Files on To
+ * review and Deleted take the new label in scheduled pages.
+ */
+export const linkPastWriter = mutation({
+  args: { writerId: v.id("pdWriters"), userId: v.id("users") },
+  returns: v.object({ label: v.string() }),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    const writer = await pastWriterOrRefuse(ctx, args.writerId);
+    const user = await ctx.db.get(args.userId);
+    if (!isLoginMember(user)) domainError("INVALID_INPUT", "That person is not on the team.");
+    if (!(await canTakeLink(ctx, user._id))) {
+      domainError("INVALID_INPUT", `${userDisplayLabel(user)} already has past PDs linked. Unlink them first.`);
+    }
+    await linkWriterToUser(ctx, writer, user._id, admin._id);
+    return { label: userDisplayLabel(user) };
+  },
+});
+
+/**
+ * Takes a past writer off the account an Admin linked it to (Team, the
+ * member's menu, after a confirm). Admin only. It is listed under Past
+ * writers again and its files show its own name or initials; no file
+ * changes writer, so Link then Unlink leaves files and picks as they were.
+ */
+export const unlinkPastWriter = mutation({
+  args: { writerId: v.id("pdWriters") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    const writer = await liveWriter(ctx, args.writerId);
+    if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+    if (!writer.userId || writer.linkedAt === undefined) {
+      domainError("INVALID_INPUT", "This writer is not linked to an account by an Admin.");
+    }
+    await ctx.db.patch(writer._id, {
+      userId: undefined,
+      linkedBy: undefined,
+      linkedAt: undefined,
+      updatedBy: admin._id,
+      updatedAt: Date.now(),
+    });
+    forgetWriterMatches(ctx);
+    await refreshFilesOf(ctx, writer._id);
+    await recheckInitials(ctx, writer.initials);
+    return null;
+  },
+});
+
+/**
+ * Deletes a past writer no file points at (as its writer or, since
+ * 2026-11-17, its reviewer), or remembers from before a pick
+ * (Team, "Delete", after a confirm). Admin only. A person's pick that named
+ * it goes too, so files with those initials and no writer go back to the
+ * check.
+ */
+export const deletePastWriter = mutation({
+  args: { writerId: v.id("pdWriters") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["admin"]);
+    const writer = await pastWriterOrRefuse(ctx, args.writerId);
+    if (writerInUse(writer)) {
+      domainError("INVALID_INPUT", "Files still point at this writer, so it cannot be deleted.");
+    }
+    const picks = await ctx.db
+      .query("pdWriterPicks")
+      .withIndex("by_writerId", (q) => q.eq("writerId", writer._id))
+      .take(100);
+    for (const pick of picks) await ctx.db.delete(pick._id);
+    await ctx.db.delete(writer._id);
+    forgetWriterMatches(ctx);
+    await recheckInitials(ctx, ...picks.map((pick) => pick.initials));
+    return null;
+  },
+});
+
+/**
+ * Sets a person's writer weight (Team, "Set weight", 2026-11-18 (second)):
+ * how much their imported final PDs count when the AI looks for past
+ * examples in the Brain. Admin only. For a team member (`userId`) it goes on
+ * their own writer row (made when they have none) and on the past writer an
+ * Admin linked to them; for a past writer with no login (`writerId`), on its
+ * row. `weight` is a number from 0 to 1, or null for none (falls back to the
+ * person's PD staff role default or 0.7); anything else is refused, never
+ * clamped. Each row whose weight changed has its imported Brain copies
+ * re-tiered in scheduled pages, with no new embedding, and its files waiting
+ * in Brain check move to their new place in the order. Returns the weight saved.
+ */
+export const setWriterWeight = mutation({
+  args: {
+    userId: v.optional(v.id("users")),
+    writerId: v.optional(v.id("pdWriters")),
+    weight: v.union(v.number(), v.null()),
+  },
+  returns: v.object({ weight: v.union(v.number(), v.null()) }),
+  handler: async (ctx, args) => {
+    const admin = await requireWeightManager(ctx);
+    if ((args.userId === undefined) === (args.writerId === undefined)) {
+      domainError("INVALID_INPUT", "Choose one person to set a weight for.");
+    }
+    if (args.weight !== null && !isWriterWeight(args.weight)) domainError("INVALID_INPUT", WRITER_WEIGHT_RULE);
+    if (args.userId !== undefined) {
+      const user = await ctx.db.get(args.userId);
+      if (!isLoginMember(user)) domainError("INVALID_INPUT", "That person is not on the team.");
+      await setPersonWriterWeight(ctx, { kind: "member", user }, args.weight, admin._id);
+    } else {
+      const writer = await pastWriterOrRefuse(ctx, args.writerId!);
+      await setPersonWriterWeight(ctx, { kind: "writer", writer }, args.weight, admin._id);
+    }
+    return { weight: args.weight };
+  },
+});
+
+/**
+ * Sets a person's Banhall PD staff role (Technical Manager, Technical Writer,
+ * Junior Technical Writer, Financial, or null). Admin only. Syncs across a
+ * team member's own and linked writer rows, and re-tiers Brain copies when
+ * no custom weight overrides the role default.
+ */
+export const setWriterStaffRole = mutation({
+  args: {
+    userId: v.optional(v.id("users")),
+    writerId: v.optional(v.id("pdWriters")),
+    staffRole: v.union(writerStaffRoleValidator, v.null()),
+  },
+  returns: v.object({ staffRole: v.union(writerStaffRoleValidator, v.null()) }),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    if ((args.userId === undefined) === (args.writerId === undefined)) {
+      domainError("INVALID_INPUT", "Choose one person to set a PD role for.");
+    }
+    if (args.userId !== undefined) {
+      const user = await ctx.db.get(args.userId);
+      if (!isLoginMember(user)) domainError("INVALID_INPUT", "That person is not on the team.");
+      await setPersonWriterStaffRole(ctx, { kind: "member", user }, args.staffRole, admin._id);
+    } else {
+      const writer = await pastWriterOrRefuse(ctx, args.writerId!);
+      await setPersonWriterStaffRole(ctx, { kind: "writer", writer }, args.staffRole, admin._id);
+    }
+    return { staffRole: args.staffRole };
+  },
+});
+
+/**
+ * 2026-11-21 (T2-4): Admin-only account offboarding. Revokes all active Better
+ * Auth sessions for the user and strips their internal role and auth link so
+ * they immediately lose access while preserving attribution on historical rows.
+ * Refuses self-deactivation and refuses deactivating the last active Admin.
+ */
+export const deactivateUser = mutation({
+  args: { userId: v.id("users") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const caller = await requireRole(ctx, ["admin"]);
+    if (caller._id === args.userId) {
+      domainError("INVALID_INPUT", "You cannot deactivate your own account.");
+    }
+    const target = await ctx.db.get(args.userId);
+    if (!target) domainError("NOT_FOUND", "User not found");
+
+    if (target.role === "admin") {
+      const allUsers = await ctx.db.query("users").take(500);
+      const otherActiveAdmins = allUsers.filter(
+        (u) =>
+          u._id !== target._id &&
+          u.role === "admin" &&
+          u.isAnonymous !== true &&
+          Boolean(u.authId)
+      );
+      if (otherActiveAdmins.length === 0) {
+        domainError(
+          "INVALID_STATE",
+          "Cannot deactivate the last active administrator."
+        );
+      }
+    }
+
+    if (target.authId) {
+      try {
+        const authContext = await createAuth(ctx).$context;
+        await authContext.internalAdapter.deleteUserSessions(target.authId);
+      } catch (error) {
+        // In unit tests without a mounted Better Auth component, continue
+        // stripping role/authId only when the component itself is absent;
+        // surface genuine runtime errors in production.
+        const msg = error instanceof Error ? error.message : String(error);
+        if (!msg.includes("is not registered")) {
+          throw error;
+        }
+      }
+    }
+
+    await ctx.db.patch(target._id, {
+      role: undefined,
+      authId: undefined,
+    });
+    return null;
   },
 });

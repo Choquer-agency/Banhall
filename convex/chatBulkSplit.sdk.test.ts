@@ -507,10 +507,10 @@ describe("a step that thinks to the output limit", () => {
       (passes.mock.calls[call]?.[3] as { contextOptions?: { recentMessages?: number } } | undefined)
         ?.contextOptions?.recentMessages;
     expect(windowOf(1)).toBe((windowOf(0) ?? 0) + 1);
-    // 2026-10-21 (owner: thorough edits): the first step thinks at xhigh;
-    // the step that plans over the inventory at high; the recovery pass at low.
-    expect(effortOf(sent[0]!)).toBe("xhigh");
-    expect(effortOf(sent[1]!)).toBe("high");
+    // First step thinks at high; the step that plans over the inventory at
+    // medium; the recovery pass at low.
+    expect(effortOf(sent[0]!)).toBe("high");
+    expect(effortOf(sent[1]!)).toBe("medium");
     expect(effortOf(sent[2]!)).toBe("low");
     expect(effortOf(sent[3]!)).toBe("low");
     // The recovery pass is told what happened and to do the first part, and

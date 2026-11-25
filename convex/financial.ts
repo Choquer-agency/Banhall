@@ -266,12 +266,58 @@ export const reviewTimesheetEntry = mutation({
     if (!Number.isFinite(hours) || hours < 0 || hours > 24) {
       domainError("INVALID_INPUT", "Reviewed hours must be between 0 and 24");
     }
+    const prevApproved = entry.reviewStatus === "approved";
+    const nextApproved = args.status === "approved";
+    const prevHours = entry.hours;
     await ctx.db.patch(entry._id, {
       hours,
       reviewStatus: args.status,
       reviewedBy: user._id,
       reviewedAt: Date.now(),
     });
+    // Fast path: when a single summary already exists and this review leaves
+    // personnelBreakdown activities untouched (e.g., pending -> rejected or
+    // approving/updating an existing person with hours-only delta), delta-patch
+    // in place instead of rescanning up to 5,000 timesheet rows.
+    const existingSummaries = await ctx.db
+      .query("financialSummaries")
+      .withIndex("by_projectId", (q) => q.eq("projectId", entry.projectId))
+      .take(2);
+    if (existingSummaries.length === 1 && !prevApproved && !nextApproved) {
+      return;
+    }
+    if (existingSummaries.length === 1 && prevApproved && nextApproved) {
+      const summary = existingSummaries[0]!;
+      const deltaHours = hours - prevHours;
+      if (deltaHours === 0) return;
+      try {
+        const parsed = JSON.parse(summary.personnelBreakdown) as {
+          personnelBreakdown?: Array<{
+            name: string;
+            totalHours: number;
+            sredHours: number;
+            primaryActivities: string[];
+          }>;
+        };
+        const person = parsed.personnelBreakdown?.find((p) => p.name === entry.personName);
+        if (person) {
+          person.totalHours += deltaHours;
+          if (entry.sredEligible) person.sredHours += deltaHours;
+          const totalHours = summary.totalHours + deltaHours;
+          const sredHours = summary.sredHours + (entry.sredEligible ? deltaHours : 0);
+          await ctx.db.patch(summary._id, {
+            totalHours,
+            sredHours,
+            nonSredHours: totalHours - sredHours,
+            personnelBreakdown: JSON.stringify(parsed),
+            generatedAt: Date.now(),
+          });
+          return;
+        }
+      } catch {
+        // Fall back to full rebuild if stored JSON is malformed.
+      }
+    }
     await rebuildSummary(ctx, entry.projectId);
   },
 });
@@ -291,6 +337,35 @@ export const markUploadFailed = internalMutation({
       processingError: args.error.slice(0, 500),
       completedAt: Date.now(),
     });
+  },
+});
+
+export const failStaleFinancialUploads = internalMutation({
+  args: { olderThanMinutes: v.number() },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const cutoff = now - Math.max(1, args.olderThanMinutes) * 60_000;
+    let failed = 0;
+    for (const status of ["queued", "running"] as const) {
+      const stalled = await ctx.db
+        .query("financialUploads")
+        .withIndex("by_processingStatus_and_createdAt", (q) =>
+          q.eq("processingStatus", status).lt("createdAt", cutoff)
+        )
+        .take(50);
+      for (const upload of stalled) {
+        const started = upload.startedAt ?? upload.createdAt;
+        if (started >= cutoff) continue;
+        await ctx.db.patch(upload._id, {
+          processingStatus: "failed",
+          processingError: "Financial processing timed out. Please retry the upload.",
+          completedAt: now,
+        });
+        failed += 1;
+      }
+    }
+    return failed;
   },
 });
 

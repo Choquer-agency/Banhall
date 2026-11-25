@@ -26,6 +26,7 @@ import { WEBSITE_READ_REASONS } from "./lib/websiteRead";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { summaryWrittenByPerson } from "./companySummary";
+import { fileNameTerms } from "../shared/fileNameTerms";
 
 /** A read still not finished this long after it was asked for has failed. */
 export const WEBSITE_READ_EXPIRY_MS = 2 * 60_000;
@@ -279,6 +280,7 @@ export const finishWebsiteRead = internalMutation({
       fileId = await ctx.db.insert("companyFiles", {
         clientId: client._id,
         fileName,
+        fileNameTerms: fileNameTerms(fileName),
         fileType: "txt",
         category: "background",
         mimeType: "text/plain",

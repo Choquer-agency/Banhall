@@ -142,6 +142,15 @@
 
       <!-- Previous range stays visible, softly dimmed, while the new one loads -->
       <div class={`transition-opacity duration-300 motion-reduce:transition-none ${refreshing ? "opacity-60" : ""}`}>
+      {#if data.truncated}
+        <div
+          role="status"
+          class="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-[1.5] text-amber-900"
+        >
+          <span class="font-medium">Partial totals:</span>
+          This range has more than {num(data.maxRows)} calls. Figures below cover only the newest {num(data.maxRows)} calls; narrow the date range for complete totals and breakdowns.
+        </div>
+      {/if}
       <!-- Totals -->
       <div class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div class="card p-4">

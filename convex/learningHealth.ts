@@ -1,6 +1,7 @@
 import { isEvaluationProject } from "./lib/evaluationProjects";
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
@@ -9,6 +10,8 @@ import { readSeedLearningHealth } from "./lib/seedLearningHealth";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 
 const DAY = 86_400_000;
+const RERANK_OUTCOMES_RETENTION_DAYS = 90;
+const RERANK_OUTCOMES_PRUNE_BATCH = 200;
 /** The readings Learning health's edit-size chart averages (E3 review). */
 const MILESTONE_TRIGGERS = ["candidate_selection", "milestone", "client_publish"] as const;
 export const HEALTH_LIMITS = { ped: 2000, generations: 200, outcomes: 2000, join: 20, joinBudget: 1000, passages: 2000 };
@@ -25,6 +28,23 @@ export const recordRerankOutcome = internalMutation({
     const existing = await ctx.db.query("rerankOutcomes").withIndex("by_operationId", q => q.eq("operationId", args.operationId)).unique();
     if (!existing) await ctx.db.insert("rerankOutcomes", args);
     return null;
+  },
+});
+
+export const pruneOldRerankOutcomes = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const cutoff = Date.now() - RERANK_OUTCOMES_RETENTION_DAYS * DAY;
+    const old = await ctx.db
+      .query("rerankOutcomes")
+      .withIndex("by_observedAt", (q) => q.lt("observedAt", cutoff))
+      .take(RERANK_OUTCOMES_PRUNE_BATCH);
+    for (const row of old) await ctx.db.delete(row._id);
+    if (old.length === RERANK_OUTCOMES_PRUNE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.learningHealth.pruneOldRerankOutcomes, {});
+    }
+    return old.length;
   },
 });
 

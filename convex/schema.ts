@@ -34,6 +34,19 @@ import {
 } from "./lib/draftWebBackgroundValidators";
 import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
+  approveRefusalValidator,
+  checkReasonValidator,
+  documentClientNameValidator,
+  editableLabelValidator,
+  importCountFields,
+  ingestionCategoryValidator,
+  pdVersionCodeValidator,
+  scienceCodeSourceValidator,
+  sheetTabValidator,
+  writerNameSourceValidator,
+  writerStaffRoleValidator,
+} from "./lib/ingestionSheetValidators";
+import {
   sectionMetricsValidator,
   sectionQaFindingsValidator,
   selfCheckSummaryValidator,
@@ -173,10 +186,20 @@ export default defineSchema({
     // (account.setMyPhoto). Listed in STORAGE_REFERENCE_FIELDS so the storage
     // sweep never deletes it.
     imageStorageId: v.optional(v.id("_storage")),
+    // 2026-11-16 widen (writers from initials): the initials Import matches
+    // a file name's writer initials against ("T1.DW.PN"). Upper case, 1 to 4
+    // letters. Absent: not set yet, so it is prefilled from the first and
+    // last name (users.backfillUserInitials, invite acceptance, a name
+    // save; team members with a role only). "": an Admin said this person
+    // has none, so they never match. Admins change it on Team
+    // (users.setUserInitials). A change only gives a writer to files that
+    // have none yet: a file's writer, once set, never moves with it.
+    initials: v.optional(v.string()),
   })
     .index("by_email", ["email"])
     .index("by_authId", ["authId"])
-    .index("by_imageStorageId", ["imageStorageId"]),
+    .index("by_imageStorageId", ["imageStorageId"])
+    .index("by_initials", ["initials"]),
 
   // ─── Invite-only membership: admin-issued signup tokens ────────────────────
   invites: defineTable({
@@ -205,11 +228,18 @@ export default defineSchema({
     resendCount: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     revokedBy: v.optional(v.id("users")),
+    // 2026-11-17 widen: the past writer (pdWriters, no login) an Admin sent
+    // this invite for from Team. Accepting it links that writer to the new
+    // account (auth.ts onCreate, lib/teamRoster.ts linkWriterFromInvite).
+    pdWriterId: v.optional(v.id("pdWriters")),
   })
     .index("by_token", ["token"])
     .index("by_email", ["email"])
     .index("by_email_and_status", ["email", "status"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // Expiry last, so the live invites for one past writer are read by
+    // range, not by creation order: a resend moves an old invite's expiry.
+    .index("by_pdWriterId_and_status_and_expiresAt", ["pdWriterId", "status", "expiresAt"]),
 
   // ─── Round 2 (decision 54): Team's "Last active" ──────────────────────────
   // One row per user, written by team.markActive at most once per 5 minutes.
@@ -311,6 +341,9 @@ export default defineSchema({
     // Active generation fencing and an explicitly published review revision.
     activeGenerationId: v.optional(v.id("generations")),
     sharedReportId: v.optional(v.id("reports")),
+    sharedReportSnapshotId: v.optional(v.id("reportSnapshots")),
+    sharedReportRevisionNumber: v.optional(v.number()),
+    sharedReportPublishedAt: v.optional(v.number()),
     // Filing approval is deliberately human-authored and becomes stale when
     // evidence or the approved report revision changes.
     filingAttestation: v.optional(
@@ -484,6 +517,17 @@ export default defineSchema({
     // True when formerNames holds the whole history (set by mergeClients and
     // on rows made since); older rows also walk their merge tombstones.
     nameHistoryComplete: v.optional(v.boolean()),
+    // 2026-11-18 widen (a company holds all its files): on a merge tombstone
+    // whose files are still moving, the active company they move to. A
+    // merge moves the first 100 files at once and the rest in scheduled
+    // steps (`clients.moveMergedCompanyFiles`); a draft of a project of that
+    // company waits until none is left. Cleared once every file has moved.
+    // A later merge of that company points it at the new kept company.
+    companyFilesMovingTo: v.optional(v.id("clients")),
+    // 2026-11-18 (review P3-3): when that move last moved files (set with
+    // the mark and by every step). A move with no progress for 10 minutes
+    // is started again, or its mark cleared, by the stalled-move sweep.
+    companyFilesMoveAt: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -492,7 +536,11 @@ export default defineSchema({
     .index("by_nameKey", ["nameKey"])
     // 2026-10-26 (Phase C): the companies merged into one, whose names its
     // files may still carry (company file labels hide them).
-    .index("by_mergedIntoClientId", ["mergedIntoClientId"]),
+    .index("by_mergedIntoClientId", ["mergedIntoClientId"])
+    // 2026-11-18: the merged companies whose files still move into one.
+    .index("by_companyFilesMovingTo", ["companyFilesMovingTo"])
+    // 2026-11-18: moves by when they last made progress (the stalled-move sweep).
+    .index("by_companyFilesMoveAt", ["companyFilesMoveAt"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
@@ -526,6 +574,11 @@ export default defineSchema({
     // and client-name reassignment; the verified backfill establishes it on
     // pre-widen rows. Written only by server mutations (never client input).
     stageCounts: v.optional(v.record(v.string(), v.number())),
+    // Derived fallback fiscal year end from the company's newest project with
+    // one set (populated by dashboardProjection writers so AllCompaniesTable
+    // does not need chunked CompanyYearEndsLoader fallback queries).
+    derivedFiscalYearEndMonth: v.optional(v.number()),
+    derivedFiscalYearEndDay: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_companyKey", ["companyKey"])
@@ -817,6 +870,23 @@ export default defineSchema({
     // interview" (seeds.getReadingFacts).
     .index("by_callSite_and_createdAt", ["callSite", "createdAt"]),
 
+  // Hourly AI usage rollups updated incrementally in logUsage so admin
+  // reporting stays fast even after raw aiUsage retention pruning.
+  aiUsageRollups: defineTable({
+    bucketStart: v.number(),
+    model: v.string(),
+    callSite: v.string(),
+    calls: v.number(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    cacheCreationInputTokens: v.number(),
+    cacheReadInputTokens: v.number(),
+    costUsd: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_bucketStart", ["bucketStart"])
+    .index("by_bucketStart_and_model_and_callSite", ["bucketStart", "model", "callSite"]),
+
   transcripts: defineTable({
     projectId: v.id("projects"),
     content: v.string(),
@@ -972,7 +1042,8 @@ export default defineSchema({
       "sourceContentHash",
       "factsVersion",
     ])
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_status_and_startedAt", ["status", "startedAt"]),
 
   // 2026-09-03 widen: multiple transcripts per project. Condensed stand-in for
   // one transcript, reused across generations. Keyed by the transcript, the
@@ -1122,7 +1193,9 @@ export default defineSchema({
     processingError: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_processingStatus_and_createdAt", ["processingStatus", "createdAt"]),
 
   timesheetEntries: defineTable({
     projectId: v.id("projects"),
@@ -1175,7 +1248,9 @@ export default defineSchema({
     revisionNumber: v.optional(v.number()),
     snapshotId: v.optional(v.id("reportSnapshots")),
     contentHash: v.optional(v.string()),
-  }).index("by_projectId", ["projectId"]),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_viewedAt", ["viewedAt"]),
 
   generations: defineTable({
     projectId: v.id("projects"),
@@ -1304,8 +1379,9 @@ export default defineSchema({
     // read every frozen row tell whether the project has left that company.
     companyFilesFrom: v.optional(v.id("clients")),
     // 2026-10-28 (third, owner): the company files this draft could read but
-    // did not fit in the frozen total (at most FROZEN_COMPANY_FILES), so the
-    // Inputs band lists them as not captured.
+    // did not fit in the frozen total (at most FROZEN_COMPANY_FILES, and
+    // since 2026-11-17 the PINNED_FINAL_PDS on top), so the Inputs band
+    // lists them as not captured.
     companyFilesLeftOut: v.optional(v.array(v.id("companyFiles"))),
     // 2026-10-27 (twelfth, owner): whether the draft froze anything from a
     // previous year (a file in the previous-year category, or a transcript a
@@ -2663,7 +2739,18 @@ export default defineSchema({
         v.literal("scoping_notes"),
         v.literal("writer_notes"),
         v.literal("background"),
-        v.literal("other")
+        v.literal("other"),
+        // 2026-11-17 widen (company history, docs/product-domain.md): the
+        // categories an approved Import file keeps on its company. Set only
+        // by Import (a person cannot pick one in Edit details). A final PD
+        // is a company file, never a project's previous-year report
+        // (decision 42): drafts read it as background
+        // (lib/briefEvidence.ts companyFileCategory).
+        v.literal("final_pd"),
+        v.literal("draft"),
+        v.literal("review_copy"),
+        v.literal("transcript"),
+        v.literal("supporting")
       )
     ),
     mimeType: v.optional(v.string()),
@@ -2717,18 +2804,66 @@ export default defineSchema({
     /** The browser's key for the save that made this row, so a retried save finds it. */
     attemptKey: v.optional(v.string()),
     // 2026-11-04 (Edit details): the fiscal year a person filed the file
-    // under, a label only (drafts read company files exactly as before).
-    // Unset: the AI label's year is shown; null: a person said none.
+    // under. Unset: the AI label's year is shown; null: a person said none.
+    // Since 2026-11-17 a draft pins a final PD by this year (never by the AI
+    // label's): the final PDs of the two fiscal years before the project's.
     fiscalYear: v.optional(v.union(v.number(), v.null())),
+    // 2026-11-17 widen (company history): the Import file this company file
+    // was approved from, the PD's writer and reviewer (pdWriters), and the
+    // PD number from its file name ("04"). Set only by Import's approve
+    // (a later change); absent on every file added by hand. A draft prefers
+    // a final PD whose number matches the project's when a year has several.
+    importItemId: v.optional(v.id("ingestionItems")),
+    writerId: v.optional(v.id("pdWriters")),
+    reviewerId: v.optional(v.id("pdWriters")),
+    pdNumber: v.optional(v.string()),
+    // 2026-11-17 widen (Approve on Import): the Import file's own labels as
+    // they were when it was approved, kept for the company's history and
+    // for editing after approval (a later change). Never evidence.
+    importLabels: v.optional(
+      v.object({
+        pdTitle: v.optional(v.string()),
+        versionCode: v.optional(pdVersionCodeValidator),
+        versionNumber: v.optional(v.number()),
+        scienceCode: v.optional(v.string()),
+        fiscalYearEnd: v.optional(v.number()),
+        writerInitials: v.optional(v.string()),
+        reviewerInitials: v.optional(v.string()),
+        // 2026-11-17 widen (edit after approval): an Admin marked the final
+        // PD "Reviewed by CRA" (ingestionItems.craReviewed). A label only,
+        // never a craOutcome and never evidence.
+        craReviewed: v.optional(v.boolean()),
+      })
+    ),
+    // 2026-11-18 widen (a company holds all its files, review P2-1): the
+    // name's search words (shared/fileNameTerms.ts), set wherever a name is
+    // written; rows made before are filled by
+    // `companyFiles.backfillCompanyFileNameTerms`.
+    fileNameTerms: v.optional(v.string()),
   })
     .index("by_clientId_and_archived", ["clientId", "archived"])
+    // 2026-11-17: a company's files of one category, newest first within it
+    // (a draft's company files and the chat's list read the hand-added
+    // categories this way, so imported history never crowds them out).
+    .index("by_clientId_and_archived_and_category", ["clientId", "archived", "category"])
+    // 2026-11-17: a company's final PDs of one fiscal year, not archived,
+    // read by a draft's pinned set without scanning the company's other
+    // files (archived ones never use up its places).
+    .index("by_clientId_and_category_and_archived_and_fiscalYear", ["clientId", "category", "archived", "fiscalYear"])
+    .index("by_importItemId", ["importItemId"])
     // The same file: one company, text, name, not archived.
     .index("by_clientId_and_textHash_and_fileName_and_archived", ["clientId", "textHash", "fileName", "archived"])
     .index("by_clientId_and_attemptKey", ["clientId", "attemptKey"])
     .index("by_clientId_and_searchPiecesDue", ["clientId", "searchPiecesDue"])
     .index("by_storageId", ["storageId"])
     .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])
-    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"]),
+    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"])
+    // 2026-11-18 (a company holds all its files): find a file by name among
+    // all of a company's files, not only the pages the Files tab loaded.
+    .searchIndex("search_fileName", { searchField: "fileName", filterFields: ["clientId"] })
+    // 2026-11-18 (review P2-1): the same, by the name's words and their parts
+    // (`fileNameTerms`), so "2021" finds "AcmeFY2021T661.pdf".
+    .searchIndex("search_fileNameTerms", { searchField: "fileNameTerms", filterFields: ["clientId"] }),
 
   // A company file's text, in pieces (as projectDocumentTexts), keyed by the
   // file only, so moving a file to another company moves no text.
@@ -3170,7 +3305,10 @@ export default defineSchema({
       v.literal("milestone"),
       // Untouched AI draft frozen at candidate selection — the post-edit
       // distance baseline (BNH-10 flywheel).
-      v.literal("generated")
+      v.literal("generated"),
+      // Immutable client-review snapshot frozen when publishForReview runs so
+      // live post-publish edits never leak onto /review/[shareToken].
+      v.literal("publish_review")
     ),
     // Stable key for workflow-labelled snapshots (e.g. R0/R1/R4/R5).
     milestoneKey: v.optional(v.string()),
@@ -3190,6 +3328,7 @@ export default defineSchema({
     researchSourceCount: v.optional(v.number()),
   })
     .index("by_reportId", ["reportId"])
+    .index("by_reportId_and_reason", ["reportId", "reason"])
     .index("by_projectId", ["projectId"])
     .index("by_generationId", ["generationId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"])
@@ -3523,6 +3662,10 @@ export default defineSchema({
     // A company_file row's file and the company it came from at the freeze.
     companyFileId: v.optional(v.id("companyFiles")),
     clientId: v.optional(v.id("clients")),
+    // 2026-11-17 widen (company history): a company_file row's fiscal year
+    // (companyFiles.fiscalYear) at the freeze, so a pinned final PD traces
+    // to its year after the file's year is edited. Absent: the file had none.
+    fiscalYear: v.optional(v.number()),
     label: v.string(),
     // B1, second part (2026-10-27), widen only: the text the draft read.
     // Present on every row written before the change; a new project file or
@@ -3770,11 +3913,32 @@ export default defineSchema({
     revisionNumber: v.number(),
     contentHash: v.string(),
     decision: v.union(v.literal("approve"), v.literal("return")),
-    toStage: v.union(v.literal("edits"), v.literal("ready_for_delivery")),
+    toStage: v.union(
+      v.literal("edits"),
+      v.literal("client_review"),
+      v.literal("ready_for_delivery")
+    ),
     note: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"]),
+
+  // Immutable delivery and submission outcome records pinned directly to an
+  // exact report revision (reportId, revisionNumber, contentHash) when a
+  // project enters `ready_for_delivery` (Submitted) or `delivered` (Delivered).
+  productionOutcomes: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    outcomeType: v.union(v.literal("ready_for_delivery"), v.literal("delivered")),
+    recordedBy: v.id("users"),
+    recordedAt: v.number(),
+    note: v.optional(v.string()),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_projectId_and_outcomeType", ["projectId", "outcomeType"])
     .index("by_reportId", ["reportId"]),
 
   // Per-writer feedback on individual generated QA observations. Target keys
@@ -3824,7 +3988,7 @@ export default defineSchema({
     industry: v.string(), // → RAG namespace
     scienceCode: v.optional(v.string()),
     writerName: v.optional(v.string()),
-    writerTier: v.number(), // 0..1 → RAG `importance` (Tracy 1.0 / next tier ~0.7 / other ~0.4)
+    writerTier: v.number(), // 0..1 ranking weight, blended after the relevance floor; an imported PD's follows its writer's weight on Team (default 0.7 since 2026-11-18), other routes keep what they stored (nominations and feedback 0.4); RAG `importance` is 1 since 2026-11-17
     docType: v.string(), // "pd" | "transcript" | "cra_letter"
     fiscalYear: v.optional(v.number()),
     craOutcome: v.optional(
@@ -3838,13 +4002,233 @@ export default defineSchema({
     sourceProjectId: v.optional(v.id("projects")), // if promoted from a live project
     createdBy: v.string(),
     createdAt: v.number(),
+    // 2026-11-17 widen (Brain reads at volume): the import file this source
+    // was made from, and that file's `ingestionItems.contentHash`, so a file
+    // approved again matches its source by bytes, not only by text.
+    importItemId: v.optional(v.id("ingestionItems")),
+    importContentHash: v.optional(v.string()),
+    // The status a revoke moved it from: "pending" is a rejection, "approved"
+    // a removal. Absent on rows revoked before 2026-11-17.
+    revokedFromStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"))),
+    // 2026-11-17 widen (Send back to review): the Import file whose Send back
+    // revoked this source. Such a source never blocks a new Brain copy of
+    // that PD: after its next approval and Brain check a new row is made
+    // (with its own ragKey), and this one stays revoked for the history.
+    sentBackItemId: v.optional(v.id("ingestionItems")),
+    // 2026-11-17 widen: the RAG importance of the source's last finished
+    // embed (set by ingestOnComplete). Every embed since is 1; absent on
+    // older rows, embedded at their tier as it stood then. Since the PR #51
+    // review an absent value is unknown (the current tier does not tell it),
+    // so brain:reembedBelowFullImportance, reweightSource and the build
+    // refresh those rows at importance 1.
+    ragImportance: v.optional(v.number()),
+    // 2026-11-17 widen (review round 2): the chunk note prompt version of
+    // the source's last finished embed when it had chunk notes (set by
+    // ingestOnComplete); absent with no notes, or on older rows, whose notes
+    // came from the prompt that asked for the company.
+    chunkNotesVersion: v.optional(v.number()),
+    // 2026-11-18 (fourth) widen (the Brain moves to Voyage 4): the source's
+    // entry in the voyage4 index (voyage-4-large, namespace "brain-v4") and
+    // that entry's chunk note version. `ragEntryId`, `ragImportance` and
+    // `chunkNotesVersion` describe the voyage3 index. Revoke and unlearn
+    // erase both entries; each field is cleared only by its own confirmed
+    // erasure.
+    ragEntryIdV4: v.optional(v.string()),
+    chunkNotesVersionV4: v.optional(v.number()),
+    // 2026-11-21 widen: Voyage 4 embedding prompt version (2 = asymmetric
+    // input_type "document"/"query"). Older unprompted v4 entries lack this
+    // version so buildSearchIndex rebuilds them and cutover refuses them.
+    embeddingVersionV4: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
     .index("by_hash", ["sourceHash"])
     .index("by_ragKey", ["ragKey"])
     .index("by_industry", ["industry"])
-    .index("by_scienceCode", ["scienceCode"]),
+    .index("by_scienceCode", ["scienceCode"])
+    .index("by_importItemId", ["importItemId"])
+    .index("by_importContentHash", ["importContentHash"])
+    .index("by_sourceProjectId", ["sourceProjectId"]),
+
+  // 2026-11-17 (Brain reads at volume): every import file linked to a
+  // source, by its `ingestionItems.contentHash`, whether it matched by bytes
+  // or by text. Dedup looks a file's bytes up here first, so a later copy of
+  // any linked file finds its source even when its text is read differently.
+  // Written and deleted only through `convex/ai/brain/rag.ts`
+  // (`linkBrainSourceImportFile`, `deleteBrainSource`). Kept on revoke, so a
+  // revoked source still refuses every file linked to it.
+  brainSourceImportFiles: defineTable({
+    contentHash: v.string(),
+    sourceId: v.id("brainSources"),
+    importItemId: v.id("ingestionItems"),
+  })
+    .index("by_contentHash_and_sourceId", ["contentHash", "sourceId"])
+    .index("by_sourceId", ["sourceId"]),
+
+  // 2026-11-17 (Brain reads at volume): one small row per `brainSources` row
+  // with what /admin/brain lists, so the list pages without reading any
+  // source's text. Kept in step with its source in one place
+  // (`convex/ai/brain/rag.ts`, writeBrainSource helpers); built for older
+  // rows by `brain:backfillBrainSourceCards`.
+  brainSourceCards: defineTable({
+    sourceId: v.id("brainSources"),
+    kind: v.union(
+      v.literal("pd_pair"),
+      v.literal("cra_letter"),
+      v.literal("writer_feedback")
+    ),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("revoked")
+    ),
+    title: v.string(),
+    industry: v.string(),
+    scienceCode: v.optional(v.string()),
+    writerName: v.optional(v.string()),
+    writerTier: v.number(),
+    docType: v.string(),
+    craOutcome: v.optional(
+      v.union(v.literal("approved"), v.literal("rejected"), v.literal("disputed"))
+    ),
+    ragEntryId: v.optional(v.string()),
+    createdAt: v.number(),
+    // 2026-11-17 widen: the source's import file, so retrieval can leave a
+    // company's own imported PDs out of its own exemplars without reading
+    // the source's text. Filled for older cards by brain:backfillBrainSourceCards.
+    importItemId: v.optional(v.id("ingestionItems")),
+    // 2026-11-17 widen: brainSources.ragImportance and chunkNotesVersion, for the re-embed pass.
+    ragImportance: v.optional(v.number()),
+    chunkNotesVersion: v.optional(v.number()),
+    // 2026-11-18 (fourth) widen: brainSources.ragEntryIdV4 and
+    // chunkNotesVersionV4, for the voyage4 build chain and the admin list.
+    ragEntryIdV4: v.optional(v.string()),
+    chunkNotesVersionV4: v.optional(v.number()),
+    embeddingVersionV4: v.optional(v.number()),
+  })
+    .index("by_sourceId", ["sourceId"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_status_and_createdAt", ["status", "createdAt"]),
+
+  // 2026-11-17 (Brain reads at volume): stored counts behind `brain:brainStats`.
+  // `scope` "status" counts every source by status; `scope` "industry" counts
+  // approved sources by industry. Changed only with `brainSourceCards`, so the
+  // counts always equal a recount of the cards. A count that reaches 0 is
+  // deleted. `scope` "meta", key "cards_ready": written by the card
+  // backfill's last page (its `count` is the sources it synced); the paged
+  // re-embed refuses to start without it.
+  brainSourceCounts: defineTable({
+    scope: v.union(v.literal("status"), v.literal("industry"), v.literal("meta")),
+    key: v.string(),
+    count: v.number(),
+  }).index("by_scope_and_key", ["scope", "key"]),
+
+  // 2026-11-18 (fourth) (the Brain moves to Voyage 4): which search index
+  // serves. At most one row, key "search"; no row means "voyage3" serves.
+  // Written only by brain:setServingSearchIndex, brain:buildSearchIndex
+  // (`lastBuild`) and brain:dropOldSearchIndex (`oldIndexDropped`). Moving
+  // `serving` is the cutover; moving it back is the rollback, as long as the
+  // old index is still written (`oldIndexDropped` unset).
+  brainSearchIndexState: defineTable({
+    key: v.literal("search"),
+    serving: v.union(v.literal("voyage3"), v.literal("voyage4")),
+    // Set when the drop of the voyage3 index starts: from then no embed
+    // writes to it and the pointer can no longer move back.
+    oldIndexDropped: v.optional(v.boolean()),
+    // The last finished build pass of the voyage4 index: approved sources it
+    // read, those that had an entry, those it queued, and those still
+    // missing once their embeds finished. The pointer moves to voyage4 only
+    // after a pass with none missing.
+    lastBuild: v.optional(
+      v.object({
+        finishedAt: v.number(),
+        approved: v.number(),
+        present: v.number(),
+        queued: v.number(),
+        missing: v.number(),
+        // The index the pass filled; absent: every written index.
+        index: v.optional(v.union(v.literal("voyage3"), v.literal("voyage4"))),
+      })
+    ),
+    // Review 51 widen: a build pass is running (its first step's time is
+    // the run's id; a step of another run stops). Cleared by its last step.
+    buildRunning: v.optional(
+      v.object({
+        startedAt: v.number(),
+        index: v.optional(v.union(v.literal("voyage3"), v.literal("voyage4"))),
+      })
+    ),
+    // Review 51 widen: a pointer move whose live check of every approved
+    // card did not fit in one call; the next call goes on from `cursor`.
+    moveCheck: v.optional(
+      v.object({
+        index: v.union(v.literal("voyage3"), v.literal("voyage4")),
+        cursor: v.string(),
+        checked: v.number(),
+        startedAt: v.number(),
+      })
+    ),
+    // Final review widen: when search last moved to the index it reads now
+    // (absent before any move: voyage3 since the start).
+    servingSince: v.optional(v.number()),
+    // Final review widen: the last calibration run (brain:calibrateSearchIndexes
+    // writes only this): when, with how many probes, and which index served.
+    // The old index's drop waits for one after the cutover with enough probes.
+    lastCalibration: v.optional(
+      v.object({
+        at: v.number(),
+        probes: v.number(),
+        serving: v.union(v.literal("voyage3"), v.literal("voyage4")),
+      })
+    ),
+    changedBy: v.string(),
+    changedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // Final review of #48 to #51 (P2-1): a Brain copy the old-page send back
+  // job left approved because it could not tie it to the file's own old
+  // approval ("unknown_origin") or because it came from another route or is
+  // shared ("unlink_only"). One row per copy, written by a real run. An Admin
+  // decides each on /admin/brain: "removed" (through the audited revoke,
+  // which closes the row) or "kept". brain:buildSearchIndex does not start
+  // while an unknown-origin row is still open, unless told to.
+  brainOldPageCopies: defineTable({
+    sourceId: v.id("brainSources"),
+    itemId: v.id("ingestionItems"),
+    outcome: v.union(v.literal("unknown_origin"), v.literal("unlink_only")),
+    detail: v.string(),
+    status: v.union(v.literal("open"), v.literal("kept"), v.literal("removed")),
+    recordedAt: v.number(),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+  })
+    .index("by_sourceId", ["sourceId"])
+    .index("by_status_and_outcome", ["status", "outcome"])
+    .index("by_status_and_recordedAt", ["status", "recordedAt"]),
+
+  // Review 51 (2026-11-18 (fourth)): the chunk notes one embed made, kept
+  // until every index it adds to has its entry, so a pool retry after a
+  // failed add never pays Haiku for them again. One row per source and
+  // note version; `notes[i]` is the note of raw chunk i ("" for none).
+  // Deleted by the embed once its adds finish, and with the source.
+  brainChunkNotes: defineTable({
+    sourceId: v.id("brainSources"),
+    notesVersion: v.number(),
+    chunkCount: v.number(),
+    notes: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_sourceId_and_notesVersion", ["sourceId", "notesVersion"]),
+
+  // Review 51 (2026-11-18 (fourth)): an embed's add to one index while it
+  // runs, so brain:deleteOldSearchNamespace can wait for adds to voyage3
+  // that started before its drop (an add would make the namespace again).
+  // Written before the add, deleted after it; a row older than an action
+  // can run is stale and ignored.
+  brainIndexWrites: defineTable({
+    index: v.union(v.literal("voyage3"), v.literal("voyage4")),
+    sourceId: v.id("brainSources"),
+    startedAt: v.number(),
+  }).index("by_index_and_startedAt", ["index", "startedAt"]),
 
   // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
   // One row per review run. The uploaded PD lives in projectDocuments
@@ -3944,7 +4328,16 @@ export default defineSchema({
       // Confirmed erasure evidence (CAP-10). `revoke` is intent only; these
       // two record the outcome of the confirmed-erasure action.
       v.literal("unlearn_confirmed"),
-      v.literal("unlearn_failed")
+      v.literal("unlearn_failed"),
+      // 2026-11-17 widen (edit after approval): an Admin changed an imported
+      // PD's writer or science code on Import, and its Brain copy followed.
+      v.literal("relabel"),
+      // 2026-11-18 (fourth) widen: the serving search index moved (cutover
+      // or rollback), or the old index's drop started. No `sourceId`.
+      v.literal("switch_index"),
+      // Final review widen: an Admin kept a copy the old-page send back left
+      // approved (removing one is a `revoke`).
+      v.literal("keep_old_page_copy")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),
@@ -4294,7 +4687,140 @@ export default defineSchema({
     // off this (not startedAt) so healthy long continuation chains aren't
     // treated as crashed.
     lastProgressAt: v.optional(v.number()),
+    // 2026-11-12: the Import batch this run's files arrive in (startSync
+    // makes one). Runs from before have none; the History tab lists those
+    // from this table.
+    batchId: v.optional(v.id("importBatches")),
   }).index("by_startedAt", ["startedAt"]),
+
+  // 2026-11-17 (Approve on Import, docs/product-domain.md): one row per
+  // approval an Admin starts, "Approve N ready" on a company or Approve on
+  // selected files. A scheduled chain (ingestion.runApproval) approves its
+  // files one mutation each and moves the counters, which the page shows.
+  // Safe to run again: a file already approved is counted, never made twice.
+  importApprovals: defineTable({
+    startedBy: v.id("users"),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    // "company": the ready files of one company band on To review, found a
+    // page at a time (`cursor`, then `paged`). "files": files a person picked.
+    scope: v.union(v.literal("company"), v.literal("files")),
+    companyKey: v.optional(v.string()),
+    companyName: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    paged: v.optional(v.boolean()),
+    // Files listed in it so far (the next file's position).
+    listed: v.optional(v.number()),
+    status: v.union(v.literal("running"), v.literal("done"), v.literal("stopped")),
+    // Files in the approval (a company's ready count when it started, until
+    // its pages are read), files looked at, approved and left on To review.
+    total: v.number(),
+    done: v.number(),
+    approved: v.number(),
+    refused: v.number(),
+    // The person closed its line on the page.
+    dismissedAt: v.optional(v.number()),
+  })
+    .index("by_startedBy_and_startedAt", ["startedBy", "startedAt"])
+    // Approvals still running, for every Admin's approval line.
+    .index("by_status_and_startedAt", ["status", "startedAt"])
+    .index("by_scope_and_companyKey_and_status", ["scope", "companyKey", "status"]),
+
+  // 2026-11-17: the files of one approval, in order, with what became of each.
+  importApprovalFiles: defineTable({
+    approvalId: v.id("importApprovals"),
+    itemId: v.id("ingestionItems"),
+    position: v.number(),
+    state: v.union(v.literal("waiting"), v.literal("approved"), v.literal("already"), v.literal("refused")),
+    reason: v.optional(approveRefusalValidator),
+    // Plain words beside the reason ("merged into Halden Foods").
+    detail: v.optional(v.string()),
+    name: v.string(),
+  })
+    .index("by_approvalId_and_state_and_position", ["approvalId", "state", "position"])
+    .index("by_approvalId_and_itemId", ["approvalId", "itemId"])
+    // 2026-11-19 (Greptile on PR #46): Send back reads the approvals a file
+    // still waits in by the file, not from a bounded list of running ones.
+    .index("by_itemId_and_state", ["itemId", "state"]),
+
+  // 2026-11-17 (Send back to review, edit after approval;
+  // docs/product-domain.md): one row for every Send back and every edit an
+  // Admin made to an approved Import file, append only. An edit lists each
+  // field it changed with the value before and after (a writer or reviewer
+  // by its pdWriters id, with its label as it was then). A Send back says
+  // what became of the company file (removed, or already gone) and of the
+  // Brain copy (revoked, only this file unlinked, already removed from the
+  // Brain before, or none).
+  importFileEvents: defineTable({
+    itemId: v.id("ingestionItems"),
+    // 2026-11-18 (second) widen: "reopen_brain_check", a final PD kept out
+    // of the Brain that an Admin put back in Brain check.
+    action: v.union(v.literal("edit"), v.literal("send_back"), v.literal("reopen_brain_check")),
+    userId: v.id("users"),
+    at: v.number(),
+    changes: v.optional(
+      v.array(
+        v.object({
+          field: v.union(
+            v.literal("writer"),
+            v.literal("reviewer"),
+            v.literal("scienceCode"),
+            v.literal("pdTitle"),
+            v.literal("craReviewed")
+          ),
+          before: v.optional(v.string()),
+          after: v.optional(v.string()),
+          beforeLabel: v.optional(v.string()),
+          afterLabel: v.optional(v.string()),
+        })
+      )
+    ),
+    companyFileId: v.optional(v.id("companyFiles")),
+    companyFile: v.optional(v.union(v.literal("removed"), v.literal("gone"), v.literal("updated"))),
+    brainSourceId: v.optional(v.id("brainSources")),
+    brain: v.optional(
+      v.union(
+        v.literal("revoked"),
+        v.literal("unlinked"),
+        v.literal("already_removed"),
+        v.literal("relabeled"),
+        v.literal("reembedded"),
+        v.literal("none")
+      )
+    ),
+  }).index("by_itemId_and_at", ["itemId", "at"]),
+
+  // 2026-11-12 (Import page, adding files): one row per batch of files that
+  // arrived together, for the History tab and the status line under the
+  // toolbar. `source`: "page" (dropped on the Import page or Add files; the
+  // signed-in admin is `addedBy`), "uploader" (the client uploader, which
+  // sends no person or batch: files that arrive within a quiet gap of each
+  // other are one batch) or "onedrive" (one OneDrive sync run). Counters move
+  // as files arrive and are read; nothing here touches the Brain.
+  importBatches: defineTable({
+    source: v.union(v.literal("page"), v.literal("uploader"), v.literal("onedrive")),
+    addedBy: v.optional(v.id("users")),
+    startedAt: v.number(),
+    // When the last file arrived (or the browser last reported).
+    lastFileAt: v.number(),
+    // Page only: the files the browser is sending (after leaving out those
+    // already here), and whether it has finished sending them.
+    toSend: v.optional(v.number()),
+    sendingDone: v.optional(v.boolean()),
+    // Files staged: new, or changed, so they are read again.
+    added: v.number(),
+    // Files skipped because the same file is already in Import.
+    alreadyHere: v.number(),
+    // Page only: files the browser could not send.
+    failed: v.number(),
+    // Of `added`, how many have finished being read, and how many of those could not be read.
+    read: v.number(),
+    couldNotRead: v.number(),
+    lastReadAt: v.optional(v.number()),
+  })
+    .index("by_startedAt", ["startedAt"])
+    .index("by_lastFileAt", ["lastFileAt"])
+    .index("by_source_and_lastFileAt", ["source", "lastFileAt"]),
 
   ingestionItems: defineTable({
     driveItemId: v.string(), // Graph item id — stable upsert key
@@ -4314,10 +4840,11 @@ export default defineSchema({
     lastModifiedAt: v.number(),
     contentHash: v.string(), // Graph quickXorHash, else sha256 of bytes
     storageId: v.optional(v.id("_storage")), // original bytes once fetched
-    // Short extract preview for list/detail UI. The FULL extracted text lives
-    // in storage (textStorageId) so pair/list queries never read megabytes of
-    // transcript per row (Convex 16MiB read limit).
+    // Short extract preview for list/detail UI. New writes store preview text
+    // in ingestionItemTexts (by_itemId) and record textLength here so
+    // ingestionItems rows stay small when scanning stats or queues.
     text: v.optional(v.string()),
+    textLength: v.optional(v.number()),
     textStorageId: v.optional(v.id("_storage")),
     extractNote: v.optional(v.string()), // e.g. "pdf — text extraction pending"
     status: v.union(
@@ -4332,7 +4859,11 @@ export default defineSchema({
     error: v.optional(v.string()),
     // Pair bookkeeping per client+fiscal-year group. Gaps are a feature, not
     // an error — "we need to get the transcript for this one" (Jun 19).
-    pairGroupKey: v.string(), // `${clientName}::${fiscalYearLabel}`
+    // `${companyKey}::${fiscalYear}` since 2026-11-11 ("?" for a missing
+    // part; lib/ingestionClassify.ts pairGroupKeyFor). Rows staged before
+    // carry main's `${clientName}::${fiscalYearLabel}` until their next write
+    // or ingestion.backfillIngestionLabels.
+    pairGroupKey: v.string(),
     pairStatus: v.optional(
       v.union(
         v.literal("paired"),
@@ -4365,15 +4896,431 @@ export default defineSchema({
     ),
     deletedBy: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
+    // 2026-11-11 widen (Import sheet, labels): what classify works out from
+    // the item's path and file name (convex/lib/ingestionClassify.ts).
+    // Refreshed whenever the stored path is written; absent on rows from
+    // before the change until ingestion.backfillIngestionLabels runs.
+    // `docKind` above still drives pairing and approval; since phase 2 every
+    // write sets it from `category` (convex/lib/ingestionSheet.ts).
+    category: v.optional(ingestionCategoryValidator),
+    companyKey: v.optional(v.string()), // dashboardCompanyKey(client folder)
+    // UTC, from the fiscal year label; a final PD's file name date fills in
+    // a day the label left out.
+    fiscalYearEnd: v.optional(v.number()),
+    // true: neither gave the day, so the month's last day (or Dec 31) was assumed
+    fiscalYearEndAssumed: v.optional(v.boolean()),
+    // From the file name ("04 Client 2025-03-31 T2.DW.PN Title") of a final
+    // PD, or of a draft or review copy whose name carries a version token.
+    // Initials are never an Owner or a user link. Since 2026-11-16 the
+    // writer's initials pick the file's writer (writerId, below).
+    pdNumber: v.optional(v.string()),
+    versionCode: v.optional(pdVersionCodeValidator),
+    versionNumber: v.optional(v.number()),
+    writerInitials: v.optional(v.string()),
+    reviewerInitials: v.optional(v.string()),
+    // 2026-11-23 widen: slot 2 lowercase reviewer initials (".mo" = review in
+    // progress), slot 3 accepted client edits, slot 4 financial reviewer.
+    reviewerInProgress: v.optional(v.boolean()),
+    clientInitials: v.optional(v.string()),
+    financialInitials: v.optional(v.string()),
+    // 2026-11-17 widen: every initials group of a version token with three
+    // to six groups ("T0.DW.PN.KT"), kept alongside the unpacked positional slots.
+    initialsGroups: v.optional(v.array(v.string())),
+    // 2026-11-24 widen: optional additional co-writer and extra client initials
+    // assigned manually on Import (primary writerInitials/reviewerInitials stay
+    // singular for writer ranking and Brain retiering).
+    coWriterInitials: v.optional(v.array(v.string())),
+    extraClientInitials: v.optional(v.array(v.string())),
+    pdTitle: v.optional(v.string()),
+    // 2026-11-11 widen (Import sheet, phase 2). Worked out on every write by
+    // convex/lib/ingestionSheet.ts settleItem; absent on rows not written
+    // since, until ingestion.backfillIngestionLabels runs. A row with no
+    // sheetTab is not on the sheet and not in importCompanies.
+    // review: discovered, fetched, pending_review, failed; approved;
+    // deleted: rejected, deleted.
+    sheetTab: v.optional(sheetTabValidator),
+    // Review tab only: true when checkReasons is not empty.
+    needsCheck: v.optional(v.boolean()),
+    checkReasons: v.optional(v.array(checkReasonValidator)),
+    // Order inside a category section: PD number, version, then name for
+    // final PDs, drafts and review copies; the lower-cased name otherwise.
+    sortKey: v.optional(v.string()),
+    // Set by a person on the sheet (ingestion.setSheetLabels), or since
+    // 2026-11-12 taken from the writer a person said the file name's
+    // initials stand for. Since 2026-11-16 the label of `writerId` below.
+    writerName: v.optional(v.string()),
+    // 2026-11-12 widen: where writerName came from. Absent on names set
+    // before (a person's: editedLabels has "writerName").
+    writerNameSource: v.optional(writerNameSourceValidator),
+    // 2026-11-16 widen (writers from initials): the writer the file points
+    // at (pdWriters). Filled by the check on the file name's initials only
+    // while the file has no writer, then frozen: it moves only on a
+    // firm-wide pick (and its Undo) or a person setting it on the file.
+    // writerName stays as the writer's label when it was written, for the
+    // old page and approval (an approved file's stored name is never
+    // rewritten); the sheet shows the writer's label as it is now. Absent
+    // on rows not written since, until ingestion.backfillImportWriters runs.
+    writerId: v.optional(v.id("pdWriters")),
+    // 2026-11-16 widen: on a file that follows a person's firm-wide pick
+    // (writerNameSource "pick"), the writer it had before the pick (all
+    // three absent: it had none), so the pick's Undo puts back exactly that.
+    // Absent on every other file.
+    writerBeforePick: v.optional(
+      v.object({
+        writerId: v.optional(v.id("pdWriters")),
+        writerName: v.optional(v.string()),
+        writerNameSource: v.optional(writerNameSourceValidator),
+      })
+    ),
+    // 2026-11-17 widen (reviewers from the file name): the writer
+    // (pdWriters) who reviewed the PD, from reviewerInitials by the same
+    // check as the writer and the same freeze rule: filled only while the
+    // file has no reviewer, then it moves only on a firm-wide pick for the
+    // initials (and its Undo), an Admin's Link or Unlink (which change the
+    // writer's account, never the file's reviewer) or a person setting it
+    // on the file. No stored name: the sheet shows the writer's label as it
+    // is now. Final PDs, drafts and review copies only. A missing reviewer
+    // is never a check reason.
+    reviewerId: v.optional(v.id("pdWriters")),
+    // Where reviewerId came from, as writerNameSource: "person", "initials"
+    // or "pick". Absent with no reviewer, but "person" with no reviewerId
+    // when a person chose "No reviewer" (2026-11-17 fifth, edit after
+    // approval): its reviewer initials never fill it again.
+    reviewerSource: v.optional(writerNameSourceValidator),
+    // On a file whose reviewer follows a pick (reviewerSource "pick"), the
+    // reviewer it had before it (both absent: none), so the pick's Undo puts
+    // back exactly that. Absent on every other file.
+    reviewerBeforePick: v.optional(
+      v.object({
+        reviewerId: v.optional(v.id("pdWriters")),
+        reviewerSource: v.optional(writerNameSourceValidator),
+      })
+    ),
+    // 2026-11-17 widen: an Admin marked this final PD "Reviewed by CRA"
+    // (ingestion.setCraReviewed), by hand only, never by AI. Who and when
+    // with it. Set on final PDs only; like the science code it stays stored
+    // when a file is moved to another category and shows again when it is
+    // moved back, but only a final PD shows it.
+    // Never written into any craOutcome field, which steers retrieval.
+    craReviewed: v.optional(v.boolean()),
+    craReviewedBy: v.optional(v.id("users")),
+    craReviewedAt: v.optional(v.number()),
+    // A code from shared/craScienceCodes.ts: read from a final PD's text
+    // ("document") or set by a person ("person"). Source is absent with no code.
+    scienceCode: v.optional(v.string()),
+    scienceCodeSource: v.optional(scienceCodeSourceValidator),
+    // 2026-11-16 widen (writers from initials): the distinct names that
+    // follow a writer cue ("Prepared by Dana Whitlock") in the file's full
+    // text, at most 5 (shared/writerNameFromText.ts), read by the
+    // extraction or by ingestion.backfillDocumentWriterNames. [] when the
+    // text names no one; absent when the text has not been read for them.
+    // The one that matches the file's writer initials names a past writer
+    // the check made (convex/lib/teamRoster.ts nameWriterFromDocument).
+    documentWriterNames: v.optional(v.array(v.string())),
+    // 2026-11-24 widen: distinct client-side technical contact names extracted
+    // from CRA Schedule 60 Section C (lines 254, 256, 260/261 table; shared/pdSectionC.ts),
+    // with Track Changes and Comments sources reserved for future XML parsing.
+    // [] when text was read and found no contacts; absent until extracted.
+    documentClientNames: v.optional(v.array(documentClientNameValidator)),
+    // The labels a person set. A move or a new copy on the drive keeps
+    // these instead of what the new path says.
+    editedLabels: v.optional(v.array(editableLabelValidator)),
+    // 2026-11-12 (Import page, adding files). The section a file shows in on
+    // the sheet: its category, or "unknown" (Not sorted yet) while it is
+    // being read. Worked out on every write (settleItem).
+    sheetSection: v.optional(ingestionCategoryValidator),
+    // New: true from when the file arrives (new, or new bytes) until
+    // ingestion.clearExpiredNew clears it 24 hours after `arrivedAt`.
+    isNew: v.optional(v.boolean()),
+    arrivedAt: v.optional(v.number()),
+    // The batch the file last arrived in (importBatches), and whether that
+    // batch still waits for this file's reading to count it as read.
+    batchId: v.optional(v.id("importBatches")),
+    batchReadPending: v.optional(v.boolean()),
+    // 2026-11-17 widen (Approve on Import, docs/product-domain.md): the
+    // company file an approval made from this file (companyFiles), so the
+    // Approved tab links to it and Send back (a later change) removes it.
+    // Absent on files approved on the old page before this change.
+    companyFileId: v.optional(v.id("companyFiles")),
+    // 2026-11-17 widen: a final PD's Brain check, the person's look at its
+    // scrubbed Brain copy before one is made. "waiting" from its approval
+    // until an Admin adds it (brainSourceId is set) or keeps it out.
+    // Absent on every other file, and on final PDs approved before.
+    brainCheck: v.optional(v.union(v.literal("waiting"), v.literal("added"), v.literal("kept_out"))),
+    brainCheckedBy: v.optional(v.id("users")),
+    brainCheckedAt: v.optional(v.number()),
+    // 2026-11-18 (second) widen (Brain check order): set only while
+    // brainCheck is "waiting", by patchItem, cleared otherwise.
+    // brainCheckYearRank is minus the fiscal year (newest first), 0 for a
+    // PD with no fiscal year (last). brainCheckWriterRank is minus the
+    // writer's weight times 1000, rounded (highest weight first;
+    // shared/writerWeight.ts), and is absent on a PD of the last three
+    // fiscal years: the Brain check lists those first, then the rest by
+    // writer weight. The New Year cron writes them again.
+    brainCheckYearRank: v.optional(v.number()),
+    brainCheckWriterRank: v.optional(v.number()),
+    // 2026-11-17 widen: true when the extraction cut the file's text at the
+    // import's limit, so the import does not hold its whole text. Set by
+    // every extraction; absent on rows read before, which fall back to the
+    // words the extraction left in extractNote (ingestion.importTextCut)
+    // and store this field at their approval.
+    textCut: v.optional(v.boolean()),
+    // 2026-11-17 widen (Send back to review): the Admin who last sent this
+    // file back from Approved to To review, and when. The full record of
+    // every Send back and edit after approval is importFileEvents.
+    sentBackBy: v.optional(v.id("users")),
+    sentBackAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
+    // 2026-11-18 (Send back to review): the approved files that still point
+    // at a Brain source, so Send back revokes a copy only when no other
+    // approved file uses it, reading at most two files.
+    .index("by_brainSourceId_and_status", ["brainSourceId", "status"])
+    // 2026-11-17: the final PDs waiting for a Brain check, company by company.
+    .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
+    // 2026-11-18 (second): the Brain check order, both parts from one index.
+    // First the last three fiscal years (no writer rank), newest first;
+    // then the rest, highest writer weight first, then newest year (a PD of
+    // no year last), then company. Named without "_and_" to stay within the
+    // backend's 64 characters.
+    .index("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", [
+      "brainCheck",
+      "brainCheckWriterRank",
+      "brainCheckYearRank",
+      "companyKey",
+    ])
     .index("by_textStorageId", ["textStorageId"])
     .index("by_driveItemId", ["driveItemId"])
     .index("by_status", ["status"])
     .index("by_pairGroupKey", ["pairGroupKey"])
     .index("by_pairStatus", ["pairStatus"])
-    .index("by_portedProjectId", ["portedProjectId"]),
+    .index("by_portedProjectId", ["portedProjectId"])
+    // Import sheet (phase 2). Rows with no company have no companyKey. The
+    // first one is in creation order, which no label edit changes, so the
+    // counts rebuild can page through it while files change.
+    .index("by_sheetTab_and_companyKey", ["sheetTab", "companyKey"])
+    // A section's files (2026-11-12: by sheetSection, so a file being read
+    // lists under Not sorted yet until it is read).
+    .index("by_sheetTab_and_companyKey_and_sheetSection_and_sortKey", [
+      "sheetTab",
+      "companyKey",
+      "sheetSection",
+      "sortKey",
+    ])
+    // Named without "_and_": the full names pass the 64 characters the
+    // backend allows (tests/convexIndexNames.test.ts guards every name).
+    .index("by_sheetTab_companyKey_sheetSection_needsCheck_sortKey", [
+      "sheetTab",
+      "companyKey",
+      "sheetSection",
+      "needsCheck",
+      "sortKey",
+    ])
+    .index("by_sheetTab_companyKey_sheetSection_isNew_sortKey", [
+      "sheetTab",
+      "companyKey",
+      "sheetSection",
+      "isNew",
+      "sortKey",
+    ])
+    // The New files whose 24 hours are up (ingestion.clearExpiredNew).
+    .index("by_isNew_and_arrivedAt", ["isNew", "arrivedAt"])
+    // "Already here": a file with the same bytes (the page asks before sending).
+    .index("by_contentHash", ["contentHash"])
+    // 2026-11-12: the files whose name gave these initials, for applying a
+    // writer a person matched to them (ingestion.matchWriterInitials).
+    .index("by_sheetTab_and_writerInitials", ["sheetTab", "writerInitials"])
+    // 2026-11-16: a writer's files by tab, for refreshing them after a
+    // rename, link or unlink, and for moving them when two writers become one.
+    .index("by_writerId_and_sheetTab", ["writerId", "sheetTab"])
+    // 2026-11-17: the files whose name gave these reviewer initials, for a
+    // pick's walk.
+    .index("by_sheetTab_and_reviewerInitials", ["sheetTab", "reviewerInitials"])
+    // 2026-11-17: whether a company has import files with a Brain source,
+    // so retrieval fetches extra hits only for those companies.
+    .index("by_companyKey_and_brainSourceId", ["companyKey", "brainSourceId"])
+    .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
+
+  // Extracted preview text split out of ingestionItems so stats and queue
+  // scans never read multi-KB preview strings per row.
+  ingestionItemTexts: defineTable({
+    itemId: v.id("ingestionItems"),
+    text: v.string(),
+    updatedAt: v.number(),
+  }).index("by_itemId", ["itemId"]),
+
+  // 2026-11-12 (Import sheet): "these initials are this writer", said once
+  // by a person for the whole firm, as text. Superseded on 2026-11-16 by
+  // pdWriters and pdWriterPicks below: ingestion.migrateImportWriterInitials
+  // copies each row into them, and no code reads or writes this table any
+  // more. Kept in the schema (widen only) until a later narrow step.
+  importWriterInitials: defineTable({
+    initials: v.string(),
+    writerName: v.string(),
+    setBy: v.string(),
+    updatedAt: v.number(),
+    // 2026-11-16 widen: when ingestion.migrateImportWriterInitials copied
+    // this row; a copied row is never copied again, so a pick a person undid
+    // stays undone when the migration runs again.
+    migratedAt: v.optional(v.number()),
+  }).index("by_initials", ["initials"]),
+
+  // ─── 2026-11-16: writers from initials (docs/product-domain.md) ─────────
+  // The people who wrote PDs, as Import knows them: one row per writer,
+  // with a login (`userId`, a team member) or without one (a past writer:
+  // initials from a file name, maybe a name an Admin added). Not
+  // writerProfiles, which is a signed-in user's writing preferences. A
+  // writer with no login is never a user: it cannot sign in, has no role,
+  // is never a project Owner and is never assigned work. A team member has
+  // at most one writer of their own (made by the check or a person's
+  // choice, no linkedAt) and at most one past writer an Admin linked to
+  // them (linkedAt set); Unlink takes the second away again, so files never
+  // move between writers when an account is linked or unlinked.
+  pdWriters: defineTable({
+    // The file name initials an import-made writer was made from, upper
+    // case. Absent on a member's own writer (their saved initials on users
+    // govern) and on one a person typed on Import (the pick, if any,
+    // carries the initials).
+    initials: v.optional(v.string()),
+    // A name an Admin or a person on Import gave it, or since 2026-11-16 one
+    // read from a PD (nameSource). Absent: shown as its initials.
+    name: v.optional(v.string()),
+    // 2026-11-16 widen: where the name came from. "document": read from a
+    // PD's writer cue, only ever on a writer the check made with no login,
+    // which no person named. "person": an Admin's Edit name (also with no
+    // name: they cleared it), so no PD names it again. "documents_disagree":
+    // two PDs named different people, so it went back to its initials and
+    // no PD names it again. Absent: a person's name (as before), or never named.
+    nameSource: v.optional(v.union(v.literal("document"), v.literal("person"), v.literal("documents_disagree"))),
+    // The team member this writer is: their own writer, or a past writer an
+    // Admin linked to them (linkedBy, linkedAt).
+    userId: v.optional(v.id("users")),
+    linkedBy: v.optional(v.id("users")),
+    linkedAt: v.optional(v.number()),
+    // How it was made: by the check on an imported file ("import") or by a
+    // person choosing 'Use "..."', or by the migration of a person's match
+    // ("person"). updatedBy below is set by every Admin change (a name, a
+    // link, an unlink): only a writer the check made that no person ever
+    // changed is removed when nothing points at it any more.
+    createdVia: v.union(v.literal("import"), v.literal("person")),
+    createdBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+    updatedAt: v.optional(v.number()),
+    // How many import files point at this writer, on every tab. Kept in
+    // step by ingestion.ts insertItem and patchItem, so Team never counts
+    // by reading files.
+    fileCount: v.number(),
+    // How many files following a pick remember this writer as the one they
+    // had before it (ingestionItems.writerBeforePick), so the pick's Undo
+    // can give them back: a writer held this way is never removed. Absent: 0.
+    heldCount: v.optional(v.number()),
+    // 2026-11-17 widen: how many import files point at this writer as their
+    // reviewer (ingestionItems.reviewerId), on every tab, kept in step like
+    // fileCount. A writer with reviewed files is never removed on its own
+    // and cannot be deleted. heldCount above also counts the files that
+    // remember it as their reviewer before a pick. Absent: 0.
+    reviewCount: v.optional(v.number()),
+    // 2026-11-17 widen (Brain copies of imported PDs): the writer's tier,
+    // 0..1, which ranks their PDs' Brain copies. Since 2026-11-18 (second)
+    // the writer weight an Admin sets on Team (users.setWriterWeight), one
+    // per person: a member's own row and the past writer linked to them
+    // carry the same value. Absent: 0.7 (shared/writerWeight.ts; owner:
+    // Tracy 1.0, everyone else 0.7).
+    tier: v.optional(v.number()),
+    // 2026-11-23 widen: Banhall PD staff role (technical_manager,
+    // technical_writer, junior_technical_writer, financial), which supplies a
+    // default writer weight when no custom tier is set. One per person: synced
+    // across a team member's own row and linked past writer.
+    staffRole: v.optional(writerStaffRoleValidator),
+    // 2026-11-23 widen: whether a writer without a login is still active at
+    // Banhall (true: current staff without login yet; false/absent: former).
+    isActive: v.optional(v.boolean()),
+  })
+    .index("by_initials", ["initials"])
+    .index("by_userId", ["userId"])
+    .index("by_name", ["name"]),
+
+  // 2026-11-16: "these initials are this writer", said by a person for the
+  // whole firm by choosing a writer on an Import file whose name gave the
+  // initials (ingestion.matchWriterInitials, with Undo). Every file with
+  // the initials whose writer no person set on the file follows it (writer
+  // source "pick"), whatever writer it had; a writer a person set on one
+  // file still wins for that file. One row per initials (upper case).
+  pdWriterPicks: defineTable({
+    initials: v.string(),
+    writerId: v.id("pdWriters"),
+    setBy: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_initials", ["initials"])
+    .index("by_writerId", ["writerId"]),
+
+  // 2026-11-12 (Import sheet): what a person picked on the sheet for a
+  // company the app does not have yet, kept by company key so it holds on
+  // every tab until the company is created on approval. `industry` is a
+  // slug from the app's industry list (shared/industries.ts), as on
+  // clients.industry. `confirmedDistinct` (2026-11-23) is true when an Admin
+  // dismissed a "Similar to existing client?" match to keep it separate.
+  importNewCompanies: defineTable({
+    companyKey: v.string(),
+    industry: v.optional(v.string()),
+    confirmedDistinct: v.optional(v.boolean()),
+    setBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_companyKey", ["companyKey"]),
+
+  // 2026-11-11 (Import sheet, phase 2): what one company band shows without
+  // reading its files. One row per sheet tab and company key; companyKey is
+  // "" for files with no company yet. Kept in step with ingestionItems by
+  // convex/lib/importCompanyCounts.ts on every write, deleted when its total
+  // reaches zero, and rebuilt from the rows by
+  // ingestion.rebuildImportCompanyCounts. companyKey is the normalized
+  // lower-case name, so its order is name order.
+  importCompanies: defineTable({
+    sheetTab: sheetTabValidator,
+    companyKey: v.string(),
+    // The client folder name (or a person's company name) of the latest
+    // file written; "" for the no-company band.
+    displayName: v.string(),
+    ...importCountFields,
+    // needsCheck > 0, for listing only the bands with something to check.
+    hasCheck: v.boolean(),
+    // newFiles > 0 (2026-11-12), for listing only the bands with New files.
+    // Absent on a band row not written since; read as false.
+    hasNew: v.optional(v.boolean()),
+    // Goes up on every change of the counts; the rebuild checks it did not
+    // move while it paged through the files.
+    revision: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_sheetTab_and_companyKey", ["sheetTab", "companyKey"])
+    .index("by_sheetTab_and_hasCheck_and_companyKey", ["sheetTab", "hasCheck", "companyKey"])
+    .index("by_sheetTab_and_hasNew_and_companyKey", ["sheetTab", "hasNew", "companyKey"]),
+
+  // 2026-11-17 (Import progress, docs/product-domain.md): how many final
+  // PDs are staged on To review and how many are approved, without reading
+  // import files. One "total" row (key "all"), one row per fiscal year
+  // (key "2025", or "none") and one row per writer (key: the writer's id,
+  // or "none" for no writer yet, or "unsorted" for a name with three or
+  // four initials groups waiting for the client). Kept in step with
+  // ingestionItems by convex/lib/importCompanyCounts.ts on every write;
+  // a year or writer row is deleted at zero. Deleted files are never
+  // counted. Rebuilt by ingestion.rebuildImportFinalPdCounts.
+  importFinalPdCounts: defineTable({
+    kind: v.union(v.literal("total"), v.literal("year"), v.literal("writer")),
+    key: v.string(),
+    // On a writer row for one writer.
+    writerId: v.optional(v.id("pdWriters")),
+    // Final PDs on To review, and on Approved.
+    review: v.number(),
+    approved: v.number(),
+    // On the total row only: goes up on every change of any row, so the
+    // rebuild can tell nothing moved while it paged through the files.
+    revision: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_kind_and_key", ["kind", "key"]),
 
   // ─── Story 1 (CAP-1/2/4): Generation Brief ────────────────────────────────
   // Stores the Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
@@ -4478,7 +5425,9 @@ export default defineSchema({
         v.literal("uploads"),
         v.literal("names"),
         // 2026-09-27 (second): a draft's files are still being read or saved.
-        v.literal("reads")
+        v.literal("reads"),
+        // 2026-11-18: the company's files are still moving here from a merge.
+        v.literal("company_files")
       )
     ),
     deferrals: v.optional(v.number()),
@@ -4491,6 +5440,9 @@ export default defineSchema({
     // start stops waiting 3 minutes after it).
     readsWaits: v.optional(v.number()),
     readsWaitStartedAt: v.optional(v.number()),
+    // 2026-11-18 widen: waits for a company's files still moving into it
+    // from a merge, counted apart from the other waits (at most 30 minutes).
+    companyFilesWaits: v.optional(v.number()),
     // 2026-09-27 (fourth) widen: the writer pressed Start while this row
     // was queued, so it was sent at once (no debounce, no names or reads
     // wait) and a draft's promotion carries it to the project.
@@ -4576,6 +5528,8 @@ export default defineSchema({
     projectDocumentId: v.optional(v.id("projectDocuments")),
     companyFileId: v.optional(v.id("companyFiles")),
     clientId: v.optional(v.id("clients")),
+    // 2026-11-17 widen: as generationSources.fiscalYear.
+    fiscalYear: v.optional(v.number()),
     // A draft's frozen row names its intake source; promotion adds the
     // project's transcript or file id through the exact source-key link.
     intakeSourceId: v.optional(v.id("intakeSources")),
@@ -5188,11 +6142,14 @@ export default defineSchema({
   modelCallBuckets: defineTable({
     model: v.string(),
     hourStart: v.number(),
+    shard: v.optional(v.number()),
     successes: v.number(),
     failures: v.number(),
     lastFailureCode: v.optional(v.string()),
     lastFailureCallSite: v.optional(v.string()),
-  }).index("by_model_and_hourStart", ["model", "hourStart"]),
+  })
+    .index("by_model_and_hourStart", ["model", "hourStart"])
+    .index("by_model_and_hourStart_and_shard", ["model", "hourStart", "shard"]),
 
   // The same outcomes one row per request, kept two days, so the partial
   // hours at the edges of a window are counted to the exact millisecond.
@@ -5277,7 +6234,8 @@ export default defineSchema({
       v.literal("draft_ready"),
       v.literal("qa_finished"),
       v.literal("handoff"),
-      v.literal("invite_accepted")
+      v.literal("invite_accepted"),
+      v.literal("client_comment")
     ),
     projectId: v.optional(v.id("projects")),
     generationId: v.optional(v.id("generations")),
@@ -5300,5 +6258,6 @@ export default defineSchema({
     qaFinished: v.optional(v.boolean()),
     handoff: v.optional(v.boolean()),
     inviteAccepted: v.optional(v.boolean()),
+    clientComment: v.optional(v.boolean()),
   }).index("by_userId", ["userId"]),
 });

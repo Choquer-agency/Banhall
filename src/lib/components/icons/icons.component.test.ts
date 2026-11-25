@@ -42,6 +42,7 @@ const cases: [string, Component<IconProps>, string, number][] = [
   ["IconInfoWide", icons.IconInfoWide, "0 0 24 24", 16],
   ["IconUpload", icons.IconUpload, "0 0 24 24", 16],
   ["IconCloudDownload", icons.IconCloudDownload, "0 0 24 24", 15],
+  ["IconImport", icons.IconImport, "0 0 24 24", 16],
   ["IconBook", icons.IconBook, "0 0 24 24", 15],
   ["IconDocument", icons.IconDocument, "0 0 24 24", 15],
   ["IconDocumentSmall", icons.IconDocumentSmall, "0 0 14 14", 14],

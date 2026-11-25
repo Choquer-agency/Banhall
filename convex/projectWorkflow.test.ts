@@ -207,40 +207,39 @@ describe("workflow transition matrix", () => {
 
         if (from === to) {
           await expect(call).resolves.toEqual({ status: "noop", version: 0 });
-        } else if (
-          transition?.requirements?.includes("review_decision") &&
-          transition.requirements.length === 1
-        ) {
-          // internal_review -> edits: the decision is supplied above, so the
-          // edge succeeds and records exactly one decision row.
-          await expect(call).resolves.toEqual({ status: "updated", version: 1 });
-          const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
-          expect(stored).toMatchObject({ workflowStage: to, workflowVersion: 1 });
-          expect(await reviewDecisions(setup, projectId)).toHaveLength(1);
-        } else if (transition?.requirements?.includes("delivery_outcome")) {
-          await expect(call).rejects.toThrow(/OUTCOME_REQUIRED|exact delivered/i);
-        } else if (transition?.requirements?.includes("promoted_branch")) {
-          await expect(call).rejects.toThrow(/INVALID_STATE|promoted report branch/i);
         } else if (transition) {
           await expect(call).resolves.toEqual({ status: "updated", version: 1 });
           const stored = await setup.t.run(async (ctx) => ctx.db.get(projectId));
           expect(stored).toMatchObject({ workflowStage: to, workflowVersion: 1 });
           expect(stored?.workflowUpdatedAt).toBeGreaterThanOrEqual(before);
+          if (transition.requirements?.includes("review_decision")) {
+            expect(await reviewDecisions(setup, projectId)).toHaveLength(1);
+          }
+          if (
+            transition.requirements?.includes("promoted_branch") ||
+            transition.requirements?.includes("delivery_outcome")
+          ) {
+            const outcomes = await setup.t.run(async (ctx) =>
+              ctx.db
+                .query("productionOutcomes")
+                .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
+                .collect()
+            );
+            expect(outcomes).toHaveLength(1);
+            expect(outcomes[0]).toMatchObject({
+              outcomeType: to,
+              revisionNumber: 3,
+              recordedBy: setup.adminId,
+            });
+          }
         } else {
-          // Open matrix: every from≠to pair must have a transition rule.
+          // Open matrix: every from!=to pair must have a transition rule.
           await call.catch(() => undefined);
           expect.unreachable(`missing transition ${from} -> ${to}`);
         }
 
         const events = await projectEvents(setup, projectId);
-        // An event is written exactly when the edge actually succeeded: no
-        // requirements at all, or only the review decision (which was supplied).
-        const succeeded =
-          from !== to &&
-          Boolean(transition) &&
-          !transition!.requirements?.some(
-            (requirement) => requirement !== "review_decision"
-          );
+        const succeeded = from !== to && Boolean(transition);
         expect(events).toHaveLength(succeeded ? 1 : 0);
         if (events.length) {
           expect(events[0]).toMatchObject({
@@ -650,7 +649,7 @@ describe("review decisions on internal-review completion", () => {
     expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
   });
 
-  it("rejects the ready_for_delivery edge for the missing decision before the promoted-branch check", async () => {
+  it("requires a review decision on ready_for_delivery and records both decision and productionOutcome when approved", async () => {
     const setup = await setupFixture();
     const projectId = await reviewProject(setup);
     await expect(
@@ -660,17 +659,73 @@ describe("review decisions on internal-review completion", () => {
         expectedVersion: 0,
       })
     ).rejects.toThrow(/REVIEW_DECISION_REQUIRED|approve or return/i);
-    // With the decision supplied the edge reaches the pre-existing fail-closed
-    // promoted-branch requirement instead.
+    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+
     await expect(
       setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
         projectId,
         toStage: "ready_for_delivery",
+        note: "Ready to submit",
         reviewDecision: { decision: "approve" },
         expectedVersion: 0,
       })
-    ).rejects.toThrow(/INVALID_STATE|promoted report branch/i);
-    expect(await reviewDecisions(setup, projectId)).toHaveLength(0);
+    ).resolves.toEqual({ status: "updated", version: 1 });
+    const decisions = await reviewDecisions(setup, projectId);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({ decision: "approve", toStage: "ready_for_delivery" });
+    const outcomes = await setup.owner.query(api.projectWorkflow.listProductionOutcomes, {
+      projectId,
+    });
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({
+      outcomeType: "ready_for_delivery",
+      revisionNumber: 3,
+      recordedBy: setup.ownerId,
+    });
+  });
+
+  it("records an approve review decision when moving internal_review -> client_review", async () => {
+    const setup = await setupFixture();
+    const projectId = await reviewProject(setup);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "client_review",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/REVIEW_DECISION_REQUIRED|approve or return/i);
+
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "client_review",
+        note: "Send to client",
+        reviewDecision: { decision: "approve" },
+        expectedVersion: 0,
+      })
+    ).resolves.toEqual({ status: "updated", version: 1 });
+    const decisions = await reviewDecisions(setup, projectId);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({ decision: "approve", toStage: "client_review" });
+  });
+
+  it("refuses ready_for_delivery and delivered when the project has no report to pin", async () => {
+    const setup = await setupFixture();
+    const projectId = await insertProject(setup, { stage: "drafting" });
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "ready_for_delivery",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/INVALID_STATE|report draft/i);
+    await expect(
+      setup.owner.mutation(api.projectWorkflow.setWorkflowStage, {
+        projectId,
+        toStage: "delivered",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow(/OUTCOME_REQUIRED|report draft/i);
   });
 
   it("rejects a decision that contradicts the destination edge", async () => {

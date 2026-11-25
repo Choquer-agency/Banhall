@@ -127,8 +127,9 @@ export async function recordReportEditDistance(
     if (isEvaluationProject(project)) return null;
     const baseline = await ctx.db
       .query("reportSnapshots")
-      .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
-      .filter((q) => q.eq(q.field("reason"), "generated"))
+      .withIndex("by_reportId_and_reason", (q) =>
+        q.eq("reportId", report._id).eq("reason", "generated")
+      )
       .first();
     if (!baseline) return null;
 
@@ -210,20 +211,34 @@ export const EDIT_SIZE_BURST_MS = 10 * 60 * 1000;
  * editor. Saves never read `reportEditDistance`, and the reading reads the
  * report's latest revision, so the last change of a burst is always read.
  */
+/** Grace period past dueAt before a missed edit-size burst is rescheduled. */
+const EDIT_SIZE_STALE_GRACE_MS = 5 * 60 * 1000;
+
 export async function noteReportEditForSize(
   ctx: MutationCtx,
   report: Doc<"reports">,
   editorUserId: Id<"users">
 ): Promise<void> {
+  const now = Date.now();
   const due = await ctx.db
     .query("reportEditSizeDue")
     .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
     .unique();
   if (due) {
-    if (due.editorUserId !== editorUserId) await ctx.db.patch(due._id, { editorUserId });
+    if (now <= due.dueAt + EDIT_SIZE_STALE_GRACE_MS) {
+      if (due.editorUserId !== editorUserId) await ctx.db.patch(due._id, { editorUserId });
+      return;
+    }
+    // Stale due row (scheduled burst job did not clear it): refresh and reschedule.
+    const nextDueAt = now + EDIT_SIZE_BURST_MS;
+    await ctx.db.patch(due._id, { editorUserId, dueAt: nextDueAt });
+    await ctx.scheduler.runAfter(EDIT_SIZE_BURST_MS, internal.reportEditDistance.recordEditBurst, {
+      reportId: report._id,
+      dueAt: nextDueAt,
+    });
     return;
   }
-  const dueAt = Date.now() + EDIT_SIZE_BURST_MS;
+  const dueAt = now + EDIT_SIZE_BURST_MS;
   await ctx.db.insert("reportEditSizeDue", {
     reportId: report._id,
     projectId: report.projectId,

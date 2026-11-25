@@ -3,6 +3,11 @@ import type { QueryMeta, TransactionMetrics } from "convex/server";
 
 /** Told before and after each document a reader reads. */
 export type ReadCounter = {
+  /**
+   * Before each read, for a reader that may leave rows out (the chat's read
+   * budget, 2026-11-17): false ends the walk there, as if the rows had ended.
+   */
+  mayRead?(): boolean;
   /** Before a read that may be large: refuses when it might not fit. */
   beforeRead?(): Promise<void>;
   read(doc: object | null | undefined): void;
@@ -85,7 +90,7 @@ export class TransactionGuard implements ReadCounter {
   }
 }
 
-/** A query's rows one at a time, `counter` asked before each read and told after. */
+/** A query's rows one at a time, `counter` asked before each read and told after; ends early when it may not read. */
 export async function* countedRows<T extends object>(
   rows: AsyncIterable<T>,
   counter: ReadCounter | undefined
@@ -93,6 +98,7 @@ export async function* countedRows<T extends object>(
   const iterator = rows[Symbol.asyncIterator]();
   try {
     for (;;) {
+      if (counter?.mayRead && !counter.mayRead()) return;
       await counter?.beforeRead?.();
       const next = await iterator.next();
       if (next.done) return;

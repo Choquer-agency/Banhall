@@ -210,6 +210,7 @@ export function snapshotIdsToDelete<TId extends string>(
     (snapshot) =>
       snapshot.reason !== "milestone" &&
       snapshot.reason !== "generated" &&
+      snapshot.reason !== "publish_review" &&
       snapshot._id !== newestPreRestore?._id
   );
 

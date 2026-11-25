@@ -348,8 +348,8 @@ describe("tracks and the picker", () => {
     expect(await resolved()).toEqual(expected);
     const rows = await t.run((ctx) => ctx.db.query("modelRoleAssignments").collect());
     expect(rows.find((item) => item.role === "analysis")).toMatchObject({
-      track: "claude-sonnet",
-      modelId: "claude-sonnet-5-5",
+      track: "claude-haiku",
+      modelId: "claude-haiku-5-5",
       previousModelId: "xiaomi/mimo-v2.6-pro",
     });
   });
@@ -394,7 +394,7 @@ describe("reservation and frozen generations", () => {
       writing: "claude-sonnet-5-5",
       condense: "claude-sonnet-5-5",
       retrieval_brief: "claude-haiku-5-5",
-      analysis: "claude-sonnet-5-5",
+      analysis: "claude-haiku-5-5",
       planning: "claude-sonnet-5-5",
       checking: "claude-sonnet-5-5",
     });
@@ -558,7 +558,7 @@ describe("reservation and frozen generations", () => {
       writing: "claude-sonnet-5",
       condense: "claude-sonnet-5",
       retrieval_brief: "claude-haiku-5-5",
-      analysis: "claude-sonnet-5",
+      analysis: "claude-haiku-5-5",
       planning: "claude-sonnet-5",
       checking: "claude-sonnet-5",
     });
@@ -576,7 +576,7 @@ describe("reservation and frozen generations", () => {
         fromModelId: "claude-sonnet-5-5",
         toModelId: "claude-sonnet-5",
         at: expect.any(Number),
-        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        roles: ["writing", "planning", "checking", "condense"],
         writer: true,
       },
     ]);
@@ -667,7 +667,7 @@ describe("reservation and frozen generations", () => {
         fromModelId: "claude-sonnet-5-5",
         toModelId: "claude-sonnet-5",
         at: expect.any(Number),
-        roles: ["planning", "checking", "condense", "analysis"],
+        roles: ["planning", "checking", "condense"],
       },
     ]);
     // A later writer-started step moves the writer model too, once.
@@ -1238,8 +1238,28 @@ describe("prompt versions", () => {
     // only where the evidence gives it), the status rule's ending and QA's
     // line on the next sentence's reason move on purpose; before it they
     // were sha256:b6b137cb... and sha256:6210a515....
-    expect(await hashPromptProgram()).toBe("sha256:583428e91384b485b6220bf7c8d7e94e7ad59e55315b3f041db9e50265e78f9e");
-    expect(await legacyPromptVersion()).toBe("sha256:f7f54caf8fdaaaffa13b454d94fb75896cd76d302afe597c405d1c65d041bcfe");
+    // Re-read after 2026-11-17 (third, Brain copies of imported PDs): the
+    // Brain search records the entry importance of 1, the writer tier
+    // blended after the floors on both exits (positions recounted over the
+    // kept slate), and the own-company exclusion with its wider fetch,
+    // on purpose; before it they were sha256:583428e9... and sha256:f7f54caf....
+    // Re-read after 2026-11-17 (fifth, edit after approval on Import): the
+    // Brain search records that exemplar labels (writer, science code) come
+    // from the source's card, on purpose; before it they were
+    // sha256:d5692a9b... and sha256:45eabb14....
+    // Re-read after 2026-11-18 (fourth, the Brain moves to Voyage 4): the
+    // Brain lists both search indexes (models, namespaces, rerankers,
+    // floors) and that a stored pointer chooses the one search reads, on
+    // purpose; before it they were sha256:ef6f2e10... and sha256:6a67eb84....
+    // Re-read after 2026-11-21: science_code moved from Sonnet to Haiku with
+    // a strict enum tool; before it they were sha256:f413fe0b... and
+    // sha256:114d6015....
+    // Re-read after 2026-11-21 (PR 4): analysis role moved to Haiku,
+    // generation step policy bumped to v2 with per-step effort, and chat
+    // defaults updated; before it they were sha256:c70a8350... and
+    // sha256:773d1517....
+    expect(await hashPromptProgram()).toBe("sha256:90e603041203b6d181b680db006c0a048dcf43c159d4873264b919c3c9f9b57f");
+    expect(await legacyPromptVersion()).toBe("sha256:b2419e2a11e3fb63084f96b9e232410cf1eeca94cc67c18e0cde4c8d9c447699");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

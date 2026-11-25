@@ -432,6 +432,50 @@ export function eligibleForRandomDraw(
   return model.forcedToolChoice !== false && acceptsForcedToolChoice(model.id);
 }
 
+export type ThinkingOffMode = "disabled" | "adaptive_low";
+export type AnthropicEffort = "low" | "medium" | "high" | "xhigh";
+
+export type ModelCapabilities = {
+  supportsForcedTool: boolean;
+  thinksByDefault: boolean;
+  thinkingOffMode: ThinkingOffMode;
+};
+
+/**
+ * Claude models that think by default when `thinking` is omitted.
+ * Separate from FORCED_TOOL_CHOICE_REJECTED_IDS because Haiku 5.5 and Sonnet 5
+ * think by default while still accepting `thinking: { type: "disabled" }` and
+ * forced tool calls.
+ */
+export const DEFAULT_THINKING_IDS: ReadonlySet<string> = new Set([
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-fable-5-1",
+  "claude-mythos-5-1",
+  "claude-haiku-5-5",
+  "claude-sonnet-5",
+  "anthropic/claude-opus-5.5",
+  "anthropic/claude-sonnet-5.5",
+  "anthropic/claude-fable-5.1",
+  "anthropic/claude-mythos-5.1",
+  "anthropic/claude-haiku-5.5",
+  "anthropic/claude-sonnet-5",
+]);
+
+/**
+ * Capability lookup separating forced-tool support, default thinking, and
+ * how to turn thinking off or down for a model.
+ */
+export function modelCapabilities(id: string): ModelCapabilities {
+  const supportsForcedTool = acceptsForcedToolChoice(id);
+  const thinksByDefault = DEFAULT_THINKING_IDS.has(id) || !supportsForcedTool;
+  return {
+    supportsForcedTool,
+    thinksByDefault,
+    thinkingOffMode: supportsForcedTool ? "disabled" : "adaptive_low",
+  };
+}
+
 /** The one system line that replaces a forced tool call. */
 export function toolOnlyReplyLine(toolName: string | undefined): string {
   return toolName
@@ -441,33 +485,79 @@ export function toolOnlyReplyLine(toolName: string | undefined): string {
 
 type ToolChoiceSetting = { type: string; name?: string; disable_parallel_tool_use?: boolean };
 
+function hasExplicitCacheControl(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasExplicitCacheControl);
+  if ("cache_control" in value) return true;
+  if ("content" in value && Array.isArray((value as { content?: unknown }).content)) {
+    return (value as { content: unknown[] }).content.some(hasExplicitCacheControl);
+  }
+  return false;
+}
+
+function appendReplyLineToLastUserMessage(messages: unknown[], line: string): unknown[] | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "user") {
+      continue;
+    }
+    const content = (message as { content?: unknown }).content;
+    const nextContent = Array.isArray(content)
+      ? [...content, { type: "text", text: line }]
+      : typeof content === "string" && content.length > 0
+        ? [{ type: "text", text: content }, { type: "text", text: line }]
+        : [{ type: "text", text: line }];
+    const updated = [...messages];
+    updated[index] = { ...(message as Record<string, unknown>), content: nextContent };
+    return updated;
+  }
+  return null;
+}
+
 /**
  * The tool setting a request sends to `model`, decided in one place for both
  * gateways. A model that accepts forced tool calls, and any request that
  * does not force one, is returned unchanged (same objects). A model that
- * rejects them gets `auto` with at most one call, and the system prompt
- * gains toolOnlyReplyLine; a caller that validates the output (as
- * generateStructured does) treats a missing tool call as a failed attempt
- * and spends its repair on it.
+ * rejects them gets `auto` with at most one call, and either:
+ * - when `messages` carries explicit `cache_control` (such as Seed's 1h
+ *   cached source block), appends `toolOnlyReplyLine` as an uncached block at
+ *   the end of the last user message so `system` and the cached prefix stay
+ *   byte-identical across different tool choices; or
+ * - appends `toolOnlyReplyLine` to `system` as before.
  */
-export function toolRequestForModel<S>(
+export function toolRequestForModel<S, M = unknown>(
   model: string,
   toolChoice: ToolChoiceSetting | undefined,
-  system: S
-): { toolChoice: ToolChoiceSetting | undefined; system: S | string | unknown[] } {
+  system: S,
+  messages?: M
+): { toolChoice: ToolChoiceSetting | undefined; system: S | string | unknown[]; messages?: M } {
   if (!toolChoice || (toolChoice.type !== "tool" && toolChoice.type !== "any")) {
-    return { toolChoice, system };
+    return messages !== undefined ? { toolChoice, system, messages } : { toolChoice, system };
   }
-  if (acceptsForcedToolChoice(model)) return { toolChoice, system };
+  if (acceptsForcedToolChoice(model)) {
+    return messages !== undefined ? { toolChoice, system, messages } : { toolChoice, system };
+  }
   const line = toolOnlyReplyLine(toolChoice.type === "tool" ? toolChoice.name : undefined);
+  if (Array.isArray(messages) && hasExplicitCacheControl(messages)) {
+    const updatedMessages = appendReplyLineToLastUserMessage(messages, line);
+    if (updatedMessages) {
+      return {
+        toolChoice: { type: "auto", disable_parallel_tool_use: true },
+        system,
+        messages: updatedMessages as M,
+      };
+    }
+  }
+  const nextSystem =
+    typeof system === "string" && system.length > 0
+      ? `${system}\n\n${line}`
+      : Array.isArray(system)
+        ? [...system, { type: "text", text: line }]
+        : line;
   return {
     toolChoice: { type: "auto", disable_parallel_tool_use: true },
-    system:
-      typeof system === "string" && system.length > 0
-        ? `${system}\n\n${line}`
-        : Array.isArray(system)
-          ? [...system, { type: "text", text: line }]
-          : line,
+    system: nextSystem,
+    ...(messages !== undefined ? { messages } : {}),
   };
 }
 

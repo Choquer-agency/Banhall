@@ -107,6 +107,14 @@ export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
   "chatV2:archiveThread",
   "chatV2:restoreThread",
   "chatV2:deleteThread",
+  // Import sheet (2026-11-11, phase 3b): a refused label change, delete or
+  // put back shows the server's words in the page's own toast.
+  "ingestion:setSheetLabels",
+  "ingestion:removeItems",
+  "ingestion:restoreItems",
+  // 2026-11-17: the old import page shows a revoked Brain match's words
+  // beside Approve.
+  "ingestion:approveItem",
 ]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */
