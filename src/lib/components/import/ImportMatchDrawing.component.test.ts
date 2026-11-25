@@ -189,14 +189,15 @@ describe("the Import page against the drawing (Paper Files 1)", () => {
     // 24px from the legend to Select, and Select has no icon.
     expect(box(select).left - box(legend).right).toBeCloseTo(board(24), 0);
     expect(select.querySelector("svg")).toBeNull();
-    // 20px from the toolbar to the sheet's header row.
-    expect(box(one("[data-import-sheet-header]")!).top - box(toolbar).bottom).toBeCloseTo(board(20), 0);
+    // 14px from the toolbar to the sheet's header row (tighter redesigned rhythm).
+    expect(box(one("[data-import-sheet-header]")!).top - box(toolbar).bottom).toBeCloseTo(board(14), 0);
   });
 
-  it("puts the section labels, file names and Show more rows on one left edge, the band name 24px in", async () => {
+  it("puts the section labels, file names and Show more rows on one left edge, band name 36px in, chevrons on the right", async () => {
     await mountDrawing(1440);
     const header = one("[data-import-sheet-header]")!;
     const sheetLeft = box(header).left;
+    const sheetRight = box(header).right;
     const edge = wordsLeft(one('[role="columnheader"]', header)!);
     // "File" in the header: 48px in, the edge everything below shares.
     expect(edge - sheetLeft).toBeCloseTo(board(48), 0);
@@ -208,25 +209,28 @@ describe("the Import page against the drawing (Paper Files 1)", () => {
     // A PD's title 50px after its number (a 40px number, then 10px).
     const pd1 = one('[data-import-file="pd1"]')!;
     expect(box(one("[data-import-file-title]", pd1)!).left - edge).toBeCloseTo(board(50), 0);
+    // Full-bleed rows: sections and files span the full width of the sheet with no left hover gap.
+    expect(box(one('[data-import-section="final_pd"] > [role="row"]')!).left).toBeCloseTo(sheetLeft, 0);
+    expect(box(pd1).left).toBeCloseTo(sheetLeft, 0);
 
-    // The band: the chevron at the sheet's edge, the name 24px in, its industry 16px after.
+    // The band: name 36px in (past fixed left checkbox gutter), industry 12px after, chevron on the right edge.
     const cedarline = one('[data-import-band="cedarline systems"]')!;
-    expect(box(one("[data-import-band-chevron]", cedarline)!).left).toBeCloseTo(sheetLeft, 0);
+    const bandChevron = one("[data-import-band-chevron]", cedarline)!;
+    expect(sheetRight - box(bandChevron).right).toBeLessThanOrEqual(board(20));
     const name = one("[data-import-band-name]", cedarline)!;
-    expect(box(name).left - sheetLeft).toBeCloseTo(board(24), 0);
+    expect(box(name).left - sheetLeft).toBeCloseTo(board(36), 0);
     const industry = one("[data-import-band-industry]", cedarline)!;
     expect(text(industry)).toBe("Software");
-    expect(box(industry).left - box(name).right).toBeCloseTo(board(16), 0);
-    // A section's chevron sits at the sections' own edge, 24px in.
-    expect(box(one("[data-import-section-chevron]", cedarline)!).left - sheetLeft).toBeCloseTo(board(24), 0);
-    // "N files" ends on the Science code column's rule; the status words end 8px inside the sheet.
+    expect(box(industry).left - box(name).right).toBeCloseTo(board(14), 0);
+    // A section's chevron also sits on the right edge.
+    const sectionChevron = one("[data-import-section-chevron]", cedarline)!;
+    expect(sheetRight - box(sectionChevron).right).toBeLessThanOrEqual(board(20));
+    // "N files" ends on the Science code column's rule.
     const codeHeader = all('[role="columnheader"]', header)[5];
     expect(box(one("[data-import-band-files]", cedarline)!).right).toBeCloseTo(box(codeHeader).left, 0);
-    const words = all("[data-import-band-status] span", cedarline);
-    expect(box(words.at(-1)!).right).toBeCloseTo(box(header).right - board(8), 0);
   });
 
-  it("draws the band, section and file lines and spacing as the drawing does", async () => {
+  it("draws the band, section and file lines and spacing as the redesigned sheet does", async () => {
     await mountDrawing(1440);
     const color = (node: Element, side: "Top" | "Bottom" = "Top") => getComputedStyle(node)[`border${side}Color`];
     const gray300 = "rgb(194, 208, 205)";
@@ -234,14 +238,14 @@ describe("the Import page against the drawing (Paper Files 1)", () => {
     const lineSoft = "rgb(233, 240, 239)";
     const bandRow = (key: string) => one(`[data-import-band="${key}"] > [role="row"]`)!;
     expect(color(bandRow("cedarline systems"))).toBe(gray300);
-    expect(bandRow("cedarline systems").getBoundingClientRect().height).toBeCloseTo(board(52), 0);
+    expect(bandRow("cedarline systems").getBoundingClientRect().height).toBeCloseTo(board(44), 0);
     expect(color(one('[data-import-section="final_pd"] > [role="row"]')!)).toBe(line);
     expect(color(one('[data-import-file="pd1"]')!)).toBe(lineSoft);
-    // Closed companies sit 14px apart; the one after an open company 28px under its last line.
-    expect(box(bandRow("northgate labs")).top - box(bandRow("halden foods")).bottom).toBeCloseTo(board(14), 0);
+    // Closed companies sit 10px apart; the one after an open company 20px under its last line.
+    expect(box(bandRow("northgate labs")).top - box(bandRow("halden foods")).bottom).toBeCloseTo(board(10), 0);
     const sections = one('[data-import-band="cedarline systems"] [data-import-band-sections]')!;
-    expect(box(bandRow("halden foods")).top - box(sections).bottom).toBeCloseTo(board(28), 0);
-    // The amber words are the drawing's #A8500F, and its pick controls 26px tall.
+    expect(box(bandRow("halden foods")).top - box(sections).bottom).toBeCloseTo(board(20), 0);
+    // The amber words are the drawing's #A8500F, and its pick controls 24px tall.
     const note = one('[data-import-section="final_pd"] [data-import-section-note]')!;
     expect(text(note)).toBe("9 need a writer, 4 need a science code");
     expect(getComputedStyle(note).color).toBe("rgb(168, 80, 15)");
@@ -256,15 +260,16 @@ describe("the Import page against the drawing (Paper Files 1)", () => {
     expect(getComputedStyle(one("[data-import-file-title]", pd1)!).color).toBe(ink);
     const pick = one('[data-import-file="pd2"] [data-import-writer-pick]')!;
     expect(text(pick)).toBe("Choose writer");
-    expect(box(pick).height).toBeCloseTo(board(26), 0);
+    expect(box(pick).height).toBeCloseTo(board(24), 0);
     // A known company's industry, and a new one's picker.
     expect(text(one('[data-import-band="northgate labs"] [data-import-band-industry]'))).toBe("Manufacturing");
     expect(text(one('[data-import-band="brightwell dairy"] [data-import-band-industry]'))).toBe("Food processing");
     expect(text(one('[data-import-band="halden foods"] [data-import-band-industry-pick]'))).toBe("Pick an industry");
-    // The Admin menu's Import row with the To review count.
-    const importLink = one('[data-admin-link="/admin/import"]')!;
-    expect(text(importLink)).toBe("Import 504");
+    // Import lives on the main rail now, selected, with no AdminSidebar on the page.
+    const importLink = one('[data-frame-rail] [data-rail-item="import"]')!;
+    expect(text(importLink)).toBe("Import");
     expect(importLink.getAttribute("aria-current")).toBe("page");
+    expect(one('[data-admin-link="/admin/import"]')).toBeNull();
   });
 
   /** The page's own scrolling area (the frame's card), to bring the lower half into view. */

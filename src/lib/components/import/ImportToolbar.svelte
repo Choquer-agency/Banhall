@@ -69,12 +69,12 @@
   <Checkbox.Root
     bind:checked={() => chip.checked, chip.onChange}
     {...{ [chip.attribute]: "" }}
-    class="group inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-surface pr-3 pl-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] transition-colors hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:bg-primary-wash data-[state=checked]:font-medium data-[state=checked]:text-fir data-[state=checked]:shadow-[inset_0_0_0_1px_var(--color-primary-line)] motion-reduce:transition-none pointer-coarse:h-11"
+    class="group inline-flex h-[1.875rem] shrink-0 items-center gap-2 rounded-lg bg-surface pr-2.5 pl-2 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] transition-[background-color,color,box-shadow] duration-150 ease-out hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:bg-primary-wash data-[state=checked]:font-medium data-[state=checked]:text-fir data-[state=checked]:shadow-[inset_0_0_0_1px_var(--color-primary-line)] motion-reduce:transition-none pointer-coarse:h-11"
   >
     {#snippet children({ checked })}
       <span
         aria-hidden="true"
-        class={`flex size-3.5 shrink-0 items-center justify-center rounded-[0.25rem] border-[1.5px] transition-colors motion-reduce:transition-none ${
+        class={`flex size-3.5 shrink-0 items-center justify-center rounded-[0.25rem] border-[1.5px] transition-colors duration-150 ease-out motion-reduce:transition-none ${
           checked ? "border-primary-selected bg-primary-selected text-white" : "border-gray-300 bg-surface"
         }`}
       >
@@ -114,7 +114,7 @@
           search = "";
         }
       }}
-      class={`field-control h-8 w-full rounded-lg pl-[1.9375rem] text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 [&::-webkit-search-cancel-button]:appearance-none ${search ? "pr-7" : "pr-2.5"}`}
+      class={`field-control h-[1.875rem] w-full rounded-lg pl-[1.9375rem] text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint transition-[border-color,box-shadow] duration-150 ease-out motion-reduce:transition-none pointer-coarse:h-11 [&::-webkit-search-cancel-button]:appearance-none ${search ? "pr-7" : "pr-2.5"}`}
     />
     {#if search}
       <button
@@ -122,7 +122,7 @@
         aria-label="Clear the search"
         data-import-search-clear
         onclick={clear}
-        class="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+        class="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-ink-muted transition-colors duration-150 ease-out hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
       >
         <IconClose size={12} strokeWidth={1.8} />
       </button>
@@ -169,7 +169,7 @@
         disabled={selectDisabled}
         data-import-select-toggle
         onclick={() => onSelectChange?.(!selectOn)}
-        class={`inline-flex h-8 shrink-0 items-center rounded-lg px-3 text-[0.8125rem] leading-[calc(18/13)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11 ${
+        class={`inline-flex h-[1.875rem] shrink-0 items-center rounded-lg px-2.5 text-[0.8125rem] leading-[calc(18/13)] transition-[background-color,color,box-shadow] duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11 ${
           selectOn && !selectDisabled
             ? "bg-primary-wash font-medium text-fir shadow-[inset_0_0_0_1px_var(--color-primary-line)]"
             : "bg-surface text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-gray-50"

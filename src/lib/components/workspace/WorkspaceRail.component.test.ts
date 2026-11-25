@@ -240,13 +240,14 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     expect(__isQueryActive("adminAttention:getAttention")).toBe(false);
   });
 
-  it.each(["admin", "owner"] as const)("%s gets Team, Admin with the attention dot, and Settings", async (user) => {
+  it.each(["admin", "owner"] as const)("%s gets Team, Import, Admin with the attention dot, and Settings", async (user) => {
     seed(user, { failed: 1 });
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "What's new", "Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Import", "Admin", "What's new", "Settings"] });
     await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")!.className).toContain("bg-stale-dot");
     expect(item("team")!.getAttribute("href")).toBe("/team");
+    expect(item("import")!.getAttribute("href")).toBe("/import");
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe(user === "owner" ? "Owner" : "Admin");
   });
 
@@ -255,7 +256,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     await mount(baseProps());
     await expect.poll(railRows).toEqual({
       top: ["Home", "Projects", "Companies"],
-      bottom: ["Team", "Admin", "Alerts 4", "Feature requests", "What's new", "Settings"],
+      bottom: ["Team", "Import", "Admin", "Alerts 4", "Feature requests", "What's new", "Settings"],
     });
     expect(item("alerts")!.querySelector("[data-rail-badge]")!.className).toContain("bg-danger");
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Developer");
@@ -290,7 +291,6 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
       ["House rules", "/admin/house-rules"],
       ["Project tags", "/admin/tags"],
       ["The Brain", "/admin/brain"],
-      ["Import", "/admin/import"],
       ["Models", "/admin/models"],
       ["QA reviews", "/admin/reviews"],
       ["Learning health", "/admin/learning"],
@@ -298,7 +298,6 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     ]);
     expect(links[0].getBoundingClientRect().height).toBe(36);
     expect(style(links[0]).fontSize).toBe("14px");
-    expect(links[3].querySelector("[data-rail-attention]")).not.toBeNull();
     expect(JSON.parse(localStorage.getItem(RAIL_PREFERENCES_KEY)!).adminOpen).toBe(true);
   });
 
@@ -413,8 +412,8 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
   it.each([
     ["consultant", ["What's new", "Settings"], "Viewing as Consultant"],
     ["manager", ["Team", "What's new", "Settings"], "Viewing as Manager"],
-    ["admin", ["Team", "Admin", "What's new", "Settings"], "Viewing as Admin"],
-    ["owner", ["Team", "Admin", "What's new", "Settings"], "Viewing as Owner"],
+    ["admin", ["Team", "Import", "Admin", "What's new", "Settings"], "Viewing as Admin"],
+    ["owner", ["Team", "Import", "Admin", "What's new", "Settings"], "Viewing as Owner"],
   ] as const)("D3: viewing as %s shows that role's rail and names the role under the person", async (role, bottom, label) => {
     seed("developerAdmin", { openAlerts: 2 });
     viewAs.enter(role);
@@ -428,7 +427,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     sessionStorage.setItem("banhall.viewAs.v1", "consultant");
     viewAs.reload();
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "What's new", "Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Import", "Admin", "What's new", "Settings"] });
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Admin");
   });
 
@@ -438,7 +437,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     await expect.poll(() => item("admin")).not.toBeNull();
     (nav().querySelector('a[aria-label="Banhall home"]') as HTMLElement).focus();
     const reached: string[] = [];
-    for (let step = 0; step < 9; step += 1) {
+    for (let step = 0; step < 10; step += 1) {
       await userEvent.keyboard("{Tab}");
       const active = document.activeElement as HTMLElement;
       reached.push(
@@ -452,6 +451,6 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
                 : "?")
       );
     }
-    expect(reached).toEqual(["search", "home", "projects", "companies", "team", "admin", "changelog", "settings", "identity"]);
+    expect(reached).toEqual(["search", "home", "projects", "companies", "team", "import", "admin", "changelog", "settings", "identity"]);
   });
 });

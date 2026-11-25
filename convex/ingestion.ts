@@ -1286,6 +1286,8 @@ export const sheetFile = query({
       reviewedAt: v.optional(v.number()),
       hasText: v.boolean(),
       hasOriginal: v.boolean(),
+      originalUrl: v.optional(v.string()),
+      size: v.optional(v.number()),
       documentClientNames: v.optional(v.array(documentClientNameValidator)),
     })
   ),
@@ -1294,6 +1296,7 @@ export const sheetFile = query({
     const item = await ctx.db.get(args.id);
     if (!item) return null;
     const [row] = await withApprovedLinks(ctx, [item], await withWriterLabels(ctx, [sheetRow(item)]));
+    const originalUrl = item.storageId ? ((await ctx.storage.getUrl(item.storageId)) ?? undefined) : undefined;
     return definedFields({
       ...row,
       sheetTab: item.sheetTab,
@@ -1311,6 +1314,8 @@ export const sheetFile = query({
       reviewedAt: item.reviewedAt,
       hasText: hasReadText(item),
       hasOriginal: item.storageId !== undefined,
+      originalUrl,
+      size: item.size,
       documentClientNames: item.documentClientNames,
     });
   },
@@ -3848,6 +3853,66 @@ export const removeItems = mutation({
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
     return outcome.result();
+  },
+});
+
+/**
+ * Soft-delete up to 100 staged ("To review") files belonging to one company
+ * band or one category section inside a company band. Files currently being
+ * read are skipped; callers can loop while `hasMore` is true so large bands
+ * clear cleanly without exceeding the batch write bound. Admin only.
+ */
+export const removeGroupItems = mutation({
+  args: {
+    companyKey: v.string(),
+    category: v.optional(ingestionCategoryValidator),
+  },
+  returns: v.object({
+    changedIds: v.array(v.id("ingestionItems")),
+    skippedBeingRead: v.number(),
+    hasMore: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const key = args.companyKey === NO_COMPANY_KEY ? undefined : args.companyKey;
+    const rows = args.category
+      ? await ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_and_companyKey_and_sheetSection_and_sortKey", (q) =>
+            q.eq("sheetTab", "review").eq("companyKey", key).eq("sheetSection", args.category!)
+          )
+          .take(SHEET_BATCH_MAX_FILES + 1)
+      : await ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_and_companyKey", (q) =>
+            q.eq("sheetTab", "review").eq("companyKey", key)
+          )
+          .take(SHEET_BATCH_MAX_FILES + 1);
+    const batch = rows.slice(0, SHEET_BATCH_MAX_FILES);
+    const changedIds: Array<Id<"ingestionItems">> = [];
+    let skippedBeingRead = 0;
+    const groups = new Set<string>();
+    for (const item of batch) {
+      const skip = removalSkip(item);
+      if (skip) {
+        if (skip === "being_read") skippedBeingRead += 1;
+        continue;
+      }
+      const { after } = await patchItem(ctx, item, {
+        ...(await finishBatchRead(ctx, item, false)),
+        ...removedFields(item, admin),
+      });
+      groups.add(after.pairGroupKey);
+      groups.add(item.pairGroupKey);
+      changedIds.push(item._id);
+    }
+    if (groups.size > 0) await recomputeGroups(ctx, groups, MANY_ROWS);
+    return {
+      changedIds,
+      skippedBeingRead,
+      // Stop looping if no deletable row moved out of review (e.g. only being_read remain).
+      hasMore: changedIds.length > 0 && rows.length > SHEET_BATCH_MAX_FILES,
+    };
   },
 });
 

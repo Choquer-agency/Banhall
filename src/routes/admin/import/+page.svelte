@@ -4,9 +4,8 @@
   // queries are admin only and the page says so for anyone else.
   import WorkspaceLoadingShell from "$lib/components/workspace/WorkspaceLoadingShell.svelte";
   import ImportPage from "$lib/components/import/ImportPage.svelte";
-  import { IconShield } from "$lib/components/icons";
+  import { IconImport } from "$lib/components/icons";
   import { goToLogin } from "$lib/auth/goToLogin";
-  import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
 
   const auth = useAuth();
@@ -19,7 +18,7 @@
 <svelte:head><title>Import · Banhall</title></svelte:head>
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <WorkspaceLoadingShell layout="page" title="Import" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
+  <WorkspaceLoadingShell layout="page" title="Import" icon={IconImport} />
 {:else}
   <ImportPage />
 {/if}

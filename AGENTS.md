@@ -74,3 +74,10 @@ The native BMAD orchestrator owns deferred-work ledger content and status. Do no
 - The default changes as better models come out: when the owner sets a new default, update this section. A review finding or a failed test does not justify switching models partway through a review.
 - If no reviewer is available, preserve the work and report the review as pending. Never mark an unperformed review as passed.
 - This preference applies to reviewers. Keep implementation and test-execution roles separately configured, and preserve each review workflow's scope, evidence requirements and result contract.
+
+## Motion, transitions, and hover hygiene
+
+- Every interactive element and state change (row hover, button/chip/link hover, focus rings, active tabs, checkboxes, chevrons, inline action reveals, popovers, panels, progress fills) MUST use subtle, smooth CSS transitions (`transition-colors duration-150 ease-out`, `transition-opacity duration-150 ease-out`, `transition-transform duration-200 ease-out`) paired with `motion-reduce:transition-none`. Never leave hover or disclosure states snapping abruptly.
+- Row hovers and selection highlights MUST fill edge-to-edge with zero left or right visual gap. Express nesting hierarchy through internal padding, never outer `ml-*` margins on row containers.
+- Accordion and disclosure chevrons belong on the right edge of their header row, pointing down when closed (`rotate-0`) and rotating smoothly up when open (`rotate-180`).
+

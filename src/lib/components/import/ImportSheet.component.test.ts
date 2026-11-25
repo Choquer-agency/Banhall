@@ -217,9 +217,9 @@ describe("ImportSheet", () => {
     expect(text(one("[data-import-band-name]", none))).toBe("No company yet");
     expect(one("[data-import-band-new]", none)).toBeNull();
 
-    // Board sizes: a 36px header and 52px bands.
-    expect(one("[data-import-sheet-header]")!.getBoundingClientRect().height).toBeCloseTo(board(36), 0);
-    expect(one('[role="row"]', cedarline)!.getBoundingClientRect().height).toBeCloseTo(board(52), 0);
+    // Redesigned compact sizes: a 32px header and 44px bands.
+    expect(one("[data-import-sheet-header]")!.getBoundingClientRect().height).toBeCloseTo(board(32), 0);
+    expect(one('[role="row"]', cedarline)!.getBoundingClientRect().height).toBeCloseTo(board(44), 0);
     // The band line is the sheet's strongest line (gray-300, Paper Files 1).
     expect(getComputedStyle(one('[role="row"]', cedarline)!).borderTopColor).toBe("rgb(194, 208, 205)");
   });
@@ -337,8 +337,8 @@ describe("ImportSheet", () => {
       0
     );
 
-    // Board sizes: 44px rows; the fixed columns' rules line up with the header's.
-    expect(row("pd1").getBoundingClientRect().height).toBeCloseTo(board(44), 0);
+    // Redesigned compact sizes: 38px rows; the fixed columns' rules line up with the header's.
+    expect(row("pd1").getBoundingClientRect().height).toBeCloseTo(board(38), 0);
     const headerCells = all('[data-import-sheet-header] [role="columnheader"]');
     const rowCells = all('[role="cell"]', row("pd1"));
     for (const index of [1, 2, 3, 4, 5]) {
@@ -382,10 +382,21 @@ describe("ImportSheet", () => {
       expect(node.tabIndex, node.textContent ?? "").toBe(-1);
     }
     expect(text(one('[data-import-file="pd1"] [data-import-year] .sr-only'))).toBe(", Year ended Mar 31, 2025");
-    // Phase 3b: from Final PDs, Tab reaches PD 1's cells in order, then its "...".
-    one("[data-import-section-toggle]", section("cedarline systems", "final_pd"))!.focus();
+    // From Final PDs, Tab visits the section's quick delete, then PD 1's cells in order, quick delete, and "...".
+    const finalSection = section("cedarline systems", "final_pd");
+    one("[data-import-section-toggle]", finalSection)!.focus();
+    await userEvent.tab();
+    expect(document.activeElement, "[data-import-section-delete]").toBe(one("[data-import-section-delete]", finalSection));
     const pd1 = one('[data-import-file="pd1"]')!;
-    for (const selector of ["[data-import-year-edit]", "[data-import-version-edit]", "[data-import-writer-edit]", "[data-import-reviewer-edit]", "[data-import-code-edit]", "[data-import-row-menu]"]) {
+    for (const selector of [
+      "[data-import-year-edit]",
+      "[data-import-version-edit]",
+      "[data-import-writer-edit]",
+      "[data-import-reviewer-edit]",
+      "[data-import-code-edit]",
+      "[data-import-row-delete]",
+      "[data-import-row-menu]",
+    ]) {
       await userEvent.tab();
       expect(document.activeElement, selector).toBe(one(selector, pd1));
     }

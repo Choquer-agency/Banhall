@@ -159,30 +159,35 @@ describe("selecting files on the Import page", () => {
     });
   });
 
-  it("adds a checkbox column to every row with Select, without moving the other columns", async () => {
+  it("reveals the fixed checkbox column on every row with Select, without shifting any column or file name", async () => {
     seedPage();
     await mount();
     await openCedarline();
     const header = () => all('[data-import-sheet-header] [role="columnheader"]');
     const fixedBefore = header().slice(-5).map(left);
     const yearBefore = left(one('[data-import-file="pd1"] [data-import-cell="fiscal-year"]'));
-    expect(one("[data-import-file-select]")).toBeNull();
+    const titleBefore = left(one('[data-import-file="pd1"] [data-import-file-prefix]'));
+    // Checkboxes sit in the fixed left gutter so hover-to-select never shifts rows.
+    expect(one("[data-import-select-header]")).toBeNull();
+    expect(getComputedStyle(fileBox("pd1").closest("[data-import-select-cell]")!).opacity).toBe("0");
 
     await selectOn();
     expect(page.getByRole("button", { name: "Select", exact: true }).element().getAttribute("aria-pressed")).toBe("true");
-    // The header, the company, each section and each file row get one.
-    expect(header()).toHaveLength(7);
+    // The header keeps its 6 columns; the company, each section and each file row reveal their boxes.
+    expect(header()).toHaveLength(6);
     expect(bandBox()).not.toBeNull();
+    await expect.poll(() => getComputedStyle(fileBox("pd1").closest("[data-import-select-cell]")!).opacity).toBe("1");
     expect(all("[data-import-section-select]").map((node) => node.dataset.importSectionSelect)).toEqual(["final_pd", "supporting", "company_file"]);
     expect(all("[data-import-file-select]").map((node) => node.dataset.importFileSelect)).toEqual(["pd1", "pd2", "pd3", "pd4", "pd5"]);
-    // No other column moves: the fixed columns keep their rules.
+    // Zero horizontal shift: every column and file title stays put.
     expect(header().slice(-5).map(left)).toEqual(fixedBefore);
     expect(left(one('[data-import-file="pd1"] [data-import-cell="fiscal-year"]'))).toBeCloseTo(yearBefore, 0);
+    expect(left(one('[data-import-file="pd1"] [data-import-file-prefix]'))).toBeCloseTo(titleBefore, 0);
     // Every box lines up at the sheet's left, however deep its row.
     const boxes = [bandBox(), sectionBox("final_pd"), fileBox("pd1")].map(left);
     expect(boxes[1]).toBeCloseTo(boxes[0], 0);
     expect(boxes[2]).toBeCloseTo(boxes[0], 0);
-    // The file names move right to make room, past the boxes.
+    // The file names sit cleanly past the boxes.
     expect(left(one('[data-import-file="pd1"] [data-import-file-prefix]'))).toBeGreaterThan(boxes[0] + 20);
   });
 
@@ -200,8 +205,8 @@ describe("selecting files on the Import page", () => {
     for (const id of ["pd1", "pd2", "pd3", "pd4", "pd5"]) {
       expect(one(`[data-import-file="${id}"]`)!.hasAttribute("data-import-file-selected"), id).toBe(true);
     }
-    // The selected row wash.
-    expect(getComputedStyle(one('[data-import-file="pd1"]')!).backgroundColor).toBe(WASH);
+    // The selected row wash settles smoothly.
+    await expect.poll(() => getComputedStyle(one('[data-import-file="pd1"]')!).backgroundColor).toBe(WASH);
     // The company has other sections closed: all its loaded files are selected.
     expect(bandBox().getAttribute("aria-checked")).toBe("true");
 
@@ -209,7 +214,7 @@ describe("selecting files on the Import page", () => {
     await expect.poll(barCount).toBe("4 files selected");
     expect(sectionBox("final_pd").getAttribute("aria-checked")).toBe("mixed");
     expect(bandBox().getAttribute("aria-checked")).toBe("mixed");
-    expect(getComputedStyle(one('[data-import-file="pd2"]')!).backgroundColor).not.toBe(WASH);
+    await expect.poll(() => getComputedStyle(one('[data-import-file="pd2"]')!).backgroundColor).not.toBe(WASH);
 
     // A dash clicked selects them all again; all clicked clears them.
     await userEvent.click(sectionBox("final_pd"));

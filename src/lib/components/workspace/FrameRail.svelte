@@ -41,6 +41,7 @@
         // The Companies section (2026-10-28): All companies.
         companiesHref: companiesPath(resolve("/")),
         teamHref: `${resolve("/")}team`,
+        importHref: `${resolve("/")}import`,
         changelogHref: resolve("/changelog"),
         adminHref: resolve(ADMIN_LANDING_PATH as "/"),
         settingsHref: resolve("/settings"),

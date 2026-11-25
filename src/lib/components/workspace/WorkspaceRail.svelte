@@ -9,7 +9,7 @@
   import { roleAvatarTone } from "$lib/components/ui/avatarTone";
   import IdentityMenu from "$lib/components/shell/IdentityMenu.svelte";
   import RailIcon, { type RailIconName } from "$lib/components/workspace/RailIcon.svelte";
-  import { ADMIN_IMPORT_PATH, ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
+  import { ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
   import type { DashboardView } from "$lib/dashboard/viewMode";
   import { ROLE_CHIP_LABELS, roleChipKind } from "$lib/roles/roleChip";
   import {
@@ -101,6 +101,7 @@
         companiesHref: companiesPath(resolve("/")),
         // WS2 lands the /team route; until then the path is not a typed route id.
         teamHref: `${resolve("/")}team`,
+        importHref: `${resolve("/")}import`,
         adminHref: resolve("/admin/house-rules"),
         alertsHref: resolve("/alerts"),
         requestsHref: resolve("/requests"),
@@ -171,6 +172,7 @@
     projects: "projects",
     companies: "companies",
     team: "team",
+    import: "import",
     settings: "settings",
   };
   // No Rail v3 drawing for these; the round 2 icons at the v3 size and stroke.
@@ -275,9 +277,6 @@
           class={`min-h-11 workspace-rail-row flex items-center gap-2 rounded-lg pl-9 pr-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
         >
           <span class="min-w-0 flex-1 truncate">{route.label}</span>
-          {#if route.href === ADMIN_IMPORT_PATH && attention.ingestionFailed > 0}
-            <span data-rail-attention aria-label={`${attention.ingestionFailed} failed`} class="size-1.5 shrink-0 rounded-full bg-stale-dot"></span>
-          {/if}
         </a>
       {/each}
     </div>

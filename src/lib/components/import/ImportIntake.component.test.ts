@@ -423,8 +423,8 @@ describe("Files 1: dropping files on the Import page", () => {
     // Leaving the window takes it away.
     drag("dragleave", toolbar, withFolder, null);
     await expect.poll(() => one("[data-import-drop-overlay]")).toBeNull();
-    // Dragging over the Admin sidebar is not a drop on the page.
-    drag("dragover", one("[data-admin-link]")!, transfer);
+    // Dragging over the main rail is not a drop on the page.
+    drag("dragover", one('[data-frame-rail] [data-rail-item="projects"]')!, transfer);
     await pause(50);
     expect(one("[data-import-drop-overlay]")).toBeNull();
   });
@@ -728,11 +728,11 @@ describe("Files 2: just added, with the New filter on", () => {
     await expect.poll(() => getComputedStyle(newChip).color).toBe("rgb(10, 58, 56)");
     expect(getComputedStyle(one("[data-import-filter-count]", newChip)!).color).toBe("rgb(8, 122, 117)");
     expect(__activeQueryArgs("ingestion:sheetCompanies")).toEqual([{ tab: "review", onlyToCheck: false, onlyNew: true }]);
-    // The band: "52 new" 12px before "98 files".
+    // The band: "52 new" 10px before "98 files".
     const band = one('[data-import-band="halden foods"]')!;
     const pill = one("[data-import-band-new-count]", band)!;
     expect(text(pill)).toBe("52 new");
-    expect(box(one("[data-import-band-files]", band)!).left - box(pill).right).toBeCloseTo(board(12), 0);
+    expect(box(one("[data-import-band-files]", band)!).left - box(pill).right).toBeCloseTo(board(10), 0);
     expect(getComputedStyle(pill).backgroundColor).toBe("rgb(220, 252, 231)");
     // Sections count their New files, with the New files' years.
     const labels = all("[data-import-section]", band).map((node) => [node.dataset.importSection, text(one("[data-import-section-count]", node))]);
@@ -761,11 +761,11 @@ describe("Files 2: just added, with the New filter on", () => {
     expect(text(one("[data-import-show-more-files]", notSorted))).toBe("Show 18 more");
     // The closing line.
     expect(text(one("[data-import-sheet-others]"))).toBe("The other 6 companies have no new files.");
-    // The status line: 16px under the toolbar, 20px over the sheet.
+    // The status line: 10px under the toolbar (14px gap with -mt-1), 14px over the sheet.
     const status = one("[data-import-status]")!;
     expect(text(status)).toBe("52 files added, 12 were already here. 31 read so far.");
-    expect(box(status).top - box(one("[data-import-toolbar]")!).bottom).toBeCloseTo(board(16), 0);
-    expect(box(one("[data-import-sheet-header]")!).top - box(status).bottom).toBeCloseTo(board(20), 0);
+    expect(box(status).top - box(one("[data-import-toolbar]")!).bottom).toBeCloseTo(board(10), 0);
+    expect(box(one("[data-import-sheet-header]")!).top - box(status).bottom).toBeCloseTo(board(14), 0);
   });
 
   it("turns To check off when New goes on, and back", async () => {

@@ -683,7 +683,7 @@
                 <div class="mt-5 space-y-2 border-t border-line-soft pt-4">
                   <!-- 2026-11-17: Approve is switched off here (the server refuses it too). -->
                   <p data-old-approve-off class="rounded-lg bg-chrome px-3 py-2.5 text-sm leading-[1.5] text-ink-secondary">
-                    Approving here is switched off. Approve files on the <a href={resolve("/admin/import")} class="font-medium text-action-primary underline-offset-2 hover:underline">Import page</a>: they go on their company's page, and final PDs get a Brain check.
+                    Approving here is switched off. Approve files on the <a href={`${resolve("/")}import`} class="font-medium text-action-primary underline-offset-2 hover:underline">Import page</a>: they go on their company's page, and final PDs get a Brain check.
                   </p>
                   <Button type="button" variant="secondary" class="min-h-11 w-full justify-center" disabled={busyId === reviewTarget._id} onclick={rejectCurrentReview}>Reject file</Button>
                   <button

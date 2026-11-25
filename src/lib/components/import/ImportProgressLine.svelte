@@ -29,37 +29,44 @@
 </script>
 
 {#if progress}
-  <!-- Row one: the bar, the count and "By year and writer"; row two: the note, under the count. On a phone the bar takes its own row first, so the count keeps room. -->
+  <!-- Framed hairline strip: desktop pairs count+note on left with bar+link on right; phone puts bar on row 1, count + link on row 2, note on row 3. -->
   <button
     bind:this={trigger}
     type="button"
     data-import-progress
     aria-haspopup="dialog"
     onclick={() => (open = true)}
-    class="group -mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-center sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
+    class="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-line-soft bg-gray-50/70 px-3.5 py-2 text-left transition-[background-color,border-color] duration-150 ease-out hover:border-line hover:bg-primary-wash/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-x-4 sm:gap-y-0.5 pointer-coarse:min-h-11"
   >
     {#if progress.staged > 0}
-      <span aria-hidden="true" data-import-progress-bar class="col-span-2 h-1.5 w-full shrink-0 sm:col-span-1 sm:w-40 overflow-hidden rounded-full bg-primary-line-soft">
+      <span
+        aria-hidden="true"
+        data-import-progress-bar
+        class="col-span-2 row-start-1 mb-0.5 h-1.5 w-full overflow-hidden rounded-full bg-primary-line-soft sm:col-span-1 sm:col-start-2 sm:row-span-2 sm:row-start-1 sm:mb-0 sm:w-36 sm:self-center"
+      >
         <span
           data-import-progress-fill
-          class="block h-full rounded-full bg-primary-selected"
+          class="block h-full rounded-full bg-primary-selected transition-[width] duration-300 ease-out motion-reduce:transition-none"
           style={`width: ${filledShare({ key: "all", ...progress }) * 100}%`}
         ></span>
       </span>
     {/if}
     <span
       data-import-progress-text
-      class={`${progress.staged > 0 ? "" : "sm:col-span-2"} min-w-0 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink tabular-nums`}
+      class="col-start-1 row-start-2 min-w-0 justify-self-start text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink tabular-nums sm:row-start-1"
     >{progressText(progress)}</span>
     <span
       data-import-progress-open
-      class="inline-flex shrink-0 items-center gap-1 text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected group-hover:text-primary-dark"
+      class="col-start-2 row-start-2 inline-flex shrink-0 items-center gap-1 justify-self-end text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected transition-colors duration-150 ease-out group-hover:text-primary-dark motion-reduce:transition-none sm:col-start-3 sm:row-span-2 sm:row-start-1 sm:self-center"
     >
       By year and writer
-      <IconChevronRight size={13} strokeWidth={1.8} />
+      <IconChevronRight size={13} strokeWidth={1.8} class="transition-transform duration-150 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none" />
     </span>
     {#if progress.staged > 0}
-      <span data-import-progress-note class="col-span-2 text-xs sm:col-span-1 sm:col-start-2 sm:col-end-4 leading-[calc(4/3)] text-ink-muted">{PROGRESS_NOTE}</span>
+      <span
+        data-import-progress-note
+        class="col-span-2 row-start-3 text-xs leading-[calc(4/3)] text-ink-muted sm:col-span-1 sm:col-start-1 sm:row-start-2"
+      >{PROGRESS_NOTE}</span>
     {/if}
   </button>
   <ImportProgressDialog bind:open returnFocus={() => trigger} />

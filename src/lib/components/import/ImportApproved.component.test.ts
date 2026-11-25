@@ -229,8 +229,11 @@ describe("the Approved tab's controls", () => {
       expect(mark.getBoundingClientRect().width).toBeGreaterThanOrEqual(19.5);
       expect(mark.getBoundingClientRect().right).toBeLessThanOrEqual(fileCell.right + 0.5);
     }
-    // One mark leaves the name more room than two.
-    expect(inRow("a2", "[data-import-file-title]").clientWidth).toBeGreaterThan(inRow("a1", "[data-import-file-title]").clientWidth);
+    // With Import moved to the main rail (full card width), both titles fit cleanly alongside their marks.
+    expect(inRow("a2", "[data-import-file-title]").clientWidth).toBeGreaterThanOrEqual(48);
+    expect(inRow("a1", "[data-import-file-title]").scrollWidth).toBeLessThanOrEqual(
+      inRow("a1", "[data-import-file-title]").clientWidth + 1
+    );
   });
 
   it("sets a writer, a reviewer or a science code on that one approved file, never a firm-wide pick for its initials", async () => {

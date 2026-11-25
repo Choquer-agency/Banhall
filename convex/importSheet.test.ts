@@ -5980,3 +5980,59 @@ describe("rebuildImportFinalPdCounts", () => {
     await expectCountsMatchRecount(t, "after it gave up");
   });
 });
+
+describe("removeGroupItems and sheetFile originalUrl", () => {
+  it("soft-deletes a category section or whole company on To review, skips files being read, and enforces admin access", async () => {
+    const { t, admin, writer } = await setup();
+    const draft1 = await stage(t, `${CEDARLINE_FY}/Drafts/d1.docx`);
+    const draft2 = await stage(t, `${CEDARLINE_FY}/Drafts/d2.docx`);
+    const pd1 = await stage(t, `${CEDARLINE_FY}/Submitted/PD 1 Alpha.docx`);
+    const reading = await stage(t, `${CEDARLINE_FY}/Drafts/reading.docx`);
+    for (const id of [draft1, draft2, pd1]) await markRead(t, id);
+
+    const companyKey = (await getItem(t, draft1)).companyKey!;
+
+    await expect(
+      writer.mutation(api.ingestion.removeGroupItems, { companyKey, category: "draft" })
+    ).rejects.toThrow(/admin only/i);
+
+    // Delete only the Drafts section: removes draft1 and draft2, keeps pd1.
+    // (Files still being read live under "unknown" until extraction finishes.)
+    const sectionDeleted = await admin.mutation(api.ingestion.removeGroupItems, {
+      companyKey,
+      category: "draft",
+    });
+    expect(new Set(sectionDeleted.changedIds)).toEqual(new Set([draft1, draft2]));
+    expect(sectionDeleted.skippedBeingRead).toBe(0);
+    expect(sectionDeleted.hasMore).toBe(false);
+    expect((await getItem(t, pd1)).status).toBe("pending_review");
+    expect((await getItem(t, reading)).status).toBe("discovered");
+    await expectCountsMatchRecount(t, "after removeGroupItems by category");
+
+    // Undo restores the deleted section files cleanly.
+    await admin.mutation(api.ingestion.restoreItems, { ids: sectionDeleted.changedIds });
+    for (const id of [draft1, draft2]) expect((await getItem(t, id)).status).toBe("pending_review");
+
+    // Delete the whole company on To review: removes draft1, draft2, and pd1, and skips reading.
+    const companyDeleted = await admin.mutation(api.ingestion.removeGroupItems, { companyKey });
+    expect(new Set(companyDeleted.changedIds)).toEqual(new Set([draft1, draft2, pd1]));
+    expect(companyDeleted.skippedBeingRead).toBe(1);
+    expect(companyDeleted.hasMore).toBe(false);
+    await expectCountsMatchRecount(t, "after removeGroupItems by company");
+  });
+
+  it("returns originalUrl and size from sheetFile when original bytes are stored", async () => {
+    const { t, admin } = await setup();
+    const id = await stage(t, `${CEDARLINE_FY}/Submitted/PD 4 Check.docx`);
+    await markRead(t, id);
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["sample word bytes"])));
+    await t.run((ctx) => ctx.db.patch(id, { storageId, size: 217_088 }));
+
+    const file = await admin.query(api.ingestion.sheetFile, { id });
+    expect(file).not.toBeNull();
+    expect(file?.hasOriginal).toBe(true);
+    expect(typeof file?.originalUrl).toBe("string");
+    expect(file?.size).toBe(217_088);
+  });
+});
+

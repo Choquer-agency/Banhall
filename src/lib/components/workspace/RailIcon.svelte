@@ -4,6 +4,7 @@
     | "projects"
     | "companies"
     | "team"
+    | "import"
     | "settings"
     | "search"
     | "collapse"
@@ -50,6 +51,8 @@
   {:else if name === "team"}
     <circle cx="9" cy="8" r="3.5" />
     <path d="M3 19c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5M16 11a3 3 0 1 0 0-6M17.5 14.5c1.7.5 2.9 2 3.5 4.5" />
+  {:else if name === "import"}
+    <path d="M12 4v10m0 0-3.5-3.5M12 14l3.5-3.5M4 15v2a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-2" />
   {:else if name === "settings"}
     <circle cx="12" cy="12" r="3" />
     <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4" />

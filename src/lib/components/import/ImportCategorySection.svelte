@@ -28,29 +28,41 @@
   ("Each file moves to its category once Banhall has read it").
 -->
 <script lang="ts">
+  import { Popover } from "bits-ui";
   import { untrack } from "svelte";
-  import { usePaginatedQuery } from "convex-svelte";
+  import { useMutation, usePaginatedQuery } from "convex-svelte";
+  import { TrashIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { IconChevronDownSmall, IconChevronRight } from "$lib/components/icons";
+  import { IconChevronDown, IconChevronDownSmall } from "$lib/components/icons";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import ImportFileRow from "./ImportFileRow.svelte";
-  import { rowAbilities, sectionSelectLabel } from "./importEdit";
+  import { deleteGroupFiles } from "./importActions";
+  import { DELETE_NOTE, deleteLine, rowAbilities, sectionSelectLabel } from "./importEdit";
   import {
     FILES_PAGE_MAX,
     firstPageSize,
+    notSortedNote,
+    plural,
     reloadSize,
     sectionNote,
     SHOW_MORE_STEP,
     showMoreText,
     showSectionText,
-    notSortedNote,
     yearSplitText,
     type SectionSummary,
     type SheetFileRow,
     type SheetTab,
   } from "./importFormat";
   import type { ImportSelection } from "./importSelection.svelte";
-  import { AMBER, ROW_TOGGLE, SELECT_CELL_NESTED, SHEET_SMALL, SHOW_MORE } from "./sheetLayout";
+  import {
+    AMBER,
+    DANGER_CONFIRM_LINE,
+    POPOVER_CARD,
+    ROW_TOGGLE,
+    SELECT_GUTTER,
+    SHEET_SMALL,
+    SHOW_MORE,
+  } from "./sheetLayout";
 
   let {
     tab,
@@ -88,7 +100,6 @@
   let listed = 0;
   const filesQ = usePaginatedQuery(
     api.ingestion.sheetFiles,
-    // onlyNew only when on, so the read of every other view keeps its arguments.
     () => (open ? { tab, companyKey, category: section.category, onlyToCheck, ...(onlyNew ? { onlyNew: true } : {}) } : "skip"),
     () => ({ initialNumItems: reloadSize(listed, firstPage, FILES_PAGE_MAX), keepPreviousData: true })
   );
@@ -101,35 +112,44 @@
     listed = rows.length;
   });
   const loadingFirst = $derived(open && rows.length === 0 && filesQ.status === "LoadingFirstPage" && !filesQ.error);
-  /**
-   * How many of the files this read lists (all of them, or only those to
-   * check: the band's count for the section) are not listed yet. A page that
-   * holds exactly the rest still reads as "can load more" until an empty page
-   * comes back, so the "Show N more" row goes by this count (live QA fixes):
-   * none left, no row, and never a row with no number on it.
-   */
   const remaining = $derived(Math.max(0, section.count - rows.length));
   const hasMore = $derived(remaining > 0 && (filesQ.status === "CanLoadMore" || filesQ.status === "LoadingMore"));
-  // The count says none are left but the read has not reached its end: ask
-  // once, quietly. Usually an empty page comes back; if the count was behind,
-  // the files it missed are listed rather than left out of reach.
   $effect(() => {
     if (open && remaining === 0 && rows.length > 0 && filesQ.status === "CanLoadMore") {
       untrack(() => filesQ.loadMore(SHOW_MORE_STEP));
     }
   });
 
+  // ─── Quick delete category section (To review) ──────────────────────────
+  const removeGroupItems = useMutation(api.ingestion.removeGroupItems);
+  const restoreItems = useMutation(api.ingestion.restoreItems);
+  let deleteOpen = $state(false);
+  let deleting = $state(false);
+  const deletableCount = $derived(
+    notSorted ? Math.max(0, section.counts.total - beingRead) : section.counts.total
+  );
+  const canDeleteSection = $derived(tab === "review" && deletableCount > 0);
+
+  async function deleteSection() {
+    if (deleting) return;
+    deleting = true;
+    deleteOpen = false;
+    try {
+      await deleteGroupFiles({ companyKey, category: section.category }, removeGroupItems, restoreItems, {
+        onRemoved: (ids) => selection?.remove(ids),
+      });
+    } finally {
+      deleting = false;
+    }
+  }
+
   // ─── Select ─────────────────────────────────────────────────────────────
-  // The band lists its sections keyed by category and is keyed by company,
-  // so both are fixed for this section.
   const category = untrack(() => section.category);
   const selecting = $derived(Boolean(selection?.on));
   /** The files listed here that can be selected on this tab. */
   const selectable = $derived(open ? rows.filter((row) => rowAbilities(row, tab).select) : []);
   /** The read has answered for its arguments (not reading its first page). */
   const answered = $derived(open && filesQ.status !== "LoadingFirstPage");
-  // Tells the selection what this section lists, once its read has answered,
-  // with the read it came from ("To check" or not).
   $effect(() => {
     const target = selection;
     if (!target || !answered) return;
@@ -138,34 +158,41 @@
     const name = company;
     untrack(() => target.list(companyKey, category, read, list, name));
   });
-  // Closing the section (or the section leaving the sheet) takes its listing away.
   $effect(() => {
     const target = selection;
     if (!target || !open) return;
     return () => untrack(() => target.unlist(companyKey, category));
   });
-  const state = $derived(selection ? selection.stateOf(selection.listed(companyKey, category)) : "none");
+  const checkState = $derived(selection ? selection.stateOf(selection.listed(companyKey, category)) : "none");
   const selectLabel = $derived(sectionSelectLabel(section.label, company));
 
   function toggleSelect() {
     if (!selection) return;
+    if (!selection.on) selection.setOn(true);
     if (selection.toggleRows(selection.listed(companyKey, category))) return;
-    // Open and listed with nothing to select: nothing to ask for.
     if (open && selection.isListed(companyKey, category)) return;
-    // Not on screen yet: open it, and select its files the first time it lists.
     selection.selectWhenListed(companyKey, category);
     if (!open) onToggle();
   }
 </script>
 
 <div data-import-section={section.category} data-import-section-open={open ? "" : undefined}>
-  <div role="row" class="relative flex h-10 items-center border-t border-line pr-2 hover:bg-gray-50">
-    {#if selecting}
-      <div role="cell" data-import-select-cell class={`${SELECT_CELL_NESTED} self-stretch`}>
-        <!-- Function bindings: the box always shows the selection, even when a click only opens the section. -->
+  <div
+    role="row"
+    class="group/section relative flex h-9 items-center border-t border-line pr-2.5 pl-12 transition-colors duration-150 ease-out hover:bg-gray-50 motion-reduce:transition-none"
+  >
+    {#if selection}
+      <div
+        data-import-select-cell
+        class={`${SELECT_GUTTER} ${
+          selecting || checkState !== "none"
+            ? "opacity-100"
+            : "opacity-0 pointer-fine:group-hover/section:opacity-100 pointer-fine:group-has-[:focus-visible]/section:opacity-100 focus-within:opacity-100"
+        }`}
+      >
         <Checkbox
-          bind:checked={() => state === "all", () => toggleSelect()}
-          indeterminate={state === "some"}
+          bind:checked={() => checkState === "all", () => toggleSelect()}
+          indeterminate={checkState === "some"}
           aria-label={selectLabel}
           data-import-section-select={section.category}
         />
@@ -180,18 +207,12 @@
         onclick={onToggle}
         class={`${ROW_TOGGLE} shrink-0 gap-2`}
       >
-        <span data-import-section-chevron class="flex w-4 shrink-0 items-center text-ink-muted">
-          <span class={`flex size-3 items-center justify-center transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}>
-            <IconChevronRight size={12} strokeWidth={1.8} class="shrink-0" />
-          </span>
-        </span>
         <span data-import-section-label class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{section.label}</span>
         <span
           data-import-section-count
           class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-import-count px-[0.3125rem] text-[0.625rem] leading-[1.2] text-primary-selected"
         >{section.count}</span>
       </button>
-      <!-- On a narrow sheet the year split gives way first, then the note; "Show N" always shows. -->
       {#if notSorted}
         {@const words = notSortedNote(section.counts.total, beingRead)}
         <span data-import-section-not-sorted title={words} class={`ml-1.5 min-w-0 shrink-[100] truncate ${SHEET_SMALL} text-ink-faint`}>{words}</span>
@@ -202,21 +223,83 @@
       {#if note}
         <span data-import-section-note title={note} class={`ml-2.5 min-w-0 truncate ${SHEET_SMALL} ${AMBER}`}>{note}</span>
       {/if}
-      {#if !open}
-        <span aria-hidden="true" data-import-section-show class="ml-auto shrink-0 pl-2 text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected">{showSectionText(section.count)}</span>
-      {/if}
+      <span class="ml-auto flex shrink-0 items-center gap-2 pl-2">
+        {#if !open}
+          <span aria-hidden="true" data-import-section-show class="shrink-0 text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected">{showSectionText(section.count)}</span>
+        {/if}
+        {#if canDeleteSection}
+          <Popover.Root bind:open={deleteOpen}>
+            <Popover.Trigger
+              type="button"
+              disabled={deleting}
+              aria-label="Delete section files"
+              title={`Delete ${section.label.toLowerCase()} in ${company ?? "No company yet"}`}
+              data-import-section-delete={section.category}
+              class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-[opacity,background-color,color] duration-150 ease-out hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-danger-surface data-[state=open]:text-danger-ink-muted motion-reduce:transition-none pointer-coarse:size-11 ${
+                deleteOpen
+                  ? "opacity-100"
+                  : "opacity-0 group-hover/section:opacity-100 group-has-[:focus-visible]/section:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+              }`}
+            >
+              <TrashIcon size="0.875rem" aria-hidden="true" />
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                side="bottom"
+                align="end"
+                sideOffset={6}
+                collisionPadding={12}
+                aria-label={`Delete ${section.label}`}
+                data-import-section-delete-confirm
+                class={`${POPOVER_CARD} w-[18.5rem] max-w-[calc(100vw-1.5rem)] p-3`}
+              >
+                <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">
+                  Delete {plural(deletableCount, "file")} in {section.label}?
+                </p>
+                <p class={`mt-1 ${SHEET_SMALL} text-ink-muted`}>{DELETE_NOTE}</p>
+                {#if notSorted && beingRead > 0}
+                  <p class={`mt-1 ${SHEET_SMALL} text-ink-muted`}>
+                    {plural(beingRead, "file")} still being read will stay until finished.
+                  </p>
+                {/if}
+                <button
+                  type="button"
+                  disabled={deleting}
+                  data-import-section-delete-go
+                  onclick={() => void deleteSection()}
+                  class={`mt-2.5 ${DANGER_CONFIRM_LINE}`}
+                >{deleting ? "Deleting..." : deleteLine(deletableCount)}</button>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        {/if}
+        <span
+          data-import-section-chevron
+          data-chevron-state={open ? "up" : "down"}
+          aria-hidden="true"
+          class="flex size-5 shrink-0 items-center justify-center text-ink-muted"
+        >
+          <span
+            class={`flex size-3 items-center justify-center transition-transform duration-200 ease-out motion-reduce:transition-none ${
+              open ? "rotate-180" : "rotate-0"
+            }`}
+          >
+            <IconChevronDown size={13} strokeWidth={1.8} class="shrink-0" />
+          </span>
+        </span>
+      </span>
     </div>
   </div>
 
   {#if open}
     <div id={filesId} data-import-section-files>
       {#if filesQ.error && rows.length === 0}
-        <div role="row" class={`flex h-11 items-center border-t border-line-soft ${selecting ? "pl-[3.75rem]" : "pl-6"}`}>
-          <div role="cell" aria-colspan={selecting ? 7 : 6} class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">These files could not be loaded.</div>
+        <div role="row" class="flex h-9 items-center border-t border-line-soft pl-12">
+          <div role="cell" aria-colspan={6} class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">These files could not be loaded.</div>
         </div>
       {:else if loadingFirst}
         {#each Array.from({ length: Math.min(firstPage, 3) }, (_, index) => index) as index (index)}
-          <div role="row" aria-hidden="true" class={`flex h-11 items-center border-t border-line-soft ${selecting ? "pl-[3.75rem]" : "pl-6"}`} data-import-file-skeleton>
+          <div role="row" aria-hidden="true" class="flex h-9 items-center border-t border-line-soft pl-12" data-import-file-skeleton>
             <span class="h-3 w-48 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none"></span>
           </div>
         {/each}
@@ -226,8 +309,8 @@
         {/each}
       {/if}
       {#if hasMore}
-        <div role="row" class={`flex h-10 items-center border-t border-line-soft ${selecting ? "pl-[3.75rem]" : "pl-6"}`}>
-          <div role="cell" aria-colspan={selecting ? 7 : 6}>
+        <div role="row" class="flex h-9 items-center border-t border-line-soft pl-12">
+          <div role="cell" aria-colspan={6}>
             <button
               type="button"
               data-import-show-more-files
