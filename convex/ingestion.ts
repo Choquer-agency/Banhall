@@ -5,6 +5,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  env,
   type ActionCtx,
   type QueryCtx,
   type MutationCtx,
@@ -1359,6 +1360,37 @@ export const adminCheck = internalQuery({
   args: {},
   returns: v.id("users"),
   handler: async (ctx) => await assertAdmin(ctx),
+});
+
+/**
+ * Returns the deployment's upload site URL and bearer key so the Import page's
+ * "Get the uploader" dialog can assemble a ready-to-run banhall-uploader.zip.
+ * Admin-only and action-only (never cached in reactive query subscriptions).
+ */
+export const getUploaderConfig = action({
+  args: {},
+  returns: v.object({
+    url: v.string(),
+    key: v.string(),
+  }),
+  handler: async (ctx): Promise<{ url: string; key: string }> => {
+    await ctx.runQuery(internal.ingestion.adminCheck, {});
+    const key = env.INGEST_API_KEY?.trim();
+    if (!key || key.length < 32) {
+      domainError(
+        "PROVIDER_NOT_CONFIGURED",
+        "The uploader key is not configured on this deployment yet. Ask the dev team to set INGEST_API_KEY.",
+      );
+    }
+    const url = process.env.CONVEX_SITE_URL?.trim().replace(/\/+$/, "");
+    if (!url || !url.startsWith("https://")) {
+      domainError(
+        "PROVIDER_NOT_CONFIGURED",
+        "The upload address is not configured on this deployment.",
+      );
+    }
+    return { url, key };
+  },
 });
 
 // ─── Approve on Import (2026-11-17, docs/product-domain.md) ─────────────────

@@ -115,6 +115,8 @@ export const HANDLED_REFUSAL_FUNCTIONS: ReadonlySet<string> = new Set([
   // 2026-11-17: the old import page shows a revoked Brain match's words
   // beside Approve.
   "ingestion:approveItem",
+  // Get the uploader dialog explains missing deployment config inline.
+  "ingestion:getUploaderConfig",
 ]);
 
 /** The `reason` detail a domain error carries (for example "DRAFT_COMPLETE"), if any. */
