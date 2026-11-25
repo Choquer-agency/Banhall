@@ -5103,16 +5103,22 @@ async function readClientNames(
  * reading at most 25 stored text blobs per run and scheduling the next page.
  */
 export const backfillDocumentClientNames = internalAction({
-  args: { tab: v.optional(writerBackfillTabValidator), cursor: v.optional(v.union(v.string(), v.null())) },
+  args: {
+    tab: v.optional(writerBackfillTabValidator),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    skip: v.optional(v.number()),
+  },
   returns: v.object({ recorded: v.number(), done: v.boolean() }),
   handler: async (ctx, args): Promise<{ recorded: number; done: boolean }> => {
     const tab = args.tab ?? "review";
     const cursor = args.cursor ?? null;
+    const skip = Math.max(0, Math.floor(args.skip ?? 0));
     const page: Infer<typeof namesBackfillPageValidator> = await ctx.runQuery(
       internal.ingestion.documentClientNamesPage,
       { tab, cursor }
     );
-    const entries = await readClientNames(ctx, page.items.slice(0, NAMES_BACKFILL_READS));
+    const batch = page.items.slice(skip, skip + NAMES_BACKFILL_READS);
+    const entries = await readClientNames(ctx, batch);
     let recorded = 0;
     let saved = true;
     if (entries.length > 0) {
@@ -5126,12 +5132,14 @@ export const backfillDocumentClientNames = internalAction({
         });
       }
     }
-    const again = page.items.length > NAMES_BACKFILL_READS && saved && recorded > 0;
+    const again = batch.length > 0 && skip + batch.length < page.items.length;
+    const nextSkip = saved ? skip + (batch.length - entries.length) : skip + batch.length;
     const next = again || !page.isDone ? tab : WRITER_BACKFILL_TABS[WRITER_BACKFILL_TABS.indexOf(tab) + 1];
     if (next !== undefined) {
       await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentClientNames, {
         tab: next,
         cursor: again ? cursor : page.isDone ? null : page.continueCursor,
+        ...(again && nextSkip > 0 ? { skip: nextSkip } : {}),
       });
     }
     return { recorded, done: next === undefined };

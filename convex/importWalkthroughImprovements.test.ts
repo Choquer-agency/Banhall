@@ -652,4 +652,55 @@ describe("2026-11-23 walkthrough improvements", () => {
       { name: "Samira Haddad", source: "section_c" },
     ]);
   });
+
+  it("continues reading remaining files on the same page even when the first 25 reads all fail", async () => {
+    const { t } = await setup();
+    const sectionCText = [
+      "Section C - Additional project information",
+      "254",
+      "Name",
+      "Samira Haddad",
+      "265",
+      "No",
+    ].join("\n");
+
+    const ids: Id<"ingestionItems">[] = [];
+    for (let i = 1; i <= 27; i += 1) {
+      const num = String(i).padStart(2, "0");
+      const path = `Cedarline Systems/2025 - Mar 31/To be submitted/${num} CedarlineSystems 2025-03-31 T1.TL.PN.SH PageBatch${num}.docx`;
+      ids.push(await stageFile(t, path, sectionCText));
+    }
+
+    const originalText = Blob.prototype.text;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let callCount = 0;
+    const textSpy = vi.spyOn(Blob.prototype, "text").mockImplementation(function (this: Blob) {
+      callCount += 1;
+      if (callCount <= 25) return Promise.reject(new Error("transient storage failure"));
+      return originalText.call(this);
+    });
+    try {
+      await t.action(internal.ingestion.backfillDocumentClientNames, {});
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    } finally {
+      textSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    // All 27 files were attempted across 2 slices on the same page: 25 failed remain undefined, 2 succeeded.
+    const docs = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+    const populated = docs.filter((doc) => doc?.documentClientNames !== undefined);
+    const unpopulated = docs.filter((doc) => doc?.documentClientNames === undefined);
+    expect(populated).toHaveLength(2);
+    expect(unpopulated).toHaveLength(25);
+    for (const doc of populated) {
+      expect(doc?.documentClientNames).toEqual([{ name: "Samira Haddad", source: "section_c" }]);
+    }
+
+    // A follow-up backfill run retries and populates the remaining 25 files.
+    await t.action(internal.ingestion.backfillDocumentClientNames, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const docsAfterRetry = await t.run((ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+    expect(docsAfterRetry.every((doc) => doc?.documentClientNames?.length === 1)).toBe(true);
+  });
 });
