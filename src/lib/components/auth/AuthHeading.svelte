@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Display heading (28px, 36px line) and the optional 15px subtitle,
+  // Display heading (24px, 32px line) and the optional 14px subtitle,
   // centred. Serif by default; the sign-in page uses the sans face.
   let {
     title,
@@ -10,11 +10,11 @@
 
 <div class="flex flex-col items-center gap-1.5 text-center">
   <h1
-    class={`text-[1.75rem] leading-[calc(9/7)] text-balance text-ink ${serif ? "font-serif" : "font-sans font-medium tracking-[-0.02em]"}`}
+    class={`text-2xl leading-[calc(4/3)] text-balance text-ink ${serif ? "font-serif" : "font-sans font-medium tracking-[-0.02em]"}`}
   >
     {title}
   </h1>
   {#if subtitle}
-    <p class="text-[0.9375rem] leading-[calc(22/15)] text-pretty text-ink-secondary">{subtitle}</p>
+    <p class="text-sm leading-[calc(10/7)] text-pretty text-ink-secondary">{subtitle}</p>
   {/if}
 </div>

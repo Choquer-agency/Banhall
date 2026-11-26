@@ -341,6 +341,13 @@ html {
     font-size: clamp(105%, calc(105% + (100vw - 1600px) * 0.004375), 131.25%); /* px-to-rem: keep */
   }
 }
+/* Signed-out auth screens keep a calm 100% root scale on desktop monitors
+   instead of scaling up to 131.25% (21px) at 2560px (owner, 2026-11-26). */
+@media (min-width: 1280px) {
+  html:has([data-auth-layout]) {
+    font-size: 100%; /* px-to-rem: keep */
+  }
+}
 
 /* Board icons and the logo mark keep their board size as the svg width and
    height attributes and in --icon-size; this sizes them in rem so they scale

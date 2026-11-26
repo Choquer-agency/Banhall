@@ -1,16 +1,14 @@
 <script lang="ts">
   import { boardRem } from "$lib/rootScale";
-  // Round 2 signed-out frame (J1-J9). Wide screens: canvas, dark logo (64px)
-  // centred above one column with 28px between (J1-J4, J6). With the invite
-  // banner (J5) the column centres in the space below it with 48px bottom
-  // padding. Phones: the column starts 96px from the top with 20px sides and
-  // a 56px logo (J8); under the banner it starts 40px down with a 52px logo
-  // and 24px gaps (J9). No footer: the owner dropped it on 2026-09-28.
+  // Signed-out frame (owner, 2026-11-26): top-left dark logo (36px on
+  // desktop, 32px on phones) in a calm 100% root scale so large monitors stay
+  // proportional; the form column centres below it (with an optional full-width
+  // invite banner above the header). No footer.
   import type { Snippet } from "svelte";
   import BanhallLogo from "$lib/components/ui/BanhallLogo.svelte";
 
   let {
-    width = 360,
+    width = 340,
     banner,
     children,
   }: { width?: number; banner?: Snippet; children: Snippet } = $props();
@@ -18,15 +16,17 @@
 
 <div data-auth-layout class="relative flex min-h-screen flex-1 flex-col bg-canvas antialiased">
   {@render banner?.()}
+  <header data-auth-header class="flex shrink-0 items-center px-5 pt-5 sm:px-7 sm:pt-6">
+    <BanhallLogo tone="dark" height={36} class="h-8 w-auto sm:h-9" />
+  </header>
   <main
     class={`flex flex-1 flex-col items-center px-5 sm:justify-center sm:px-0 ${
       banner
-        ? "gap-6 pb-8 pt-10 sm:gap-7 sm:pb-12 sm:pt-0"
-        : "gap-7 pb-8 pt-24 sm:py-12"
+        ? "pb-10 pt-8 sm:pb-16 sm:pt-0"
+        : "pb-10 pt-14 sm:pb-16 sm:pt-0"
     }`}
   >
-    <BanhallLogo tone="dark" height={64} class={`w-auto sm:h-16 ${banner ? "h-[3.25rem]" : "h-14"}`} />
-    <div data-auth-column class="flex w-full flex-col gap-5" style={`max-width:${boardRem(width)}`}>
+    <div data-auth-column class="flex w-full flex-col gap-4" style={`max-width:${boardRem(width)}`}>
       {@render children()}
     </div>
   </main>
