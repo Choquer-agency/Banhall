@@ -1251,7 +1251,7 @@
                     {#if file.companyPage}
                       <a
                         href={companiesPath(resolve("/"), file.companyPage.key)}
-                        class="inline-flex items-center text-primary-selected underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir pointer-coarse:min-h-11"
+                        class="inline-flex items-center rounded-sm text-primary-selected underline-offset-2 transition-colors duration-150 ease-out hover:text-primary-dark hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
                       >{file.companyPage.name}</a>
                     {:else}
                       {NOT_ON_COMPANY_PAGE}
