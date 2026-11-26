@@ -116,7 +116,7 @@ describe("/login", () => {
     expect(document.querySelector("footer")).toBeNull();
     expect(document.querySelector("#email")?.getAttribute("placeholder")).toBe("you@banhall.com");
     expect(document.querySelector("#password")?.getAttribute("placeholder")).toBe("Enter your password");
-    expect(document.querySelector('[data-auth-column]')?.getAttribute("style")).toContain("max-width: 22.5rem");
+    expect(document.querySelector('[data-auth-column]')?.getAttribute("style")).toContain("max-width: 21.25rem");
     expect(document.body.textContent).not.toContain("The interview is the evidence");
     expect(document.querySelector("[data-account-card]")).toBeNull();
   });
@@ -239,43 +239,55 @@ describe("/login", () => {
     onLine.mockRestore();
   });
 
-  it("fills the phone width with no footer (J8)", async () => {
+  it("fills the phone width with top-left logo and no footer (J8)", async () => {
     await page.viewport(390, 844);
     try {
       render(LoginPage);
       await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
       const column = document.querySelector<HTMLElement>("[data-auth-column]")!;
-      // J8: 20px sides, the 56px logo 96px from the top, 28px above the column.
-      expect(Math.round(column.getBoundingClientRect().width)).toBe(390 - 40);
+      const header = document.querySelector<HTMLElement>("[data-auth-header]")!.getBoundingClientRect();
+      // Capped at 340px inside 20px sides, 32px logo at top-left (20px inset), 56px gap above the column.
+      expect(Math.round(column.getBoundingClientRect().width)).toBe(340);
       const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
-      expect(Math.round(logo.height)).toBe(56);
-      expect(Math.round(logo.top)).toBe(96);
-      expect(Math.round(column.getBoundingClientRect().top - logo.bottom)).toBe(28);
+      expect(Math.round(logo.height)).toBe(32);
+      expect(Math.round(logo.top)).toBe(20);
+      expect(Math.round(logo.left)).toBe(20);
+      expect(Math.round(column.getBoundingClientRect().top - header.bottom)).toBe(56);
       expect(document.querySelector("footer")).toBeNull();
     } finally {
       await page.viewport(1280, 800);
     }
   });
 
-  it("draws J1 at the board sizes: 64px logo, 44px fields and a 46px button", async () => {
-    await page.viewport(1440, 900);
+  it("places a smaller logo top-left and keeps a calm desktop scale on 1440px and 2560px monitors", async () => {
     try {
-      render(LoginPage);
-      await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
-      const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
-      // Board sizes at the root of a 1440 window (board(), 15px per rem).
-      expect(Math.round(logo.height)).toBe(Math.round(board(64)));
-      expect(Math.round(logo.width)).toBe(Math.round(board(143)));
-      const field = document.querySelector<HTMLElement>("#email")!.closest<HTMLElement>("[data-auth-input]")!;
-      expect(field.getBoundingClientRect().height).toBe(board(44));
-      expect(getComputedStyle(field).borderRadius).toBe(boardPx(10));
-      expect(getComputedStyle(field).borderTopColor).toBe("rgb(218, 229, 227)");
-      const button = document.querySelector<HTMLElement>('button[type="submit"]')!;
-      expect(button.getBoundingClientRect().height).toBe(board(46));
-      expect(document.querySelector("[data-auth-footer]")).toBeNull();
-      // The column is centred in the whole page.
-      const main = document.querySelector("main")!.getBoundingClientRect();
-      expect(Math.round(main.height)).toBe(900);
+      for (const [vw, vh, expectedRoot] of [
+        [1440, 900, "15px"],
+        [2560, 1440, "16px"],
+      ] as const) {
+        await page.viewport(vw, vh);
+        const screen = await render(LoginPage);
+        try {
+          await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
+          expect(getComputedStyle(document.documentElement).fontSize).toBe(expectedRoot);
+          const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
+          const column = document.querySelector<HTMLElement>("[data-auth-column]")!.getBoundingClientRect();
+          expect(Math.round(logo.height)).toBe(Math.round(board(36)));
+          expect(Math.round(logo.left)).toBe(Math.round(board(28)));
+          expect(Math.round(logo.top)).toBe(Math.round(board(24)));
+          expect(logo.right).toBeLessThan(column.left);
+          expect(Math.round(column.width)).toBe(Math.round(board(340)));
+          const field = document.querySelector<HTMLElement>("#email")!.closest<HTMLElement>("[data-auth-input]")!;
+          expect(field.getBoundingClientRect().height).toBe(board(40));
+          expect(getComputedStyle(field).borderRadius).toBe(boardPx(8));
+          expect(getComputedStyle(field).borderTopColor).toBe("rgb(218, 229, 227)");
+          const button = document.querySelector<HTMLElement>('button[type="submit"]')!;
+          expect(button.getBoundingClientRect().height).toBe(board(40));
+          expect(document.querySelector("[data-auth-footer]")).toBeNull();
+        } finally {
+          await screen.unmount();
+        }
+      }
     } finally {
       await page.viewport(1280, 800);
     }
@@ -318,14 +330,14 @@ describe("/login", () => {
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("puts the J3 password 20px under the account card", async () => {
+  it("puts the J3 password 16px under the account card", async () => {
     rememberAccount({ email: "ana.ruiz@banhall.com", firstName: "Ana", lastName: "Ruiz" });
     render(LoginPage);
     await expect.poll(() => document.querySelector("[data-account-card]")).not.toBeNull();
     const card = document.querySelector<HTMLElement>("[data-account-card]")!.getBoundingClientRect();
     const label = document.querySelector<HTMLElement>('label[for="password"]')!;
     const block = label.closest<HTMLElement>(".gap-2") ?? label.parentElement!;
-    expect(Math.round(block.getBoundingClientRect().top - card.bottom)).toBe(Math.round(board(20)));
+    expect(Math.round(block.getBoundingClientRect().top - card.bottom)).toBe(Math.round(board(16)));
   });
 
   it("draws the J3 account card: radius 12, 10/12 padding, 36px avatar with 12px/500 initials", async () => {

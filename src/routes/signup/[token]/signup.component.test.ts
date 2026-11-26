@@ -241,13 +241,15 @@ describe("/signup/[token]", () => {
         "Join by Friday, Oct 2.",
       ]);
       const column = document.querySelector<HTMLElement>("[data-auth-column]")!;
-      // J9: 20px sides; the 52px logo 40px under the banner, 24px above the column.
+      const header = document.querySelector<HTMLElement>("[data-auth-header]")!.getBoundingClientRect();
+      // 20px sides; 32px logo top-left 20px under the banner, 32px gap above the column.
       expect(Math.round(column.getBoundingClientRect().width)).toBe(390 - 40);
       const banner = document.querySelector<HTMLElement>("[data-invite-banner]")!.getBoundingClientRect();
       const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
-      expect(Math.round(logo.height)).toBe(52);
-      expect(Math.round(logo.top - banner.bottom)).toBe(40);
-      expect(Math.round(column.getBoundingClientRect().top - logo.bottom)).toBe(24);
+      expect(Math.round(logo.height)).toBe(32);
+      expect(Math.round(logo.left)).toBe(20);
+      expect(Math.round(logo.top - banner.bottom)).toBe(20);
+      expect(Math.round(column.getBoundingClientRect().top - header.bottom)).toBe(32);
       expect(document.querySelector("[data-auth-footer]")).toBeNull();
     } finally {
       await page.viewport(1280, 800);

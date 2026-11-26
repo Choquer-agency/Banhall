@@ -442,7 +442,7 @@ describe("reviewers on the Import page", () => {
       // With Select on a PD's title keeps reasonable room: about ten letters.
       for (const id of ["pd2", "pd3", "pd5"]) {
         const title = inRow(id, "[data-import-file-title]");
-        expect(Math.min(title.scrollWidth, box(title).width), id).toBeGreaterThanOrEqual(Math.min(title.scrollWidth, 74));
+        expect(Math.min(title.scrollWidth, box(title).width), id).toBeGreaterThanOrEqual(Math.min(title.scrollWidth, 70));
       }
       await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
       await expect.poll(() => all("[data-import-bar-more-choice]").length).toBe(6);

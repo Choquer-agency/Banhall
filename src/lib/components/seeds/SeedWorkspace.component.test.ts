@@ -4168,37 +4168,37 @@ describe("Seed plan final UI (ui-design-final.md sections 3 and 11)", () => {
   it("fills a wide pane with more card columns in reading order and keeps the Outline width", async () => {
     // 2026-09-28 width pass: columns of at least 340 board pixels (21.25rem)
     // share the pane, rather than two 412px columns at the left of an empty
-    // pane. Greptile G4: the minimum is rem like the cards, so at 2560 (20px
-    // root) no card is narrower than 425px, and four columns still fit.
-    const fiveSeeds = () => Array.from({ length: 5 }, (_, index) => seed({
+    // pane. At the 16px wide-monitor cap (2026-11-26), 1920px fits four columns
+    // and 2560px fits five to six columns, with no card narrower than 340px.
+    const wideSeeds = () => Array.from({ length: 7 }, (_, index) => seed({
       seedId: `seed-wide-${index}` as Id<"seeds">,
       bullets: [`Wide seed ${index + 1} wording.`],
     }));
-    for (const [viewport, width, grid, columns] of [
-      [1920, "1760px", "three", ["0", "1", "2", "0", "1"]],
-      [2560, "2347px", "four", ["0", "1", "2", "3", "0"]],
-      [2560, "2520px", "four", ["0", "1", "2", "3", "0"]],
+    for (const [viewport, width, grid, colCount, columns] of [
+      [1920, "1760px", "four", 4, ["0", "1", "2", "3", "0", "1", "2"]],
+      [2560, "2347px", "five", 5, ["0", "1", "2", "3", "4", "0", "1"]],
+      [2560, "2520px", "six", 6, ["0", "1", "2", "3", "4", "5", "0"]],
     ] as const) {
       document.body.innerHTML = "";
       await page.viewport(viewport, 1080);
       __setQueryData("seeds:getOutline", outline());
-      __setQueryData("seeds:getSubsection", subsection({ items: fiveSeeds() }));
+      __setQueryData("seeds:getSubsection", subsection({ items: wideSeeds() }));
       const view = await render(SeedWorkspace, workspaceProps());
       view.container.style.width = width;
       view.container.style.height = "1000px";
       await expect.poll(() => document.querySelector("[data-seed-grid]")?.getAttribute("data-seed-grid")).toBe(grid);
       const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-seed-cell][data-seed-column]"));
-      expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(fiveSeeds().map((item) => item.seedId));
+      expect(cells.map((cell) => cell.dataset.seedCell)).toEqual(wideSeeds().map((item) => item.seedId));
       expect(cells.map((cell) => cell.dataset.seedColumn)).toEqual([...columns]);
       const card = (index: number) => document.querySelector<HTMLElement>(`article[data-seed-id="seed-wide-${index}"]`)!.getBoundingClientRect();
-      const widths = [0, 1, 2, 3, 4].map((index) => Math.round(card(index).width));
+      const widths = wideSeeds().map((_, index) => Math.round(card(index).width));
       expect(new Set(widths).size).toBe(1);
       // Never narrower than 21.25rem at this window's root.
       expect(widths[0]).toBeGreaterThanOrEqual(Math.floor(board(340)));
-      // The 0.5rem gap (8px at a 16px root) grows with the root above 1600px.
+      // The 0.5rem gap (8px at a 16px root) scales with the root.
       expect(card(1).left - card(0).right).toBeCloseTo(board(8), 0);
       const grid0 = view.container.querySelector<HTMLElement>("[data-seed-grid]")!.getBoundingClientRect();
-      const lastInRow = grid === "three" ? card(2) : card(3);
+      const lastInRow = card(colCount - 1);
       expect(Math.abs(Math.round(lastInRow.right - grid0.right))).toBeLessThanOrEqual(1);
       await expect.element(page.getByRole("slider", { name: "Resize Seed outline" })).toHaveAttribute("aria-valuenow", "300");
       view.unmount();

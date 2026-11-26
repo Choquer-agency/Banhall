@@ -135,11 +135,11 @@
 </svelte:head>
 
 {#if inviteQ.isLoading}
-  <AuthLayout width={380}>
+  <AuthLayout width={360}>
     <div class="flex justify-center py-8"><Spinner /></div>
   </AuthLayout>
 {:else if submitting}
-  <AuthLayout width={380}>
+  <AuthLayout width={360}>
     <div class="flex flex-col items-center py-8 text-center" role="status" aria-live="polite">
       <Spinner />
       <h1 class="mt-4 text-title">{redirecting ? "Account created" : "Creating your account..."}</h1>
@@ -149,8 +149,8 @@
     </div>
   </AuthLayout>
 {:else if expired}
-  <AuthLayout width={440}>
-    <div data-invite-expired class="flex flex-col gap-5">
+  <AuthLayout width={400}>
+    <div data-invite-expired class="flex flex-col gap-4">
       <AuthHeading
         title="Your invite has expired"
         subtitle={inviterFirst && mailto
@@ -180,7 +180,7 @@
           <a
             href={mailto}
             data-email-inviter
-            class="flex h-[2.875rem] items-center justify-center rounded-[0.625rem] bg-fir text-[0.9375rem] leading-[calc(4/3)] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            class="flex h-10 items-center justify-center rounded-lg bg-fir text-sm leading-[calc(10/7)] font-medium text-white hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
           >Email {inviterFirst} for a new invite</a>
         {/if}
         <p class="flex justify-center gap-1 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
@@ -192,8 +192,8 @@
   </AuthLayout>
 {:else if !invite}
   <!-- Revoked, replaced by a resend, already used or unknown. -->
-  <AuthLayout width={380}>
-    <div data-invite-unavailable class="flex flex-col gap-5">
+  <AuthLayout width={360}>
+    <div data-invite-unavailable class="flex flex-col gap-4">
       <AuthHeading
         title="This invite link isn't valid"
         subtitle="It may have been revoked, replaced by a newer link, or already used. Ask your team for a new invite."
@@ -205,30 +205,30 @@
     </div>
   </AuthLayout>
 {:else if signedIn}
-  <AuthLayout width={380}>
-    <div data-invite-signed-in class="flex flex-col items-center gap-5">
+  <AuthLayout width={360}>
+    <div data-invite-signed-in class="flex flex-col items-center gap-4">
       <AuthHeading title="You're already signed in" subtitle={`Sign out first to accept this invite for ${invite.email}.`} />
       <button
         type="button"
         onclick={signOut}
-        class="flex h-[2.875rem] w-full items-center justify-center rounded-[0.625rem] bg-chrome text-[0.9375rem] leading-[calc(4/3)] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        class="flex h-10 w-full items-center justify-center rounded-lg bg-chrome text-sm leading-[calc(10/7)] font-medium text-ink hover:bg-primary-wash focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >Sign out</button>
     </div>
   </AuthLayout>
 {:else}
-  <AuthLayout width={380}>
+  <AuthLayout width={360}>
     {#snippet banner()}
       <InviteBanner inviter={invite.inviter} role={invite.role} expiresAt={invite.expiresAt} />
     {/snippet}
     <AuthHeading title={heading} subtitle={`You will sign in with ${invite.email}.`} />
     <form
-      class="flex flex-col gap-5"
+      class="flex flex-col gap-4"
       onsubmit={(event) => {
         event.preventDefault();
         void accept();
       }}
     >
-      <div class="flex flex-col gap-3.5">
+      <div class="flex flex-col gap-3">
         <div class="grid grid-cols-2 gap-3">
           <AuthField id="firstName" label="First name" bind:value={firstName} autocomplete="given-name" maxlength={100} required />
           <AuthField id="lastName" label="Last name" bind:value={lastName} autocomplete="family-name" maxlength={100} required />
@@ -252,7 +252,7 @@
         type="submit"
         data-create-account
         disabled={!ready}
-        class="flex h-[2.875rem] items-center justify-center rounded-[0.625rem] bg-fir text-[0.9375rem] leading-[calc(4/3)] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex h-10 items-center justify-center rounded-lg bg-fir text-sm leading-[calc(10/7)] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       >Create account and join</button>
     </form>
   </AuthLayout>
