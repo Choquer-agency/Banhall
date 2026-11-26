@@ -87,7 +87,7 @@ function seedFrame() {
   __setQueryData("workspaceRollout:getAccess", { available: true });
   __setQueryData("changelog:unseenCount", 0);
   __setQueryData("errorReports:openCount", 0);
-  __setQueryData("adminAttention:getAttention", { total: 0, ingestionFailed: 0 });
+  __setQueryData("adminAttention:getAttention", { total: 0, adminTotal: 0, ingestionFailed: 0 });
   __setQueryData("notifications:listRecent", []);
   __setQueryData("dashboard:getFacets", { total: 42, truncated: false, stageCounts: { drafting: 42 } });
   __setQueryData("clients:listClients", {

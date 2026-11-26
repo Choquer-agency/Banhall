@@ -231,14 +231,13 @@
     </div>
 
     {#if bandsQ.error && bands.length === 0}
-      <p role="alert" data-import-sheet-error class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">The files could not be loaded.</p>
+      <p role="alert" data-import-sheet-error class="py-8 pl-9 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">The files could not be loaded.</p>
     {:else if bands.length === 0 && done}
-      <p data-import-sheet-empty class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
+      <p data-import-sheet-empty class="py-8 pl-9 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
         {onlyNew ? NOTHING_NEW_TEXT : onlyToCheck ? NOTHING_TO_CHECK_TEXT : EMPTY_TAB_TEXT[tab]}
       </p>
     {:else if hasMore}
-      <!-- The boards' "Show N more" row: 14px under the last company, between two strong lines. -->
-      <div class="mt-3.5 flex h-[3.25rem] items-center border-y border-gray-300 pl-6">
+      <div class="mt-2.5 flex h-[2.75rem] items-center border-y border-gray-300 pl-9">
         <button
           type="button"
           data-import-show-more-companies
@@ -250,17 +249,15 @@
     {:else if bands.length === 0}
       <div role="status" aria-label="Loading companies" data-import-sheet-loading>
         {#each [0, 1, 2, 3] as index (index)}
-          <div class="flex h-[3.25rem] items-center gap-3 border-t border-gray-300 pl-6">
+          <div class="flex h-[2.75rem] items-center gap-3 border-t border-gray-300 pl-9">
             <span class="h-3.5 w-40 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none"></span>
             <span class="h-3 w-24 animate-pulse rounded-sm bg-gray-50 motion-reduce:animate-none"></span>
           </div>
         {/each}
       </div>
     {:else if othersLine}
-      <!-- Paper Files 2: 14px under the last company, between two strong lines. -->
-      <p data-import-sheet-others class="mt-3.5 flex h-[3.25rem] items-center border-y border-gray-300 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{othersLine}</p>
+      <p data-import-sheet-others class="mt-2.5 flex h-[2.75rem] items-center border-y border-gray-300 pl-9 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{othersLine}</p>
     {:else}
-      <!-- The end of the list: the strong line closes the last company. -->
       <div data-import-sheet-end class="border-t border-gray-300" aria-hidden="true"></div>
     {/if}
   </div>

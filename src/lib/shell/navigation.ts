@@ -19,6 +19,7 @@ export type RailItemId =
   | "projects"
   | "companies"
   | "team"
+  | "import"
   | "admin"
   | "alerts"
   | "requests"
@@ -47,6 +48,7 @@ export type RailBadges = {
   unseenChangelog: number;
   openAlerts: number;
   adminAttention: number;
+  importAttention?: number;
 };
 
 export type RailHrefs = {
@@ -54,6 +56,7 @@ export type RailHrefs = {
   projectsHref: string;
   companiesHref: string;
   teamHref: string;
+  importHref?: string;
   adminHref: string;
   alertsHref: string;
   requestsHref: string;
@@ -102,6 +105,12 @@ export function railGroups(viewer: RailViewer, hrefs: RailHrefs, badges: RailBad
   if (canViewTeam(viewer.role)) manage.push({ id: "team", label: "Team", href: hrefs.teamHref });
   if (canSeeAdmin(viewer)) {
     manage.push({
+      id: "import",
+      label: "Import",
+      href: hrefs.importHref ?? "/import",
+      attention: (badges.importAttention ?? 0) > 0,
+    });
+    manage.push({
       id: "admin",
       label: "Admin",
       href: hrefs.adminHref,
@@ -143,8 +152,8 @@ export function railGroups(viewer: RailViewer, hrefs: RailHrefs, badges: RailBad
 
 /**
  * Which rail row is selected. Companies is its own section since 2026-10-28
- * (`/companies` and every company page); the Projects route always selects
- * Projects, including a company chosen there.
+ * (`/companies` and every company page); Import is its own top-level section
+ * since 2026-11-25 (`/import` and `/admin/import`).
  */
 export function selectedRailItem(url: { pathname: string; search: string }): RailItemId | null {
   const { pathname } = url;
@@ -153,6 +162,7 @@ export function selectedRailItem(url: { pathname: string; search: string }): Rai
   if (under("/projects")) return "projects";
   if (under("/companies")) return "companies";
   if (under("/team")) return "team";
+  if (under("/import") || under("/admin/import")) return "import";
   if (under("/admin")) return "admin";
   if (under("/alerts")) return "alerts";
   if (under("/requests")) return "requests";
@@ -163,14 +173,15 @@ export function selectedRailItem(url: { pathname: string; search: string }): Rai
 
 /**
  * The page frame's fixed labelled rail (owner, 2026-10-28; Paper S9, S11):
- * Projects, Companies and Team (team.view) at the top, then after the spacer
- * What's new (every signed-in person, 2026-11-02, client request), Admin
- * (settings.configure) and Settings. No Home, search or developer rows: Home
- * sits in the Projects sidebar, and Alerts and Feature requests at the foot
- * of the Admin sidebar. What's new keeps the global bar's bell too; both
- * show the same unseen state. The drawer below 1024px keeps `railGroups`.
+ * Projects, Companies, Team (team.view), and Import (settings.configure) at
+ * the top, then after the spacer What's new (every signed-in person,
+ * 2026-11-02), Admin (settings.configure) and Settings. No Home, search or
+ * developer rows: Home sits in the Projects sidebar, and Alerts and Feature
+ * requests at the foot of the Admin sidebar. What's new keeps the global bar's
+ * bell too; both show the same unseen state. The drawer below 1024px keeps
+ * `railGroups`.
  */
-export type FrameRailItemId = "projects" | "companies" | "team" | "changelog" | "admin" | "settings";
+export type FrameRailItemId = "projects" | "companies" | "team" | "import" | "changelog" | "admin" | "settings";
 
 export type FrameRailItem = {
   id: FrameRailItemId;
@@ -186,6 +197,7 @@ export type FrameRailHrefs = {
   projectsHref: string;
   companiesHref: string;
   teamHref: string;
+  importHref?: string;
   changelogHref: string;
   adminHref: string;
   settingsHref: string;
@@ -199,13 +211,21 @@ export function whatsNewLabel(unseen: number): string {
 export function frameRailItems(
   viewer: RailViewer,
   hrefs: FrameRailHrefs,
-  badges: { adminAttention: number; unseenChangelog?: number }
+  badges: { adminAttention: number; importAttention?: number; unseenChangelog?: number }
 ): { top: FrameRailItem[]; bottom: FrameRailItem[] } {
   const top: FrameRailItem[] = [
     { id: "projects", label: "Projects", href: hrefs.projectsHref },
     { id: "companies", label: "Companies", href: hrefs.companiesHref },
   ];
   if (canViewTeam(viewer.role)) top.push({ id: "team", label: "Team", href: hrefs.teamHref });
+  if (canSeeAdmin(viewer)) {
+    top.push({
+      id: "import",
+      label: "Import",
+      href: hrefs.importHref ?? "/import",
+      attention: (badges.importAttention ?? 0) > 0,
+    });
+  }
   const bottom: FrameRailItem[] = [
     { id: "changelog", label: "What's new", href: hrefs.changelogHref, unseen: Math.max(0, badges.unseenChangelog ?? 0) },
   ];
@@ -224,8 +244,8 @@ function under(pathname: string, prefix: string) {
  * The active rail item. Home, every project page and New project sit under
  * Projects; Alerts and Feature requests under Admin, whose sidebar lists
  * them. Companies is selected on All companies and every company page
- * (2026-10-28); a company chosen on the Projects page stays under Projects.
- * What's new is selected on its page (2026-11-02).
+ * (2026-10-28); Import is selected on `/import` and `/admin/import`
+ * (2026-11-25). What's new is selected on its page (2026-11-02).
  */
 export function selectedFrameRailItem(pathname: string): FrameRailItemId | null {
   if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects") || under(pathname, "/project")) {
@@ -233,6 +253,7 @@ export function selectedFrameRailItem(pathname: string): FrameRailItemId | null 
   }
   if (under(pathname, "/companies")) return "companies";
   if (under(pathname, "/team")) return "team";
+  if (under(pathname, "/import") || under(pathname, "/admin/import")) return "import";
   if (under(pathname, "/admin") || under(pathname, "/alerts") || under(pathname, "/requests")) return "admin";
   if (under(pathname, "/changelog")) return "changelog";
   if (under(pathname, "/settings")) return "settings";
@@ -245,13 +266,15 @@ export type FrameSection = "projects" | "companies" | "team" | "admin" | "settin
 /**
  * Which section sidebar a page draws (owner answers 1 and 5, 2026-10-28):
  * Home and Projects share the Projects sidebar; Companies, Team, Admin and
- * Settings have their own. New project, What's new, Alerts, Feature requests and the
- * project page draw none. The loading frame reads it so nothing jumps.
+ * Settings have their own. Import, New project, What's new, Alerts, Feature
+ * requests and the project page draw none. The loading frame reads it so
+ * nothing jumps.
  */
 export function frameSectionForPath(pathname: string): FrameSection | null {
   if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects")) return "projects";
   if (under(pathname, "/companies")) return "companies";
   if (under(pathname, "/team")) return "team";
+  if (under(pathname, "/import") || under(pathname, "/admin/import")) return null;
   if (under(pathname, "/admin")) return "admin";
   if (under(pathname, "/settings")) return "settings";
   return null;

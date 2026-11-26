@@ -39,8 +39,6 @@ export const ADMIN_GROUPS: readonly AdminRouteGroup[] = [
       { href: "/admin/house-rules", label: "House rules", icon: "house-rules" },
       { href: "/admin/tags", label: "Project tags", icon: "tags" },
       { href: "/admin/brain", label: "The Brain", icon: "brain" },
-      // The Import page (2026-11-12, Paper Files 1): its row shows the To review count.
-      { href: "/admin/import", label: "Import", icon: "import" },
     ],
   },
   {
@@ -59,7 +57,7 @@ export const ADMIN_GROUPS: readonly AdminRouteGroup[] = [
   },
 ];
 
-/** The eight pages the rail (B2) and the flyout (A5) list, in board order. */
+/** The seven Admin sidebar pages in board order (Import moved to the main rail on 2026-11-25). */
 export const ADMIN_RAIL_ROUTES: readonly AdminRoute[] = ADMIN_GROUPS.flatMap((group) => group.routes);
 
 /**
@@ -80,8 +78,6 @@ export const ADMIN_ROUTES: readonly AdminRoute[] = [...ADMIN_RAIL_ROUTES, ...ADM
 /** "Open Admin" and G then A land here (`/admin` redirects to it). */
 export const ADMIN_LANDING_PATH = "/admin/house-rules";
 
-/**
- * The Import page (2026-11-12): its row in the Admin sidebar shows the To
- * review count, and in the drawer the failed-files attention dot.
- */
+/** Legacy alias kept for links pointing at `/admin/import`; canonical path is `/import`. */
 export const ADMIN_IMPORT_PATH = "/admin/import";
+export const IMPORT_PATH = "/import";

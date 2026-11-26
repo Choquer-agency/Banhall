@@ -47,7 +47,7 @@
 </script>
 
 {#snippet groupLabel(label: string, count: number)}
-  <div role="row" class="flex h-10 items-center border-t border-line pl-6">
+  <div role="row" class="flex h-9 items-center border-t border-line pl-12">
     <div role="cell" aria-colspan={6} class="flex items-center gap-2">
       <span class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{label}</span>
       <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-import-count px-[0.3125rem] text-[0.625rem] leading-[1.2] text-primary-selected">{count}</span>
@@ -63,8 +63,8 @@
         <div role="rowgroup" data-import-found-companies>
           {@render groupLabel("Companies", result.companies.length)}
           {#each result.companies as company (company.companyKey)}
-            <div role="row" data-import-found-company={company.companyKey} class={`relative ${SHEET_GRID} h-[3.25rem] items-center border-t border-gray-300 hover:bg-gray-50`}>
-              <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2">
+            <div role="row" data-import-found-company={company.companyKey} class={`relative ${SHEET_GRID} h-[2.75rem] items-center border-t border-gray-300 transition-colors duration-150 ease-out hover:bg-gray-50 motion-reduce:transition-none`}>
+              <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2 pl-9">
                 <button
                   type="button"
                   aria-label={`${bandName(company)}, show in the sheet`}
@@ -72,15 +72,15 @@
                   onclick={() => onJump(company)}
                   class={`${ROW_TOGGLE} min-w-0 shrink gap-2`}
                 >
-                  <span class="flex w-4 shrink-0 text-ink-muted"><IconChevronRight size={14} strokeWidth={1.8} /></span>
-                  <span class="truncate text-[0.9375rem] leading-[calc(4/3)] font-medium text-ink">{bandName(company)}</span>
+                  <span class="truncate text-sm leading-[calc(18/14)] font-medium text-ink">{bandName(company)}</span>
                 </button>
                 <span class="ml-auto shrink-0 pl-2 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{plural(company.total, "file")}</span>
               </div>
-              <div role="cell" class="flex min-w-0 items-center justify-end px-2 text-[0.8125rem] leading-[calc(18/13)]">
+              <div role="cell" class="flex min-w-0 items-center justify-end gap-2 pr-2.5 pl-2 text-[0.8125rem] leading-[calc(18/13)]">
                 {#if tab === "review" && company.needsCheck > 0}
                   <span class={AMBER}>{formatCount(company.needsCheck)} to check</span>
                 {/if}
+                <span class="flex size-5 shrink-0 items-center justify-center text-ink-muted"><IconChevronRight size={14} strokeWidth={1.8} /></span>
               </div>
             </div>
           {/each}
@@ -90,21 +90,21 @@
         <div role="rowgroup" data-import-found-files>
           {@render groupLabel("Files", result.files.length)}
           {#each result.files as file (file._id)}
-            <ImportFileRow row={file} {tab} companyName={companyOf(file)} company={file.companyKey === NO_COMPANY_KEY ? null : companyOf(file)} inset="sheet" />
+            <ImportFileRow row={file} {tab} companyName={companyOf(file)} company={file.companyKey === NO_COMPANY_KEY ? null : companyOf(file)} />
           {/each}
         </div>
       {/if}
     </div>
 
     {#if searchQ.error && !result}
-      <p role="alert" class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">The search did not work. Try again.</p>
+      <p role="alert" class="py-8 pl-9 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">The search did not work. Try again.</p>
     {:else if !result}
-      <p role="status" data-import-searching class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Searching...</p>
+      <p role="status" data-import-searching class="py-8 pl-9 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Searching...</p>
     {:else if empty}
-      <p data-import-search-empty class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">Nothing matches "{text}".</p>
+      <p data-import-search-empty class="py-8 pl-9 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">Nothing matches "{text}".</p>
     {:else}
       {#if result.files.length >= FILE_LIMIT}
-        <p class={`border-t border-line-soft py-3 pl-6 ${SHEET_SMALL} text-ink-muted`}>Showing the first {FILE_LIMIT} files. Type more of the name to narrow it.</p>
+        <p class={`border-t border-line-soft py-3 pl-9 ${SHEET_SMALL} text-ink-muted`}>Showing the first {FILE_LIMIT} files. Type more of the name to narrow it.</p>
       {/if}
       <div class="border-t border-gray-300" aria-hidden="true"></div>
     {/if}

@@ -16,9 +16,17 @@ const USERS = {
   developerConsultant: { _id: "u-dc", firstName: "Dev", lastName: "Writer", role: "writer", isDeveloper: true },
 } as const;
 
-function seed(user: keyof typeof USERS, attention = 0, unseen = 0) {
+function seed(
+  user: keyof typeof USERS,
+  attention: number | { total: number; adminTotal: number; ingestionFailed: number } = 0,
+  unseen = 0
+) {
   __setQueryData("users:getCurrentUser", { imageUrl: null, ...USERS[user] });
-  __setQueryData("adminAttention:getAttention", { total: attention, ingestionFailed: attention });
+  const normalized =
+    typeof attention === "number"
+      ? { total: attention, adminTotal: 0, ingestionFailed: attention }
+      : attention;
+  __setQueryData("adminAttention:getAttention", normalized);
   __setQueryData("changelog:unseenCount", unseen);
 }
 
@@ -71,17 +79,24 @@ describe("FrameRail", () => {
     await expect.poll(() => whatsNew.getAttribute("aria-current")).toBe("page");
   });
 
-  it("a Manager adds Team; an Admin adds Team and Admin at the foot", async () => {
+  it("a Manager adds Team; an Admin adds Team, Import, and Admin at the foot", async () => {
     seed("manager");
     const view = await render(FrameRail, { projectsHref: "/projects" });
     await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "What's new", "Settings"]);
     view.unmount();
-    seed("admin", 1);
+    seed("admin", { total: 2, adminTotal: 1, ingestionFailed: 1 });
     await render(FrameRail, { projectsHref: "/projects" });
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "What's new", "Admin", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "Import", "What's new", "Admin", "Settings"]);
+    await expect.poll(() => item("import")!.querySelector("[data-rail-attention]")).not.toBeNull();
+    expect(item("import")!.getAttribute("aria-label")).toBe("Import, needs a look");
     await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("admin")!.getAttribute("aria-label")).toBe("Admin, needs a look");
+    // When only ingestionFailed is set, the dot moves to Import alone.
+    __setQueryData("adminAttention:getAttention", { total: 1, adminTotal: 0, ingestionFailed: 1 });
+    await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).toBeNull();
+    expect(item("import")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("team")!.getAttribute("href")).toBe("/team");
+    expect(item("import")!.getAttribute("href")).toBe("/import");
     expect(item("admin")!.getAttribute("href")).toBe("/admin/house-rules");
     expect(item("settings")!.getAttribute("href")).toBe("/settings");
     // Companies opens All companies, its own section since 2026-10-28.
@@ -119,7 +134,7 @@ describe("FrameRail", () => {
     await render(FrameRail, { projectsHref: "/projects" });
     await expect.poll(labels).toEqual(["Projects", "Companies", "What's new", "Settings"]);
     viewAs.exit();
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "What's new", "Admin", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "Import", "What's new", "Admin", "Settings"]);
   });
 
   it("S9 values: 80px wide, 10 8 14 padding, 6px apart; 64px items with a 40 by 36 tile over a 12/16 label", async () => {
@@ -164,7 +179,7 @@ describe("FrameRail", () => {
     expect(bottom - item("settings")!.getBoundingClientRect().bottom).toBeCloseTo(board(14), 0);
   });
 
-  it("marks Projects on Home, every project page and New project; Admin on Alerts and Feature requests", async () => {
+  it("marks Projects on Home, every project page and New project; Import on /import and /admin/import; Admin on Alerts and Feature requests", async () => {
     seed("developerAdmin");
     await render(FrameRail, { projectsHref: "/projects" });
     await expect.poll(() => item("admin")).not.toBeNull();
@@ -175,6 +190,8 @@ describe("FrameRail", () => {
       ["/project/p1", "projects"],
       ["/project/new", "projects"],
       ["/team", "team"],
+      ["/import", "import"],
+      ["/admin/import", "import"],
       ["/admin/models", "admin"],
       ["/alerts", "admin"],
       ["/requests", "admin"],

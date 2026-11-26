@@ -15,7 +15,7 @@ import { toast } from "svelte-sonner";
 import { userErrorMessage } from "$lib/errors";
 import { boardRem } from "$lib/rootScale";
 import { TOAST_BOTTOM_OFFSET } from "$lib/components/shell/AppToaster.svelte";
-import { plural, type SheetTab } from "./importFormat";
+import { plural, type ImportCategory, type SheetTab } from "./importFormat";
 import {
   deletedText,
   NOTHING_CHANGED,
@@ -50,12 +50,24 @@ import {
 
 export type BatchCall = (args: { ids: FileId[] }) => Promise<BatchResult>;
 export type MoveCall = (args: { ids: FileId[]; patch: MovePatch }) => Promise<BatchResult>;
+export type RemoveGroupResult = {
+  changedIds: FileId[];
+  skippedBeingRead: number;
+  skippedIds?: FileId[];
+  hasMore: boolean;
+  nextCursor?: string | null;
+};
+export type RemoveGroupCall = (args: {
+  companyKey: string;
+  category?: ImportCategory;
+  cursor?: string | null;
+}) => Promise<RemoveGroupResult>;
 
 /**
- * Where the selection bar's top sits above the window's bottom: bottom-8
- * (2rem) plus h-12 (3rem), and a 0.75rem gap (ImportSelectionBar).
+ * Where the selection bar's top sits above the window's bottom: bottom-6
+ * (1.5rem) plus h-11 (2.75rem) / touch 3.25rem, and a 0.625rem gap (ImportSelectionBar).
  */
-const ABOVE_BAR = "5.75rem";
+const ABOVE_BAR = "5.375rem";
 
 /**
  * Per-toast options for every Import toast: a class, and how far to lift it
@@ -223,6 +235,87 @@ export async function deleteFiles(
     toast(NOTHING_CHANGED, { ...IMPORT_TOAST, description });
   }
   return run;
+}
+
+/**
+ * Soft-deletes all staged ("To review") files in a company band or category
+ * section via `removeGroupItems` (looping while `hasMore`), removes them from
+ * any active selection, and offers Undo via `restoreItems`.
+ */
+export async function deleteGroupFiles(
+  target: { companyKey: string; category?: ImportCategory },
+  removeGroup: RemoveGroupCall,
+  restore: BatchCall,
+  options?: { onRemoved?: (ids: FileId[]) => void }
+): Promise<{ changedIds: FileId[]; skippedBeingRead: number; error: unknown }> {
+  const MAX_PASSES = 50;
+  const changedIds: FileId[] = [];
+  const skippedIdSet = new Set<FileId>();
+  let fallbackSkipped = 0;
+  let sawSkippedIds = false;
+  let cursor: string | null | undefined = undefined;
+  let hasMoreAfterLoop = false;
+  let error: unknown = null;
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    try {
+      const res = await removeGroup(cursor !== undefined ? { ...target, cursor } : target);
+      changedIds.push(...res.changedIds);
+      if (res.skippedIds) {
+        sawSkippedIds = true;
+        for (const id of res.skippedIds) skippedIdSet.add(id);
+      } else {
+        fallbackSkipped += res.skippedBeingRead;
+      }
+      if (!res.hasMore) {
+        hasMoreAfterLoop = false;
+        break;
+      }
+      hasMoreAfterLoop = true;
+      if (res.nextCursor !== undefined) {
+        if (res.nextCursor === null || res.nextCursor === cursor) break;
+        cursor = res.nextCursor;
+      }
+    } catch (failure) {
+      error = failure;
+      break;
+    }
+  }
+  const skippedBeingRead = sawSkippedIds ? skippedIdSet.size : fallbackSkipped;
+  if (changedIds.length > 0) options?.onRemoved?.(changedIds);
+  const notes: string[] = [];
+  if (skippedBeingRead > 0) {
+    notes.push(
+      `${plural(skippedBeingRead, "file")} left out because ${skippedBeingRead === 1 ? "it is" : "they are"} still being read.`
+    );
+  }
+  if (!error && hasMoreAfterLoop) {
+    notes.push("More files remain in this group - delete again to finish.");
+  }
+  const description = notes.length > 0 ? notes.join(" ") : undefined;
+  const undo =
+    changedIds.length > 0
+      ? {
+          label: "Undo",
+          onClick: () => void putBackFiles(changedIds, restore, { tab: "review", undo: true }),
+        }
+      : undefined;
+  if (error) {
+    const reason = userErrorMessage(error, TRY_AGAIN);
+    toast.error(changedIds.length > 0 ? `${deletedText(changedIds.length)}. ${reason}` : reason, {
+      ...IMPORT_TOAST,
+      description,
+      ...(undo ? { action: undo } : {}),
+    });
+  } else if (changedIds.length > 0) {
+    toast(deletedText(changedIds.length), {
+      ...IMPORT_TOAST,
+      description,
+      ...(undo ? { action: undo } : {}),
+    });
+  } else {
+    toast(NOTHING_CHANGED, { ...IMPORT_TOAST, description });
+  }
+  return { changedIds, skippedBeingRead, error };
 }
 
 // ─── The Approved tab (2026-11-17) ──────────────────────────────────────────

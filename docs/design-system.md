@@ -1679,3 +1679,12 @@ Client request: a review aid in the report editor, off by default. The switch si
 - **Never on the chips.** `[GAP: ...]` and `[INFERRED: ...]` chips keep their own look; the colour stops at their edges.
 - **Key samples** (`.evidence-swatch--supported`, `.evidence-swatch--unsupported`): a 24x14 tint with the matching 2px bottom border.
 
+## Motion, transitions, and hover hygiene (2026-11-25)
+
+Owner standard enforced across every screen and component:
+
+- **Subtle smooth transitions everywhere.** Every interactive surface and state change (rows, buttons, links, tabs, chips, checkboxes, chevrons, inline action reveals, popovers, drawers, and progress fills) MUST transition smoothly with understated timing (`duration-150 ease-out` for colour/opacity/border/shadow; `duration-200 ease-out` for chevron rotations and disclosures; `duration-300 ease-out` for progress bars) and ALWAYS pair with `motion-reduce:transition-none`. Avoid abrupt state snaps and avoid bouncy or sluggish springs.
+- **Gapless full-bleed row hover.** Table rows, accordion bands, and nested section rows MUST span full width edge-to-edge so hover (`hover:bg-gray-50`) and selected fills (`bg-primary-wash`) leave zero left or right unhovered gaps. Represent visual nesting with internal left padding rather than outer `ml-*` margins on row groups.
+- **Right-aligned down-to-up disclosure chevrons.** Collapsible rows and accordions place their chevron at the right edge, pointing down when closed (`rotate-0`) and rotating smoothly up (`rotate-180`) when open.
+
+

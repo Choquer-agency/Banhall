@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type FrameRailIconName = "projects" | "companies" | "team" | "changelog" | "admin" | "settings";
+  export type FrameRailIconName = "projects" | "companies" | "team" | "import" | "changelog" | "admin" | "settings";
   export type FrameIconName =
     | FrameRailIconName
     | "bell"
@@ -25,6 +25,7 @@
     projects: 20,
     companies: 20,
     team: 20,
+    import: 20,
     changelog: 20,
     admin: 20,
     settings: 20,
@@ -47,7 +48,7 @@
     keyboard: 16,
   };
 
-  export const RAIL_ICON_NAMES: readonly FrameRailIconName[] = ["projects", "companies", "team", "changelog", "admin", "settings"];
+  export const RAIL_ICON_NAMES: readonly FrameRailIconName[] = ["projects", "companies", "team", "import", "changelog", "admin", "settings"];
 </script>
 
 <script lang="ts">
@@ -124,6 +125,9 @@
   {:else if name === "team"}
     <path stroke="none" class={light} d="M16.5 4.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM15.2 12.6a5.6 5.6 0 0 1 6.8 5.4v1.5a1 1 0 0 1-1 1h-3.4a8 8 0 0 0-2.4-7.9z" />
     <path stroke="none" class={dark} d="M9 4a3.8 3.8 0 1 1 0 7.6A3.8 3.8 0 0 1 9 4zM2 19.4a7 6.4 0 0 1 14 0v.6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" />
+  {:else if name === "import"}
+    <path stroke="none" class={dark} d="M4 13.5A1.5 1.5 0 0 1 5.5 12h2.7a1.2 1.2 0 0 1 1.15.86 2.75 2.75 0 0 0 5.3 0A1.2 1.2 0 0 1 15.8 12h2.7a1.5 1.5 0 0 1 1.5 1.5V18a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" />
+    <path stroke="none" class={light} d="M12 3a1.2 1.2 0 0 1 1.2 1.2v5.1l1.95-1.95a1.2 1.2 0 1 1 1.7 1.7l-4 4a1.2 1.2 0 0 1-1.7 0l-4-4a1.2 1.2 0 1 1 1.7-1.7l1.95 1.95V4.2A1.2 1.2 0 0 1 12 3z" />
   {:else if name === "changelog"}
     <!-- What's new (2026-11-02): a megaphone in the rail's duotone, the
          body dark and the handle and sound light. No board drawing; it

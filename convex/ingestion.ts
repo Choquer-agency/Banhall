@@ -1248,9 +1248,8 @@ export const sheetSearch = query({
 });
 
 /**
- * One file's labels for the side panel, with its path, when and how it was
- * added, and whether its text and original are stored. Never the text or a
- * file address.
+ * One file's labels for the side panel, with its path, provenance, company
+ * approval readiness, and original file URL when stored (Admin only).
  */
 export const sheetFile = query({
   args: { id: v.id("ingestionItems") },
@@ -1278,14 +1277,23 @@ export const sheetFile = query({
         )
       ),
       reviewNote: v.optional(v.string()),
-      // When the row was first staged, and by which feeder. The person who
-      // uploaded it is not recorded yet.
+      // When the row was first staged, which feeder/batch brought it, and who added that batch when recorded.
       addedAt: v.number(),
       addedVia: v.union(v.literal("onedrive_sync"), v.literal("folder_upload")),
+      batchSource: v.optional(v.union(v.literal("page"), v.literal("uploader"), v.literal("onedrive"))),
+      addedByName: v.optional(v.string()),
+      approveBlock: v.optional(
+        v.object({
+          reason: approveRefusalValidator,
+          detail: v.optional(v.string()),
+        })
+      ),
       lastModifiedAt: v.number(),
       reviewedAt: v.optional(v.number()),
       hasText: v.boolean(),
       hasOriginal: v.boolean(),
+      originalUrl: v.optional(v.string()),
+      size: v.optional(v.number()),
       documentClientNames: v.optional(v.array(documentClientNameValidator)),
     })
   ),
@@ -1294,6 +1302,10 @@ export const sheetFile = query({
     const item = await ctx.db.get(args.id);
     if (!item) return null;
     const [row] = await withApprovedLinks(ctx, [item], await withWriterLabels(ctx, [sheetRow(item)]));
+    const originalUrl = item.storageId ? ((await ctx.storage.getUrl(item.storageId)) ?? undefined) : undefined;
+    const batch = item.batchId ? await ctx.db.get(item.batchId) : null;
+    const batchAddedBy = batch?.addedBy ? ((await addedByName(ctx, batch.addedBy)) ?? undefined) : undefined;
+    const approveBlock = item.sheetTab === "review" ? await approveBlockForItem(ctx, item) : undefined;
     return definedFields({
       ...row,
       sheetTab: item.sheetTab,
@@ -1307,10 +1319,15 @@ export const sheetFile = query({
       addedAt: item._creationTime,
       // The crawler upload endpoint (convex/http.ts) keys its rows "local:<path>".
       addedVia: item.driveItemId.startsWith("local:") ? ("folder_upload" as const) : ("onedrive_sync" as const),
+      batchSource: batch?.source,
+      addedByName: batchAddedBy,
+      approveBlock,
       lastModifiedAt: item.lastModifiedAt,
       reviewedAt: item.reviewedAt,
       hasText: hasReadText(item),
       hasOriginal: item.storageId !== undefined,
+      originalUrl,
+      size: item.size,
       documentClientNames: item.documentClientNames,
     });
   },
@@ -1464,7 +1481,7 @@ type ImportCompany =
  * projects carry gets its company row made from them, as the company page
  * does; a new key gets a new company with the industry picked on the sheet.
  */
-async function importCompanyFor(ctx: MutationCtx, item: Doc<"ingestionItems">): Promise<ImportCompany> {
+async function importCompanyPlan(ctx: QueryCtx, item: Doc<"ingestionItems">): Promise<ImportCompany> {
   const key = item.companyKey;
   if (!key) return { kind: "refuse", reason: "needs_check" };
   const active = await ctx.db
@@ -1492,6 +1509,45 @@ async function importCompanyFor(ctx: MutationCtx, item: Doc<"ingestionItems">): 
   const band = await importCompanyRow(ctx, "review", key);
   const name = (band?.displayName.trim() || item.clientName?.trim() || key).slice(0, 200);
   return { kind: "create", name, ...(picks?.industry ? { industry: picks.industry } : {}), fromProjects: false };
+}
+
+/** Shared read-only check for why a review file cannot be approved right now. */
+async function evaluateApproveReadiness(
+  ctx: QueryCtx,
+  item: Doc<"ingestionItems">
+): Promise<
+  | { ok: false; reason: ApproveRefusalCode; detail?: string }
+  | {
+      ok: true;
+      companyKey: string;
+      category: NonNullable<ReturnType<typeof companyFileCategoryFor>>;
+      found: Exclude<ImportCompany, { kind: "refuse" }>;
+    }
+> {
+  const refusal = approveRefusalFor(item);
+  if (refusal) return { ok: false, reason: refusal };
+  const category = companyFileCategoryFor(item.category);
+  if (!category || !item.companyKey) {
+    return { ok: false, reason: "needs_check" };
+  }
+  const found = await importCompanyPlan(ctx, item);
+  if (found.kind === "refuse") {
+    return { ok: false, reason: found.reason, ...(found.detail ? { detail: found.detail } : {}) };
+  }
+  const industry = found.kind === "client" ? found.client.industry : found.industry;
+  if (item.category === "final_pd" && !industry?.trim()) {
+    return { ok: false, reason: "no_industry", detail: "Pick an industry for this company." };
+  }
+  return { ok: true, companyKey: item.companyKey, category, found };
+}
+
+async function approveBlockForItem(
+  ctx: QueryCtx,
+  item: Doc<"ingestionItems">
+): Promise<{ reason: ApproveRefusalCode; detail?: string } | undefined> {
+  const check = await evaluateApproveReadiness(ctx, item);
+  if (check.ok) return undefined;
+  return { reason: check.reason, ...(check.detail ? { detail: check.detail } : {}) };
 }
 
 /** Makes the company an approval found no row for: the sheet's picked industry, its projects linked. */
@@ -1551,22 +1607,17 @@ async function approveOneFile(
   if (options.companyKey !== undefined && item.companyKey !== options.companyKey) {
     return { state: "refused", reason: "left_company" };
   }
+  const readiness = await evaluateApproveReadiness(ctx, item);
+  if (!readiness.ok) {
+    return { state: "refused", reason: readiness.reason, ...(readiness.detail ? { detail: readiness.detail } : {}) };
+  }
   // The text the action read is used only if it is still the file's whole
   // text (the file may have been read again meanwhile); otherwise the
   // original is read on the server, as for a file a person adds.
   const text =
     read && read.textStorageId === item.textStorageId && importHasWholeText(item) ? read.text : undefined;
-  const category = companyFileCategoryFor(item.category);
-  if (!category || !item.companyKey) return { state: "refused", reason: "needs_check" };
-  const found = await importCompanyFor(ctx, item);
-  if (found.kind === "refuse") return { state: "refused", reason: found.reason, ...(found.detail ? { detail: found.detail } : {}) };
-  // A final PD's Brain copy needs an industry: the company's, or the one
-  // picked for a new company. Refused before anything is made.
-  const industry = found.kind === "client" ? found.client.industry : found.industry;
-  if (item.category === "final_pd" && !industry?.trim()) {
-    return { state: "refused", reason: "no_industry", detail: "Pick an industry for this company." };
-  }
-  const client = found.kind === "client" ? found.client : await createImportCompany(ctx, item.companyKey, found, actor);
+  const { found, companyKey, category } = readiness;
+  const client = found.kind === "client" ? found.client : await createImportCompany(ctx, companyKey, found, actor);
   const wholeText = text !== undefined && hasServerReadText(text) ? text : undefined;
   // A file with no original and only its preview keeps the preview: nothing else can be read.
   const previewText = item.storageId === undefined ? await readIngestionItemText(ctx, item) : undefined;
@@ -3848,6 +3899,70 @@ export const removeItems = mutation({
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
     return outcome.result();
+  },
+});
+
+/**
+ * Soft-delete up to 100 staged ("To review") files belonging to one company
+ * band or one category section inside a company band. Files currently being
+ * read are skipped; callers pass `nextCursor` while `hasMore` is true so large
+ * bands or bands with 100+ being-read rows scan past skipped items cleanly
+ * without double-counting or exceeding the batch write bound. Admin only.
+ */
+export const removeGroupItems = mutation({
+  args: {
+    companyKey: v.string(),
+    category: v.optional(ingestionCategoryValidator),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
+  returns: v.object({
+    changedIds: v.array(v.id("ingestionItems")),
+    skippedBeingRead: v.number(),
+    skippedIds: v.array(v.id("ingestionItems")),
+    hasMore: v.boolean(),
+    nextCursor: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const key = args.companyKey === NO_COMPANY_KEY ? undefined : args.companyKey;
+    const page = args.category
+      ? await ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_and_companyKey_and_sheetSection_and_sortKey", (q) =>
+            q.eq("sheetTab", "review").eq("companyKey", key).eq("sheetSection", args.category!)
+          )
+          .paginate({ numItems: SHEET_BATCH_MAX_FILES, cursor: args.cursor ?? null })
+      : await ctx.db
+          .query("ingestionItems")
+          .withIndex("by_sheetTab_and_companyKey", (q) =>
+            q.eq("sheetTab", "review").eq("companyKey", key)
+          )
+          .paginate({ numItems: SHEET_BATCH_MAX_FILES, cursor: args.cursor ?? null });
+    const changedIds: Array<Id<"ingestionItems">> = [];
+    const skippedIds: Array<Id<"ingestionItems">> = [];
+    const groups = new Set<string>();
+    for (const item of page.page) {
+      const skip = removalSkip(item);
+      if (skip) {
+        if (skip === "being_read") skippedIds.push(item._id);
+        continue;
+      }
+      const { after } = await patchItem(ctx, item, {
+        ...(await finishBatchRead(ctx, item, false)),
+        ...removedFields(item, admin),
+      });
+      groups.add(after.pairGroupKey);
+      groups.add(item.pairGroupKey);
+      changedIds.push(item._id);
+    }
+    if (groups.size > 0) await recomputeGroups(ctx, groups, MANY_ROWS);
+    return {
+      changedIds,
+      skippedBeingRead: skippedIds.length,
+      skippedIds,
+      hasMore: !page.isDone,
+      nextCursor: page.isDone ? null : page.continueCursor,
+    };
   },
 });
 

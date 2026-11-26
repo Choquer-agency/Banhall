@@ -33,21 +33,27 @@
   // rail's What's new dot and the bell's dot come and go together.
   const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
 
-  const items = $derived(
-    frameRailItems(
+  const items = $derived.by(() => {
+    const attention = attentionQ.data ?? { total: 0, adminTotal: 0, ingestionFailed: 0 };
+    return frameRailItems(
       viewer,
       {
         projectsHref,
         // The Companies section (2026-10-28): All companies.
         companiesHref: companiesPath(resolve("/")),
         teamHref: `${resolve("/")}team`,
+        importHref: `${resolve("/")}import`,
         changelogHref: resolve("/changelog"),
         adminHref: resolve(ADMIN_LANDING_PATH as "/"),
         settingsHref: resolve("/settings"),
       },
-      { adminAttention: attentionQ.data?.total ?? 0, unseenChangelog: unseenQ.data ?? 0 }
-    )
-  );
+      {
+        adminAttention: attention.adminTotal,
+        importAttention: attention.ingestionFailed,
+        unseenChangelog: unseenQ.data ?? 0,
+      }
+    );
+  });
   const selected = $derived(selectedFrameRailItem(page.url.pathname));
 
   const focusRing =

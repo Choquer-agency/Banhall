@@ -48,6 +48,7 @@
     currentWriterId = null,
     currentValue = null,
     role = "writer",
+    initials = null,
     onPick,
   }: {
     /** The file's writer now, checked in the list. */
@@ -56,6 +57,8 @@
     currentValue?: string | null;
     /** Whom the list picks: the file's writer or its reviewer (2026-11-17); only the words differ. */
     role?: "writer" | "reviewer";
+    /** When picking matches filename initials across the firm, display those initials clearly. */
+    initials?: string | null;
     onPick: (picked: PickedWriter) => void;
   } = $props();
 
@@ -63,6 +66,10 @@
     role === "reviewer"
       ? { label: "Reviewer", placeholder: "Find or type a reviewer", hint: "Type the reviewer's name.", email: "Type the reviewer's name, not an email address." }
       : { label: "Writer", placeholder: "Find or type a writer", hint: "Type the writer's name.", email: "Type the writer's name, not an email address." }
+  );
+
+  const initialsNote = $derived(
+    initials ? `Pick a ${role} for ${initials} - applies to all ${initials} files.` : null
   );
 
   const choicesQ = useQuery(api.ingestion.writerChoices, () => ({}));
@@ -127,6 +134,7 @@
   {current}
   loading={choicesQ.data === undefined && !choicesQ.error}
   hint={words.hint}
+  note={initialsNote}
   newText={(typed) => `Use "${typed}"`}
   refuseTyped={(typed) => (looksLikeEmail(typed) ? words.email : null)}
   onPick={pick}

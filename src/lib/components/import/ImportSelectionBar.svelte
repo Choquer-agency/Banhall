@@ -102,7 +102,7 @@
   } from "./importEdit";
   import { formatCount, plural, type ImportCategory, type SheetTab } from "./importFormat";
   import type { ImportSelection, SelectedFile } from "./importSelection.svelte";
-  import { CHOICE_ROW, CONFIRM_LINE, POPOVER_CARD, SHEET_SMALL } from "./sheetLayout";
+  import { CHOICE_ROW, CONFIRM_LINE, DANGER_CONFIRM_LINE, POPOVER_CARD, SHEET_SMALL } from "./sheetLayout";
 
   let { selection, tab }: { selection: ImportSelection; tab: SheetTab } = $props();
 
@@ -370,8 +370,9 @@
   }
 
   const barButton =
-    "inline-flex h-8 items-center gap-1.5 rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-light disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11";
+    "inline-flex h-8 items-center gap-1.5 rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-light disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11";
   const plainButton = `${barButton} bg-white/10 text-white hover:bg-white/15 data-[state=open]:bg-white/15`;
+  const approveButton = `${barButton} bg-action-primary text-action-primary-foreground ring-1 ring-inset ring-white/15 hover:bg-action-primary-hover data-[state=open]:bg-action-primary-hover`;
   const menuContent = `${POPOVER_CARD} max-w-[calc(100vw-1.5rem)] overflow-hidden`;
 </script>
 
@@ -409,7 +410,7 @@
       aria-label="Back"
       data-import-bar-back
       onclick={() => (moreView = "list")}
-      class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none"
+      class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors duration-150 ease-out hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
     >
       <CaretLeftIcon size="0.75rem" aria-hidden="true" />
     </button>
@@ -495,7 +496,7 @@
   aria-label="Selected files"
   data-import-selection-bar
   data-menu-open={categoryOpen || yearOpen || moreOpen || deleteOpen || approveOpen || sendBackOpen ? "" : undefined}
-  class="fixed bottom-8 left-1/2 z-[90] flex h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl bg-ink pr-1.5 pl-4 shadow-review-bar"
+  class="fixed bottom-6 left-1/2 z-[90] flex min-h-11 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl bg-ink py-1.5 pr-1.5 pl-3.5 shadow-review-bar pointer-coarse:min-h-[3.25rem]"
 >
   <span data-import-bar-count class="flex h-6 items-center border-r border-white/20 pr-3.5 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap text-white" aria-live="polite">
     {formatCount(count)} {count === 1 ? "file" : "files"} selected
@@ -557,8 +558,8 @@
     {@render moreMenu()}
 
     <Popover.Root bind:open={approveOpen}>
-      <Popover.Trigger disabled={busy || forApprove.taken.length === 0} data-import-bar-approve class={plainButton}>
-        <SealCheckIcon size="0.875rem" aria-hidden="true" class="text-on-ink-muted" />
+      <Popover.Trigger disabled={busy || forApprove.taken.length === 0} data-import-bar-approve class={approveButton}>
+        <SealCheckIcon size="0.875rem" aria-hidden="true" class="text-action-primary-foreground" />
         Approve
       </Popover.Trigger>
       <Popover.Portal>
@@ -576,6 +577,8 @@
       </Popover.Portal>
     </Popover.Root>
 
+    <span class="mx-0.5 h-5 w-px shrink-0 bg-white/15" aria-hidden="true"></span>
+
     <Popover.Root bind:open={deleteOpen}>
       <Popover.Trigger disabled={busy || forDelete.taken.length === 0} data-import-bar-delete class={`${barButton} bg-danger/15 text-danger-border hover:bg-danger/25 data-[state=open]:bg-danger/25`}>
         <TrashIcon size="0.875rem" aria-hidden="true" class="text-danger-line" />
@@ -592,7 +595,7 @@
             disabled={busy}
             data-import-bar-confirm
             onclick={() => void remove()}
-            class="mt-2.5 flex min-h-9 w-full items-center justify-center rounded-md bg-danger-surface px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium text-danger-ink-muted transition-colors hover:bg-danger-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:min-h-11"
+            class={`mt-2.5 ${DANGER_CONFIRM_LINE}`}
           >{deleteLine(forDelete.taken.length)}</button>
         </Popover.Content>
       </Popover.Portal>
@@ -623,7 +626,7 @@
       aria-label="Clear selection"
       data-import-bar-clear
       onclick={finish}
-      class="flex size-7 items-center justify-center rounded-md text-on-ink-muted transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:size-11"
+      class="flex size-7 items-center justify-center rounded-md text-on-ink-muted transition-colors duration-150 ease-out hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-light motion-reduce:transition-none pointer-coarse:size-11"
     >
       <XIcon size="0.875rem" aria-hidden="true" />
     </button>

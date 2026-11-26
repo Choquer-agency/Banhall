@@ -41,7 +41,7 @@
   import { toast } from "svelte-sonner";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
+  import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import CompanyTabs from "$lib/components/companies/CompanyTabs.svelte";
   import WorkspacePanelSkeleton from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
   import { workPanelInline } from "$lib/components/shell/topBar";
@@ -140,9 +140,47 @@
   /** The sheet's tab, or null on Brain check and History. */
   const sheetTab = $derived(tab === "history" || tab === "brain" ? null : tab);
 
-  // ─── The file view (2026-11-17) ─────────────────────────────────────────
+  let pageRoot = $state<HTMLElement | null>(null);
+
+  // ─── The file view (2026-11-17, Paper Files 7 & 8) ──────────────────────
   let openFile = $state<SheetFileRow["_id"] | null>(null);
-  provideFileView({ open: (id) => (openFile = id) });
+  let panelFileIds = $state<SheetFileRow["_id"][]>([]);
+
+  function readVisibleFileIds(): SheetFileRow["_id"][] {
+    if (!pageRoot) return [];
+    const scope = searching
+      ? pageRoot.querySelector<HTMLElement>("[data-import-search-results]")
+      : pageRoot.querySelector<HTMLElement>("[data-import-sheet-container]");
+    if (!scope) return [];
+    const ids = new Set<SheetFileRow["_id"]>();
+    for (const element of scope.querySelectorAll<HTMLElement>("[data-import-file]")) {
+      const value = element.dataset.importFile as SheetFileRow["_id"] | undefined;
+      if (value) ids.add(value);
+    }
+    return [...ids];
+  }
+
+  function openFileView(id: SheetFileRow["_id"]) {
+    const visible = readVisibleFileIds();
+    panelFileIds = visible.includes(id) ? visible : [id];
+    openFile = id;
+  }
+
+  function stepFileAfterRemoval(removedId: SheetFileRow["_id"]) {
+    selection.remove([removedId]);
+    const index = panelFileIds.indexOf(removedId);
+    const remaining = panelFileIds.filter((entry) => entry !== removedId);
+    panelFileIds = remaining;
+    if (openFile !== removedId) return;
+    if (remaining.length === 0) {
+      openFile = null;
+      return;
+    }
+    const nextIndex = index >= 0 && index < remaining.length ? index : remaining.length - 1;
+    openFile = remaining[nextIndex];
+  }
+
+  provideFileView({ open: openFileView });
   /** Select applies to To review and Deleted. */
   const selectable = $derived(sheetTab !== null && canSelect(sheetTab));
 
@@ -186,8 +224,6 @@
     void importUploads.add(files, uploadCallbacks);
   }
 
-  let pageRoot = $state<HTMLElement | null>(null);
-
   function selectTab(next: PageTab, focus: boolean) {
     if (next !== tab) selection.setOn(false);
     tab = next;
@@ -210,7 +246,7 @@
   }
 </script>
 
-<AdminWorkspacePage title="Import" count={denied ? null : note} flush>
+<WorkspaceChrome title="Import" count={denied ? null : note} panel="flush" viewAsGate="admin">
   {#snippet actions()}
     {#if !denied && !loading}
       <ImportHeaderActions onFiles={addFiles} />
@@ -231,7 +267,7 @@
         role="tabpanel"
         id={`import-panel-${tab}`}
         aria-labelledby={`import-tab-${tab}`}
-        class={`${workPanelInline} flex flex-col gap-5 pt-6 pb-14 lg:pt-8`}
+        class={`${workPanelInline} flex flex-col gap-3.5 pt-4 pb-12 lg:pt-5`}
       >
         <!-- Final PD progress (2026-11-17): the whole Import, so on every tab. -->
         <ImportProgressLine />
@@ -262,7 +298,7 @@
             <ImportSearchResults tab={sheetTab} text={settled} onJump={jumpTo} />
           {/if}
           <!-- Kept while searching, so open companies stay open. -->
-          <div hidden={searching}>
+          <div data-import-sheet-container hidden={searching}>
             {#key sheetTab}
               <ImportSheet
                 tab={sheetTab}
@@ -281,6 +317,12 @@
       <ImportSelectionBar {selection} tab={sheetTab} />
     {/if}
     <ImportDropZone anchor={pageRoot} onFiles={addFiles} />
-    <ImportFilePanel id={openFile} onClose={() => (openFile = null)} />
+    <ImportFilePanel
+      id={openFile}
+      fileIds={panelFileIds}
+      onSelectFile={(nextId) => (openFile = nextId)}
+      onRemoved={stepFileAfterRemoval}
+      onClose={() => (openFile = null)}
+    />
   {/if}
-</AdminWorkspacePage>
+</WorkspaceChrome>

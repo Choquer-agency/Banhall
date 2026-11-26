@@ -128,4 +128,38 @@ describe("ImportInitialsSlots", () => {
       reviewerInProgress: false,
     });
   });
+
+  it("re-seeds clean inputs when server props update, but protects unsaved edits", async () => {
+    const view = await render(ImportInitialsSlots, {
+      fileId: "item-4" as Id<"ingestionItems">,
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      clientInitials: "BM",
+      financialInitials: "FK",
+    });
+
+    await expect.poll(() => (one('[data-import-initials-input="writer"]') as HTMLInputElement).value).toBe("DW");
+
+    // Clean form updates immediately when server props change (e.g., another admin edited).
+    await view.rerender({
+      fileId: "item-4" as Id<"ingestionItems">,
+      writerInitials: "AL",
+      reviewerInitials: "PN",
+      clientInitials: "BM",
+      financialInitials: "FK",
+    });
+    await expect.poll(() => (one('[data-import-initials-input="writer"]') as HTMLInputElement).value).toBe("AL");
+
+    // Once the user types an unsaved edit, an unrelated prop update does not wipe it.
+    await userEvent.fill(one('[data-import-initials-input="writer"]')!, "KP");
+    await view.rerender({
+      fileId: "item-4" as Id<"ingestionItems">,
+      writerInitials: "AL",
+      reviewerInitials: "MO",
+      clientInitials: "BM",
+      financialInitials: "FK",
+    });
+    expect((one('[data-import-initials-input="writer"]') as HTMLInputElement).value).toBe("KP");
+    expect((one('[data-import-initials-input="reviewer"]') as HTMLInputElement).value).toBe("PN");
+  });
 });

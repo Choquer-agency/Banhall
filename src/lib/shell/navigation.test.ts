@@ -52,10 +52,10 @@ describe("railGroups: role by flag matrix", () => {
     ]);
   });
 
-  it("Admin sees Team and Admin (A2, decision 53: no developer or Owner flag needed)", () => {
+  it("Admin sees Team, Import, and Admin (A2, decision 53: no developer or Owner flag needed)", () => {
     expect(shape(admin)).toEqual([
       ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Manage", ["Team", "Admin"]],
+      ["Manage", ["Team", "Import", "Admin"]],
       ["Other", ["What's new", "Settings"]],
     ]);
   });
@@ -67,7 +67,7 @@ describe("railGroups: role by flag matrix", () => {
   it("a developer Admin gets the Developer group with Alerts (A3, decision 49)", () => {
     expect(shape({ ...admin, isDeveloper: true })).toEqual([
       ["Workspace", ["Home", "Projects", "Companies"]],
-      ["Manage", ["Team", "Admin"]],
+      ["Manage", ["Team", "Import", "Admin"]],
       ["Developer", ["Alerts", "Feature requests"]],
       ["Other", ["What's new", "Settings"]],
     ]);
@@ -128,6 +128,8 @@ describe("selectedRailItem", () => {
     ["/projects", "?layout=board&group=client", "projects"],
     ["/projects", "?group=stage", "projects"],
     ["/team", "", "team"],
+    ["/import", "", "import"],
+    ["/admin/import", "", "import"],
     ["/companies", "", "companies"],
     ["/companies/cedarline%20systems", "", "companies"],
     ["/companiesx", "", null],
@@ -169,6 +171,7 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
     projectsHref: "/projects",
     companiesHref: "/companies",
     teamHref: "/team",
+    importHref: "/import",
     changelogHref: "/changelog",
     adminHref: "/admin/house-rules",
     settingsHref: "/settings",
@@ -180,10 +183,10 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
   const developerConsultant = { role: "writer", isOwner: false, isDeveloper: true } as const;
   const developerAdmin = { role: "admin", isOwner: false, isDeveloper: true } as const;
 
-  it("Projects, Companies and Team (team.view) at the top; What's new, Admin (settings.configure) and Settings at the foot", () => {
+  it("Projects, Companies, Team (team.view) and Import (settings.configure) at the top; What's new, Admin and Settings at the foot", () => {
     expect(labels(consultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["What's new", "Settings"] });
     expect(labels(manager)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["What's new", "Settings"] });
-    expect(labels(admin)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["What's new", "Admin", "Settings"] });
+    expect(labels(admin)).toEqual({ top: ["Projects", "Companies", "Team", "Import"], bottom: ["What's new", "Admin", "Settings"] });
     expect(labels({ role: null, isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["What's new", "Settings"] });
   });
 
@@ -211,8 +214,15 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
     expect(whatsNewLabel(4)).toBe("What's new, 4 new updates");
   });
 
-  it("puts the attention dot on Admin only when something needs a look", () => {
-    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0 }).bottom[1].attention).toBe(false);
+  it("puts the attention dot on Import and Admin independently", () => {
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0, importAttention: 0 }).bottom[1].attention).toBe(false);
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0, importAttention: 0 }).top[3].attention).toBe(false);
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0, importAttention: 3 }).top[3]).toEqual({
+      id: "import",
+      label: "Import",
+      href: "/import",
+      attention: true,
+    });
     expect(frameRailItems(admin, frameHrefs, { adminAttention: 2 }).bottom[1]).toEqual({
       id: "admin",
       label: "Admin",
@@ -221,7 +231,7 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
     });
   });
 
-  it("marks Projects for Home and every project page, Admin for its pages, Alerts and Feature requests", () => {
+  it("marks Projects for Home and every project page, Import for /import and /admin/import, Admin for its pages, Alerts and Feature requests", () => {
     const cases: [string, string | null][] = [
       ["/", "projects"],
       ["/my-work", "projects"],
@@ -232,6 +242,8 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
       ["/companies", "companies"],
       ["/companies/cedarline%20systems", "companies"],
       ["/team", "team"],
+      ["/import", "import"],
+      ["/admin/import", "import"],
       ["/admin/brain", "admin"],
       ["/alerts", "admin"],
       ["/requests", "admin"],
@@ -251,6 +263,8 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
       ["/companies", "companies"],
       ["/companies/acme", "companies"],
       ["/team", "team"],
+      ["/import", null],
+      ["/admin/import", null],
       ["/admin/house-rules", "admin"],
       ["/settings/account", "settings"],
       ["/project/abc", null],

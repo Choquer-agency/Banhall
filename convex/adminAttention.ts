@@ -12,14 +12,15 @@ import { hasCapability } from "../shared/capabilities";
 export const ATTENTION_INGESTION_FAILED_CAP = 100;
 
 /**
- * `{ total, ingestionFailed }`. Zeros for anyone without
+ * `{ total, adminTotal, ingestionFailed }`. Zeros for anyone without
  * `settings.configure` (signed out, anonymous, roleless, Consultant,
  * Manager): a plain read that never throws, so the rail subscribes for every
- * role. `total` is how many admin pages need a look (0 or 1 today).
+ * role. `adminTotal` counts non-Import admin pages needing a look (0 today);
+ * `total` counts all admin + import attention signals (0 or 1 today).
  */
 export const getAttention = query({
   args: {},
-  returns: v.object({ total: v.number(), ingestionFailed: v.number() }),
+  returns: v.object({ total: v.number(), adminTotal: v.number(), ingestionFailed: v.number() }),
   handler: async (ctx) => {
     const viewer = await getCurrentUserOrNull(ctx);
     if (
@@ -27,13 +28,14 @@ export const getAttention = query({
       viewer.isAnonymous === true ||
       !hasCapability(viewer.role, "settings.configure")
     ) {
-      return { total: 0, ingestionFailed: 0 };
+      return { total: 0, adminTotal: 0, ingestionFailed: 0 };
     }
     const failed = await ctx.db
       .query("ingestionItems")
       .withIndex("by_status", (q) => q.eq("status", "failed"))
       .take(ATTENTION_INGESTION_FAILED_CAP);
     const ingestionFailed = failed.length;
-    return { total: ingestionFailed > 0 ? 1 : 0, ingestionFailed };
+    const adminTotal = 0;
+    return { total: (ingestionFailed > 0 ? 1 : 0) + adminTotal, adminTotal, ingestionFailed };
   },
 });

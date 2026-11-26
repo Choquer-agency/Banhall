@@ -218,9 +218,8 @@ describe("reviewers on the Import page", () => {
     // Short on a laptop window, with the whole words on hover and for screen readers.
     expect(tag.getAttribute("title")).toBe("Reviewed by CRA");
     expect(text(one(".sr-only", tag))).toBe("Reviewed by CRA");
-    // Here the name's line is narrow: just the seal, so the PD's title keeps its room.
-    expect(getComputedStyle(inRow("pd1", "[data-import-file-cra-words]")).display).toBe("none");
-    expect(box(tag).width).toBeLessThanOrEqual(21);
+    // Full-width Import sheet (no Admin sidebar) gives the File cell room for the full label beside the title.
+    expect(getComputedStyle(inRow("pd1", "[data-import-file-cra-words]")).display).not.toBe("none");
     expect(box(inRow("pd1", "[data-import-file-title]")).width).toBeGreaterThan(80);
     expect(getComputedStyle(tag).color).not.toBe(AMBER);
     expect(getComputedStyle(tag).fontWeight).toBe("400");

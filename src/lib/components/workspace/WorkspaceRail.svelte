@@ -9,7 +9,7 @@
   import { roleAvatarTone } from "$lib/components/ui/avatarTone";
   import IdentityMenu from "$lib/components/shell/IdentityMenu.svelte";
   import RailIcon, { type RailIconName } from "$lib/components/workspace/RailIcon.svelte";
-  import { ADMIN_IMPORT_PATH, ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
+  import { ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
   import type { DashboardView } from "$lib/dashboard/viewMode";
   import { ROLE_CHIP_LABELS, roleChipKind } from "$lib/roles/roleChip";
   import {
@@ -63,21 +63,31 @@
   );
   // What's new's count: the bell's read (one shared subscription).
   const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
-  // Rail v3 counts beside Projects and Companies, only on the Projects page,
-  // where the page already holds these two reads (Convex shares one
-  // subscription). Elsewhere the rail adds no reads (Home's cost rule).
+  // Rail v3 counts beside Projects and Companies only on the Projects page,
+  // and beside Import only on the Import page, where each page already holds
+  // the same read (Convex shares one subscription). Elsewhere the rail adds no
+  // reads (Home's cost rule).
   const countsOn = $derived(auth.isAuthenticated && internal && displayedView === "all_projects");
+  const importCountOn = $derived(
+    auth.isAuthenticated && canSeeAdmin(viewer) && selectedRailItem(page.url) === "import"
+  );
   const facetsQ = useQuery(api.dashboard.getFacets, () => (countsOn ? {} : "skip"));
   const clientsQ = useQuery(api.clients.listClients, () => (countsOn ? {} : "skip"));
-  const attention = $derived(attentionQ.data ?? { total: 0, ingestionFailed: 0 });
+  const importQ = useQuery(api.ingestion.sheetTotals, () => (importCountOn ? { tab: "review" as const } : "skip"));
+  const attention = $derived(attentionQ.data ?? { total: 0, adminTotal: 0, ingestionFailed: 0 });
+  const nonImportAdminAttention = $derived(attention.adminTotal);
   const userName = $derived(displayName(user, "Account"));
 
   const counts = $derived.by((): Partial<Record<RailItemId, string>> => {
     const facets = facetsQ.data;
     const clients = clientsQ.data;
+    const importReview = importQ.data;
     return {
       ...(facets ? { projects: `${facets.total}${facets.truncated ? "+" : ""}` } : {}),
       ...(clients ? { companies: `${clients.clients.length}${clients.truncated ? "+" : ""}` } : {}),
+      ...(importReview && importReview.files > 0
+        ? { import: `${importReview.files.toLocaleString("en-US")}${importReview.complete ? "" : "+"}` }
+        : {}),
     };
   });
 
@@ -101,13 +111,19 @@
         companiesHref: companiesPath(resolve("/")),
         // WS2 lands the /team route; until then the path is not a typed route id.
         teamHref: `${resolve("/")}team`,
+        importHref: `${resolve("/")}import`,
         adminHref: resolve("/admin/house-rules"),
         alertsHref: resolve("/alerts"),
         requestsHref: resolve("/requests"),
         changelogHref: resolve("/changelog"),
         settingsHref: resolve("/settings"),
       },
-      { unseenChangelog: unseenQ.data ?? 0, openAlerts: openAlertsQ.data ?? 0, adminAttention: attention.total }
+      {
+        unseenChangelog: unseenQ.data ?? 0,
+        openAlerts: openAlertsQ.data ?? 0,
+        adminAttention: nonImportAdminAttention,
+        importAttention: attention.ingestionFailed,
+      }
     )
   );
   // Rail v3 draws no group labels: Home, Projects and Companies at the top,
@@ -171,6 +187,7 @@
     projects: "projects",
     companies: "companies",
     team: "team",
+    import: "import",
     settings: "settings",
   };
   // No Rail v3 drawing for these; the round 2 icons at the v3 size and stroke.
@@ -208,11 +225,17 @@
   {@const isSelected = selected === item.id}
   {@const disabled = item.id === "home" && !myWorkAvailable}
   {@const count = counts[item.id]}
+  {@const itemAriaLabel =
+    item.id === "changelog" && item.badge
+      ? whatsNewLabel(item.badge.count)
+      : item.id === "import" && item.attention && attention.ingestionFailed > 0
+        ? `${item.label}${count ? ` ${count}` : ""}, ${attention.ingestionFailed} failed`
+        : undefined}
   <a
     data-rail-item={item.id}
     href={item.href}
     aria-current={isSelected ? "page" : undefined}
-    aria-label={item.id === "changelog" && item.badge ? whatsNewLabel(item.badge.count) : undefined}
+    aria-label={itemAriaLabel}
     aria-disabled={disabled ? "true" : undefined}
     onclick={(event) => {
       if (disabled) {
@@ -227,6 +250,13 @@
     <span class="min-w-0 flex-1 truncate">{item.label}</span>
     {#if count}
       <span data-rail-count class="shrink-0 text-[0.8125rem] font-normal leading-[calc(16/13)] text-ink-muted">{count}</span>
+    {/if}
+    {#if item.attention}
+      <span
+        data-rail-attention
+        aria-hidden="true"
+        class="size-1.5 shrink-0 rounded-full bg-stale-dot"
+      ></span>
     {/if}
     {#if item.badge}
       <span
@@ -275,9 +305,6 @@
           class={`min-h-11 workspace-rail-row flex items-center gap-2 rounded-lg pl-9 pr-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
         >
           <span class="min-w-0 flex-1 truncate">{route.label}</span>
-          {#if route.href === ADMIN_IMPORT_PATH && attention.ingestionFailed > 0}
-            <span data-rail-attention aria-label={`${attention.ingestionFailed} failed`} class="size-1.5 shrink-0 rounded-full bg-stale-dot"></span>
-          {/if}
         </a>
       {/each}
     </div>

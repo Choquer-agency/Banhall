@@ -90,6 +90,7 @@
       { href: resolve("/changelog"), label: "What's new", keywords: "changelog updates release notes new" }
     );
     if (canSeeAdmin(viewer)) {
+      list.push({ href: `${resolve("/")}import`, label: "Import", keywords: "import files upload onedrive admin" });
       list.push(...ADMIN_ROUTES.map((r) => ({ href: resolve(r.href as "/"), label: r.label, keywords: "admin" })));
     }
     // The developer pages left the rail for the Admin sidebar (the page

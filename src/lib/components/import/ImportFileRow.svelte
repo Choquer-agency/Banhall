@@ -131,9 +131,9 @@
     PICK_CARET_SIZE,
     PICK_CONTROL,
     ROW_MENU_ROOM,
-    SELECT_CELL,
-    SELECT_CELL_NESTED,
-    sheetGrid,
+    ROW_SINGLE_MENU_ROOM,
+    SELECT_GUTTER,
+    SHEET_GRID,
     SHEET_SMALL,
     SHEET_TEXT,
   } from "./sheetLayout";
@@ -145,7 +145,6 @@
     tab,
     companyName = null,
     company = null,
-    inset = "section",
     selection = null,
   }: {
     row: SheetFileRow;
@@ -154,12 +153,12 @@
     companyName?: string | null;
     /** The company the file is in, for the company picker. */
     company?: string | null;
-    /** `section`: inside a section's 24px indent. `sheet`: a top-level row (search results). */
-    inset?: "section" | "sheet";
     /** The page's selection; none in search results. */
     selection?: ImportSelection | null;
   } = $props();
 
+  const uid = $props.id();
+  const fileTitleId = `${uid}-title`;
   const cells = $derived(fileCells(row));
   const fileView = useFileView();
   /** On Approved: what the file became (2026-11-17). */
@@ -631,24 +630,35 @@
   data-import-file={row._id}
   data-import-file-category={row.category}
   data-import-file-selected={selected ? "" : undefined}
-  class={`group/row relative ${sheetGrid(selectColumn, inset === "section")} h-11 border-t border-line-soft ${SHEET_TEXT} ${
-    selected ? "bg-primary-wash" : can.menu || can.putBack ? "hover:bg-gray-50" : ""
+  class={`group/row relative ${SHEET_GRID} h-[2.375rem] border-t border-line-soft ${SHEET_TEXT} transition-colors duration-150 ease-out motion-reduce:transition-none pointer-coarse:min-h-11 ${
+    selected ? "bg-primary-wash" : "hover:bg-gray-50"
   }`}
 >
-  {#if selectColumn}
-    <div role="cell" data-import-select-cell class={`${inset === "section" ? SELECT_CELL_NESTED : SELECT_CELL} self-stretch ${selected ? "bg-primary-wash" : ""}`}>
-      {#if can.select && selection}
+  <div role="cell" data-import-cell="file" class="flex min-w-0 flex-col justify-center pr-3 pl-12">
+    {#if can.select && selection}
+      <div
+        data-import-select-cell
+        class={`${SELECT_GUTTER} ${
+          selectColumn || selected
+            ? "opacity-100 pointer-events-auto"
+            : "pointer-events-none opacity-0 pointer-fine:group-hover/row:pointer-events-auto pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:pointer-events-auto pointer-fine:group-has-[:focus-visible]/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+        }`}
+      >
         <Checkbox
-          bind:checked={() => selected, (value) => selection?.set(row, value)}
+          bind:checked={() => selected, (value) => {
+            if (value && !selection.on) selection.setOn(true, { auto: true });
+            selection.set(row, value);
+          }}
+          tabindex={selectColumn || selected ? 0 : -1}
           aria-label={fileSelectLabel(label, row.name, company)}
           data-import-file-select={row._id}
         />
-      {/if}
-    </div>
-  {/if}
-
-  <div role="cell" data-import-cell="file" class={`flex min-w-0 flex-col justify-center pr-3 ${inset === "section" ? "pl-6" : "pl-12"}`}>
+      </div>
+    {/if}
     <span class="flex min-w-0 items-center gap-2.5">{@render nameLine()}</span>
+    {#if can.menu && can.remove}
+      <span id={fileTitleId} class="sr-only">{label}</span>
+    {/if}
     {#if companyName}
       <!-- Search results: the company on its own line, under the name, so neither squeezes the other. -->
       <span
@@ -733,6 +743,7 @@
         {#snippet content({ close })}
           <ImportWriterList
             currentWriterId={row.writerId ?? null}
+            initials={followsInitials && !approved ? (cells.writer?.initials ?? null) : null}
             onPick={(picked) => {
               close();
               pickWriter(picked);
@@ -779,6 +790,7 @@
           <ImportWriterList
             role="reviewer"
             currentWriterId={row.reviewerId ?? null}
+            initials={row.reviewerSource !== "person" && !approved ? (cells.reviewer?.initials ?? null) : null}
             onPick={(picked) => {
               close();
               pickReviewer(picked);
@@ -803,7 +815,13 @@
   </div>
 
   <!-- A container: on a narrow window (the column at its 108px) the code shows alone, never a sliver of its title. -->
-  <div role="cell" data-import-cell="science-code" class={`@container ${FIXED_CELL} gap-1.5 ${can.menu || can.approvedMenu ? ROW_MENU_ROOM : ""}`}>
+  <div
+    role="cell"
+    data-import-cell="science-code"
+    class={`@container ${FIXED_CELL} gap-1.5 ${
+      can.menu && can.remove ? ROW_MENU_ROOM : can.menu || can.approvedMenu ? ROW_SINGLE_MENU_ROOM : ""
+    }`}
+  >
     {#if can.scienceCode}
       <ImportPickerPopover label="Science code" align="end" width="w-[22rem]">
         {#snippet trigger({ props })}
@@ -853,7 +871,20 @@
     {/if}
     {#if can.menu}
       <!-- Over the cell's end, in the room the cell makes on hover and focus (ROW_MENU_ROOM). -->
-      <span data-import-row-end class="absolute inset-y-0 right-2 flex items-center pointer-coarse:right-1.5">
+      <span data-import-row-end class="absolute inset-y-0 right-2 flex items-center gap-0.5 pointer-coarse:right-1.5">
+        {#if can.remove}
+          <button
+            type="button"
+            aria-label="Delete file"
+            aria-describedby={fileTitleId}
+            title={`Delete ${label}`}
+            data-import-row-delete={row._id}
+            onclick={() => void leaveWith(remove)}
+            class="relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted opacity-0 transition-[opacity,background-color,color] duration-150 ease-out group-focus-within/row:opacity-100 group-hover/row:opacity-100 hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:hidden"
+          >
+            <TrashIcon size="0.875rem" aria-hidden="true" />
+          </button>
+        {/if}
         <ImportRowMenu
           name={label}
           category={row.category}

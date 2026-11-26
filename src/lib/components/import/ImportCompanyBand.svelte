@@ -40,17 +40,18 @@
   import { Popover } from "bits-ui";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { CaretDownIcon, TrashIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { IconChevronRight } from "$lib/components/icons";
+  import { IconChevronDown } from "$lib/components/icons";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { industryLabel } from "$lib/industries";
   import ImportCategorySection from "./ImportCategorySection.svelte";
   import ImportIndustryList from "./ImportIndustryList.svelte";
   import ImportPickerPopover from "./ImportPickerPopover.svelte";
-  import { IMPORT_TOAST } from "./importActions";
+  import { deleteGroupFiles, IMPORT_TOAST } from "./importActions";
   import { alreadyRunningText, APPROVE_NOTES, approveCompanyTitle, approveLine, approveReadyText, mergedNote, newCompanyNote } from "./importApprove";
+  import { DELETE_NOTE, deleteLine } from "./importEdit";
   import {
     bandName,
     bandSections,
@@ -66,13 +67,14 @@
   import {
     AMBER,
     CONFIRM_LINE,
+    DANGER_CONFIRM_LINE,
     PICK_CARET_SIZE,
     PICK_CONTROL,
     POPOVER_CARD,
     ROW_TOGGLE,
-    SELECT_CELL,
+    SELECT_GUTTER,
+    SHEET_GRID,
     SHEET_SMALL,
-    sheetGrid,
   } from "./sheetLayout";
 
   let {
@@ -101,6 +103,7 @@
 
   const uid = $props.id();
   const sectionsId = `${uid}-sections`;
+  const bandNameId = `${uid}-name`;
   const name = $derived(bandName(band));
   const industry = $derived(band.company?.industry?.trim() || null);
   const picked = $derived(band.pickedIndustry?.trim() || null);
@@ -173,6 +176,28 @@
     }
   }
 
+  // ─── Quick delete company group (To review) ─────────────────────────────
+  const removeGroupItems = useMutation(api.ingestion.removeGroupItems);
+  const restoreItems = useMutation(api.ingestion.restoreItems);
+  let deleteOpen = $state(false);
+  let deleting = $state(false);
+  const deletableCount = $derived(Math.max(0, band.total - band.beingRead));
+  // Hide unfiltered group delete while "To check" or "New" hides sibling rows in this company.
+  const canDeleteBand = $derived(tab === "review" && !onlyToCheck && !onlyNew && deletableCount > 0);
+
+  async function deleteBand() {
+    if (deleting) return;
+    deleting = true;
+    deleteOpen = false;
+    try {
+      await deleteGroupFiles({ companyKey: band.companyKey }, removeGroupItems, restoreItems, {
+        onRemoved: (ids) => selection?.remove(ids),
+      });
+    } finally {
+      deleting = false;
+    }
+  }
+
   // ─── Approve N ready (2026-11-17) ────────────────────────────────────────
   const approvable = $derived(tab === "review" && band.companyKey !== NO_COMPANY_KEY && band.ready > 0);
   const approveCompany = useMutation(api.ingestion.approveCompanyReady);
@@ -202,21 +227,19 @@
   }
 
   /**
-   * Nothing on screen to select: each section that opens now, or is open and
-   * still reading, gets its own request, used up the first time it lists.
-   * A closed company opens with its first section (Final PDs when it has
-   * them); an open one whose open sections have all listed opens its first
-   * closed section.
+   * Clicking the left-gutter checkbox auto-enables bulk select with zero
+   * layout shift, then selects loaded files (or opens the company's first
+   * section and selects its files once listed).
    */
   function toggleSelect() {
     if (!selection) return;
+    if (!selection.on) selection.setOn(true, { auto: true });
     if (selection.toggleRows(selection.listed(band.companyKey))) return;
     const present = bandSections(band, onlyToCheck, onlyNew).map((entry) => entry.category);
     const first = present[0];
     if (!first) return;
     let targets: ImportCategory[];
     if (!open) {
-      // Opening a company opens its Final PDs.
       onToggle();
       if (first !== "final_pd") onToggleSection(first);
       targets = [first];
@@ -236,21 +259,31 @@
   role="rowgroup"
   data-import-band={band.companyKey}
   data-import-band-open={open ? "" : undefined}
-  class={`@container/band [[data-import-band]+&]:mt-3.5 ${open ? "pb-3.5" : ""}`}
+  class={`@container/band [[data-import-band]+&]:mt-2.5 ${open ? "pb-2.5" : ""}`}
 >
-  <div role="row" class={`relative ${sheetGrid(selecting)} h-[3.25rem] items-center border-t border-gray-300 hover:bg-gray-50`}>
-    {#if selecting}
-      <div role="cell" data-import-select-cell class={`${SELECT_CELL} self-stretch`}>
-        <!-- Function bindings: the box always shows the selection, even when a click only opens the company. -->
-        <Checkbox
-          bind:checked={() => boxState === "all", () => toggleSelect()}
-          indeterminate={boxState === "some"}
-          aria-label={`Select ${name}`}
-          data-import-band-select={band.companyKey}
-        />
-      </div>
-    {/if}
-    <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2 @max-[56rem]/band:col-span-4">
+  <div
+    role="row"
+    class={`group/band relative ${SHEET_GRID} h-[2.75rem] items-center border-t border-gray-300 transition-colors duration-150 ease-out hover:bg-gray-50 motion-reduce:transition-none`}
+  >
+    <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2 pl-9 @max-[56rem]/band:col-span-4">
+      {#if selection}
+        <div
+          data-import-select-cell
+          class={`${SELECT_GUTTER} ${
+            selecting || boxState !== "none"
+              ? "opacity-100 pointer-events-auto"
+              : "pointer-events-none opacity-0 pointer-fine:group-hover/band:pointer-events-auto pointer-fine:group-hover/band:opacity-100 pointer-fine:group-has-[:focus-visible]/band:pointer-events-auto pointer-fine:group-has-[:focus-visible]/band:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+          }`}
+        >
+          <Checkbox
+            bind:checked={() => boxState === "all", () => toggleSelect()}
+            indeterminate={boxState === "some"}
+            tabindex={selecting || boxState !== "none" ? 0 : -1}
+            aria-label={`Select ${name}`}
+            data-import-band-select={band.companyKey}
+          />
+        </div>
+      {/if}
       <button
         type="button"
         aria-expanded={open}
@@ -259,23 +292,16 @@
         onclick={onToggle}
         class={`${ROW_TOGGLE} min-w-0 shrink gap-2`}
       >
-        <!-- The chevron turns inside a square, so turned it stays inside the sheet's edge. -->
-        <span data-import-band-chevron class="flex w-4 shrink-0 items-center text-ink-muted">
-          <span class={`flex size-[0.875rem] items-center justify-center transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}>
-            <IconChevronRight size={14} strokeWidth={1.8} class="shrink-0" />
-          </span>
-        </span>
-        <span data-import-band-name class="truncate text-[0.9375rem] leading-[calc(4/3)] font-medium text-ink">{name}</span>
+        <span id={bandNameId} data-import-band-name class="truncate text-sm leading-[calc(18/14)] font-medium text-ink">{name}</span>
       </button>
       {#if band.isNew || industry}
-        <span class="ml-2 flex min-w-0 shrink items-center gap-2">
+        <span class="ml-1.5 flex min-w-0 shrink items-center gap-2">
           {#if band.isNew}
             <span
               data-import-band-new
               class="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[0.6875rem] leading-[calc(14/11)] text-success-ink"
             >New company</span>
             {#if tab === "review"}
-              <!-- Above the row's whole-row toggle. -->
               <span class="relative z-[1] flex min-w-0">
                 <ImportPickerPopover label="Industry">
                   {#snippet trigger({ props })}
@@ -285,13 +311,13 @@
                         type="button"
                         aria-label={`Industry ${industryLabel(shownIndustry)}. Change the industry`}
                         data-import-band-industry-edit
-                        class="group/cell -mx-1.5 flex h-[1.625rem] min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left outline-none transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir data-[state=open]:bg-primary-wash motion-reduce:transition-none pointer-coarse:h-11"
+                        class="group/cell -mx-1.5 flex h-[1.5rem] min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left outline-none transition-colors duration-150 ease-out hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir data-[state=open]:bg-primary-wash motion-reduce:transition-none pointer-coarse:h-11"
                       >
                         <span data-import-band-industry class="truncate text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{industryLabel(shownIndustry)}</span>
                         <CaretDownIcon
                           size={PICK_CARET_SIZE}
                           aria-hidden="true"
-                          class="shrink-0 text-ink-muted opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100 group-data-[state=open]/cell:opacity-100 motion-reduce:transition-none"
+                          class="shrink-0 text-ink-muted opacity-0 transition-opacity duration-150 ease-out group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100 group-data-[state=open]/cell:opacity-100 motion-reduce:transition-none"
                         />
                       </button>
                     {:else}
@@ -346,7 +372,7 @@
                               disabled={matchingBusy}
                               data-import-band-snap={suggestion.id}
                               onclick={() => void moveToSuggested(suggestion)}
-                              class="flex w-full items-center justify-between gap-2 rounded-md border border-line-soft bg-surface px-2.5 py-2 text-left text-[0.8125rem] text-ink transition-colors hover:bg-primary-wash disabled:opacity-50"
+                              class="flex w-full items-center justify-between gap-2 rounded-md border border-line-soft bg-surface px-2.5 py-2 text-left text-[0.8125rem] leading-[calc(18/13)] text-ink transition-colors duration-150 ease-out hover:bg-primary-wash disabled:opacity-50 motion-reduce:transition-none"
                             >
                               <span class="min-w-0 flex-1 truncate font-medium">{suggestion.name}</span>
                               <span class="shrink-0 text-xs font-medium text-primary-selected">Move files here</span>
@@ -358,7 +384,7 @@
                           disabled={matchingBusy}
                           data-import-band-keep-separate
                           onclick={() => void keepSeparateCompany()}
-                          class="mt-2.5 w-full rounded-md bg-chrome px-2.5 py-1.5 text-center text-xs font-medium text-ink transition-colors hover:bg-primary-wash disabled:opacity-50"
+                          class="mt-2.5 w-full rounded-md bg-chrome px-2.5 py-1.5 text-center text-xs leading-[calc(4/3)] font-medium text-ink transition-colors duration-150 ease-out hover:bg-primary-wash disabled:opacity-50 motion-reduce:transition-none"
                         >Keep as a separate company</button>
                       </Popover.Content>
                     </Popover.Portal>
@@ -373,7 +399,7 @@
           {/if}
         </span>
       {/if}
-      <span class="ml-auto flex shrink-0 items-center gap-3 pl-2">
+      <span class="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
         {#if newFiles > 0}
           <span
             data-import-band-new-count
@@ -383,59 +409,115 @@
         <span data-import-band-files class="shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{plural(band.total, "file")}</span>
       </span>
     </div>
-    <!--
-      Under Science code, as drawn. On a sheet narrower than 896px (a 1100px
-      window) that column is too narrow for "Approve N ready", so the words
-      take Reviewer's room too and "N files" ends on its rule. The words wrap
-      onto a second line instead of running into "N files".
-    -->
-    <div role="cell" data-import-band-status class="flex min-w-0 flex-wrap content-center items-center justify-end gap-x-3 px-2 text-[0.8125rem] leading-[calc(16/13)] @max-[56rem]/band:col-span-2">
-      {#each words as word (word.text)}
-        {#if approvable && word.text === readyWord}
-          <!-- "Approve 77 ready" where "77 ready" would be, above the row's whole-row toggle. -->
-          <Popover.Root bind:open={approveOpen}>
-            <Popover.Trigger
-              data-import-band-approve={band.companyKey}
-              class="relative z-[1] shrink-0 rounded-sm font-medium whitespace-nowrap text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=open]:text-primary-dark motion-reduce:transition-none pointer-coarse:min-h-11"
-            >{approveReadyText(band.ready)}</Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                side="bottom"
-                align="end"
-                sideOffset={6}
-                collisionPadding={12}
-                aria-label={approveCompanyTitle(band.ready, name)}
-                data-import-approve-confirm
-                class={`${POPOVER_CARD} w-[20rem] max-w-[calc(100vw-1.5rem)] p-3`}
-              >
-                <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{approveCompanyTitle(band.ready, name)}</p>
-                <ul class={`mt-1.5 flex flex-col gap-1 ${SHEET_SMALL} text-ink-muted`}>
-                  {#each APPROVE_NOTES as line (line)}<li>{line}</li>{/each}
-                  {#if newNote}<li data-import-approve-new-company class={!shownIndustry && (band.categories.final_pd?.total ?? 0) > 0 ? AMBER : ""}>{newNote}</li>{/if}
-                </ul>
-                {#if mergedInto}
-                  <p data-import-approve-merged class={`mt-2 ${SHEET_SMALL} ${AMBER}`}>{mergedNote(name, mergedInto)}</p>
-                {:else}
-                  <button
-                    type="button"
-                    disabled={approving}
-                    data-import-approve-go
-                    onclick={() => void approveReady()}
-                    class={`mt-2.5 ${CONFIRM_LINE}`}
-                  >{approving ? "Approving..." : approveLine(band.ready)}</button>
-                {/if}
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-        {:else}
-          <span class={`shrink-0 whitespace-nowrap ${word.tone === "amber" ? AMBER : "text-ink-muted"}`}>{word.text}</span>
-        {/if}
-      {/each}
+    <div role="cell" class="flex min-w-0 items-center justify-end gap-2.5 pr-2.5 pl-2 text-[0.8125rem] leading-[calc(16/13)] @max-[56rem]/band:col-span-2">
+      <div data-import-band-status class="flex min-w-0 flex-wrap content-center items-center justify-end gap-x-3">
+        {#each words as word (word.text)}
+          {#if approvable && word.text === readyWord}
+            <Popover.Root bind:open={approveOpen}>
+              <Popover.Trigger
+                data-import-band-approve={band.companyKey}
+                class="relative z-[1] shrink-0 rounded-sm font-medium whitespace-nowrap text-primary-selected transition-colors duration-150 ease-out hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=open]:text-primary-dark motion-reduce:transition-none pointer-coarse:min-h-11"
+              >{approveReadyText(band.ready)}</Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  side="bottom"
+                  align="end"
+                  sideOffset={6}
+                  collisionPadding={12}
+                  aria-label={approveCompanyTitle(band.ready, name)}
+                  data-import-approve-confirm
+                  class={`${POPOVER_CARD} w-[20rem] max-w-[calc(100vw-1.5rem)] p-3`}
+                >
+                  <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{approveCompanyTitle(band.ready, name)}</p>
+                  <ul class={`mt-1.5 flex flex-col gap-1 ${SHEET_SMALL} text-ink-muted`}>
+                    {#each APPROVE_NOTES as line (line)}<li>{line}</li>{/each}
+                    {#if newNote}<li data-import-approve-new-company class={!shownIndustry && (band.categories.final_pd?.total ?? 0) > 0 ? AMBER : ""}>{newNote}</li>{/if}
+                  </ul>
+                  {#if mergedInto}
+                    <p data-import-approve-merged class={`mt-2 ${SHEET_SMALL} ${AMBER}`}>{mergedNote(name, mergedInto)}</p>
+                  {:else}
+                    <button
+                      type="button"
+                      disabled={approving}
+                      data-import-approve-go
+                      onclick={() => void approveReady()}
+                      class={`mt-2.5 ${CONFIRM_LINE}`}
+                    >{approving ? "Approving..." : approveLine(band.ready)}</button>
+                  {/if}
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          {:else}
+            <span class={`shrink-0 whitespace-nowrap ${word.tone === "amber" ? AMBER : "text-ink-muted"}`}>{word.text}</span>
+          {/if}
+        {/each}
+      </div>
+      {#if canDeleteBand}
+        <Popover.Root bind:open={deleteOpen}>
+          <Popover.Trigger
+            type="button"
+            disabled={deleting}
+            aria-label="Delete company files"
+            aria-describedby={bandNameId}
+            title={`Delete all files in ${name}`}
+            data-import-band-delete={band.companyKey}
+            class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-[opacity,background-color,color] duration-150 ease-out hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-danger-surface data-[state=open]:text-danger-ink-muted motion-reduce:transition-none pointer-coarse:size-11 ${
+              deleteOpen
+                ? "opacity-100"
+                : "opacity-0 group-hover/band:opacity-100 group-has-[:focus-visible]/band:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            }`}
+          >
+            <TrashIcon size="0.875rem" aria-hidden="true" />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="end"
+              sideOffset={6}
+              collisionPadding={12}
+              aria-label={`Delete ${name}`}
+              data-import-band-delete-confirm
+              class={`${POPOVER_CARD} w-[18.5rem] max-w-[calc(100vw-1.5rem)] p-3`}
+            >
+              <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">
+                Delete {plural(deletableCount, "file")} in {name}?
+              </p>
+              <p class={`mt-1 ${SHEET_SMALL} text-ink-muted`}>{DELETE_NOTE}</p>
+              {#if band.beingRead > 0}
+                <p class={`mt-1 ${SHEET_SMALL} text-ink-muted`}>
+                  {plural(band.beingRead, "file")} still being read will stay until finished.
+                </p>
+              {/if}
+              <button
+                type="button"
+                disabled={deleting}
+                data-import-band-delete-go
+                onclick={() => void deleteBand()}
+                class={`mt-2.5 ${DANGER_CONFIRM_LINE}`}
+              >{deleting ? "Deleting..." : deleteLine(deletableCount)}</button>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      {/if}
+      <span
+        data-import-band-chevron
+        data-chevron-state={open ? "up" : "down"}
+        aria-hidden="true"
+        class="flex size-5 shrink-0 items-center justify-center text-ink-muted"
+      >
+        <span
+          class={`flex size-3.5 items-center justify-center transition-transform duration-200 ease-out motion-reduce:transition-none ${
+            open ? "rotate-180" : "rotate-0"
+          }`}
+        >
+          <IconChevronDown size={14} strokeWidth={1.8} class="shrink-0" />
+        </span>
+      </span>
     </div>
   </div>
 
   {#if open}
-    <div id={sectionsId} data-import-band-sections class="ml-6">
+    <div id={sectionsId} data-import-band-sections>
       {#each sections as section (section.category)}
         <ImportCategorySection
           {tab}
