@@ -93,21 +93,18 @@ the window:
   phones and tablets (below 1280px, or any width with a touch screen as the
   main pointer), so their text and 44px touch targets keep the board sizes.
   On a laptop (a mouse or trackpad and a window 1280px or wider, where the
-  full rail replaces the tablet's icons-only rail) it is 15.75px up to 1440px
-  wide, rising 1.05px per 160px to 16.8px at 1600px (`clamp(98.4375%,
-  calc(98.4375% + (100vw - 1440px) * 0.0065625), 105%)`), so text, spacing
-  and cards scale together to 0.984x of the board. From 1600px it grows
-  1.05px per 240px to 21px at 2560px and stops (`clamp(105%, calc(105% +
-  (100vw - 1600px) * 0.004375), 131.25%)`): 1.1375x at 1920, 1.3125x at
-  2560, with the boards' proportions. Owner, 2026-11-05: "looks very
-  small", so every laptop and desktop size is 5% larger than the earlier
-  15px, 16px and 20px; phones, tablets and touch screens stay at 16px. The step down sits on
-  the 1280px rail breakpoint, where the layout changes anyway, so resizing
-  across it never shows a jump on an unchanged layout, and the tablet
-  boards drawn at 1024 (H1) keep their exact sizes. `rootFontSize()` in
-  `$lib/rootScale` mirrors the numbers and its unit test checks the CSS.
-  Media query breakpoints do not move (they read the browser default, not
-  the root). Browser zoom and a larger browser default still apply on top.
+  full rail replaces the tablet's icons-only rail) it is 15px (93.75%) up to
+  1440px wide, rising 1px per 160px to 16px (100%) at 1600px (`clamp(93.75%,
+  calc(93.75% + (100vw - 1440px) * 0.00625), 100%)`), and stays capped at
+  100% (16px) on wider desktop monitors (1920px, 2560px, 4K) so 27-inch
+  screens stay crisp instead of inflating the UI (owner, 2026-11-26). The
+  step down sits on the 1280px rail breakpoint, where the layout changes
+  anyway, so resizing across it never shows a jump on an unchanged layout,
+  and the tablet boards drawn at 1024 (H1) keep their exact sizes.
+  `rootFontSize()` in `$lib/rootScale` mirrors the numbers and its unit test
+  checks the CSS. Media query breakpoints do not move (they read the browser
+  default, not the root). Browser zoom and a larger browser default still
+  apply on top.
 - **Hairlines stay px.** 1px and 0.5px lines, border, outline and ring
   widths, outline offsets, shadows, text decoration, blur, CSS transforms and
   gradient stops stay px, as do `9999px` pill radii and media or container
@@ -1185,12 +1182,13 @@ fixed board widths where they left content stranded.
 ### 2026-09-29 amendment - laptop density (owner direction)
 
 The owner reviewed the app on a laptop and chose "smaller and denser". Board
-sizes below are at the 16px root; a laptop renders them at 0.984375x
-(0.9375x before the 2026-11-05 increase).
+sizes below are at the 16px root; a laptop renders them at 0.9375x (15px) and
+wide monitors cap at 1x (16px) since 2026-11-26.
 
-- **Root.** 15.75px on a laptop window from 1280 to 1440px wide, rising to
-  16.8px at 1600px, then up to 21px at 2560px (5% larger since 2026-11-05). Phones, tablets and
-  touch screens keep 16px. See "Sizes scale with the root".
+- **Root.** 15px on a laptop window from 1280 to 1440px wide, rising to 16px
+  at 1600px and staying capped at 16px on wider desktop monitors (since
+  2026-11-26). Phones, tablets and touch screens keep 16px. See "Sizes scale
+  with the root".
 - **Step pane.** The Step-by-step step pane's sides are 16px on a phone,
   20px beside the tablet Outline and 36px on desktop (were 16, 24 and 40),
   with 24px under the last card (was 32). The header starts 20px down with

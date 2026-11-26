@@ -316,36 +316,24 @@
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
 }
 
-/* ─── Root scale (2026-09-28, laptop density 2026-09-29) ─────────────────────
+/* ─── Root scale (2026-09-28, laptop density 2026-09-29, calm wide scale 2026-11-26) ───
    Sizes are rem (scripts/px-to-rem.mjs), so the root font size scales the
    whole UI. Phones and tablets keep the browser default (16px). On a laptop
    (a mouse or trackpad and a window 1280px or wider, where the full rail
-   appears) the root is 15.75px up to 1440px wide, then rises 1.05px per
-   160px to 16.8px at 1600. From there it grows 1.05px per 240px to 131.25%
-   at 2560px and stops: 18.2px at 1920, 21px at 2560 and wider (owner,
-   2026-11-05: 5% larger than the earlier 15, 16 and 20px). rootFontSize() in $lib/rootScale mirrors these numbers.
-   Percent based, so a larger browser default and browser zoom still apply
-   on top. Media query breakpoints are not affected (they read the browser
-   default, not this). JS that sizes things in board pixels reads the ratio
-   from rootScale(). */
+   appears) the root is 15px (93.75%) up to 1440px wide, then rises 1px per
+   160px to 16px (100%) at 1600px and stays at 100% on wider desktop monitors
+   (1920px, 2560px, 4K) so 27-inch displays stay crisp instead of inflating
+   the UI (owner, 2026-11-26). rootFontSize() in $lib/rootScale mirrors these
+   numbers. Percent based, so a larger browser default and browser zoom still
+   apply on top. Media query breakpoints are not affected (they read the
+   browser default, not this). JS that sizes things in board pixels reads the
+   ratio from rootScale(). */
 html {
   font-size: 100%;
 }
 @media (min-width: 1280px) and (pointer: fine) {
   html {
-    font-size: clamp(98.4375%, calc(98.4375% + (100vw - 1440px) * 0.0065625), 105%); /* px-to-rem: keep */
-  }
-}
-@media (min-width: 1600px) {
-  html {
-    font-size: clamp(105%, calc(105% + (100vw - 1600px) * 0.004375), 131.25%); /* px-to-rem: keep */
-  }
-}
-/* Signed-out auth screens keep a calm 100% root scale on desktop monitors
-   instead of scaling up to 131.25% (21px) at 2560px (owner, 2026-11-26). */
-@media (min-width: 1280px) {
-  html:has([data-auth-layout]) {
-    font-size: 100%; /* px-to-rem: keep */
+    font-size: clamp(93.75%, calc(93.75% + (100vw - 1440px) * 0.00625), 100%); /* px-to-rem: keep */
   }
 }
 
