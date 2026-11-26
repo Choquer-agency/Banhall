@@ -656,6 +656,9 @@
       </div>
     {/if}
     <span class="flex min-w-0 items-center gap-2.5">{@render nameLine()}</span>
+    {#if can.menu && can.remove}
+      <span id={fileTitleId} class="sr-only">{label}</span>
+    {/if}
     {#if companyName}
       <!-- Search results: the company on its own line, under the name, so neither squeezes the other. -->
       <span
@@ -870,7 +873,6 @@
       <!-- Over the cell's end, in the room the cell makes on hover and focus (ROW_MENU_ROOM). -->
       <span data-import-row-end class="absolute inset-y-0 right-2 flex items-center gap-0.5 pointer-coarse:right-1.5">
         {#if can.remove}
-          <span id={fileTitleId} class="sr-only">{label}</span>
           <button
             type="button"
             aria-label="Delete file"

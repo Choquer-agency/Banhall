@@ -368,6 +368,7 @@
             type="text"
             autocomplete="off"
             spellcheck="false"
+            disabled={saving}
             maxlength={slot.key === "client" ? 32 : 6}
             placeholder={slot.key === "client" ? "BM, JT" : "-"}
             bind:value={values[slot.key]}
@@ -409,6 +410,7 @@
             type="text"
             autocomplete="off"
             spellcheck="false"
+            disabled={saving}
             maxlength={32}
             placeholder="e.g. AL, KP"
             bind:value={coWritersText}
@@ -418,10 +420,11 @@
         {#if coWritersText.trim() === ""}
           <button
             type="button"
+            disabled={saving}
             onclick={() => {
               showCoWriters = false;
             }}
-            class={`rounded-sm ${SHEET_SMALL} text-ink-muted transition-colors duration-150 ease-out hover:text-ink motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
+            class={`rounded-sm ${SHEET_SMALL} text-ink-muted transition-colors duration-150 ease-out hover:text-ink disabled:opacity-40 motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
           >Hide</button>
         {/if}
       </div>
@@ -429,11 +432,12 @@
       <div class="flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
+          disabled={saving}
           data-import-initials-add-cowriter
           onclick={() => {
             showCoWriters = true;
           }}
-          class={`rounded-sm ${SHEET_SMALL} text-ink-muted underline-offset-2 transition-colors duration-150 ease-out hover:text-ink hover:underline motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
+          class={`rounded-sm ${SHEET_SMALL} text-ink-muted underline-offset-2 transition-colors duration-150 ease-out hover:text-ink hover:underline disabled:opacity-40 motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
         >+ Co-writer</button>
         <span class={`${SHEET_SMALL} text-ink-muted`}>Separate multiple with commas</span>
       </div>

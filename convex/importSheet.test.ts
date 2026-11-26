@@ -6086,7 +6086,13 @@ describe("removeGroupItems and sheetFile originalUrl", () => {
     const allSkipped = new Set<string>();
     while (true) {
       pages += 1;
-      const pageResult = await admin.mutation(api.ingestion.removeGroupItems, {
+      const pageResult: {
+        changedIds: Array<Id<"ingestionItems">>;
+        skippedBeingRead: number;
+        skippedIds: Array<Id<"ingestionItems">>;
+        hasMore: boolean;
+        nextCursor: string | null;
+      } = await admin.mutation(api.ingestion.removeGroupItems, {
         companyKey,
         ...(cursor ? { cursor } : {}),
       });

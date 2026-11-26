@@ -432,12 +432,13 @@
 
   async function oneFile(call: () => Promise<BatchResult>, fallback: string): Promise<boolean> {
     if (!file) return false;
+    const targetId = file._id;
     try {
       const result = await call();
       if (result.skipped.length > 0) {
         toast.error("The change was not saved.", { ...IMPORT_TOAST, description: skippedText(result.skipped, sheetTab) });
       }
-      return result.changedIds.includes(file._id);
+      return result.changedIds.includes(targetId);
     } catch (error) {
       toast.error(userErrorMessage(error, fallback), IMPORT_TOAST);
       return false;
@@ -877,9 +878,31 @@
                       </p>
                     {/if}
                   {:else if original.kind === "docx"}
-                    <!-- Safe: HTML is sanitized by sanitizeWordHtml in previewRenderers.ts -->
-                    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                    <div data-import-file-panel-original-docx class="docx-preview">{@html original.html}</div>
+                    {#if original.html.trim().length > 0}
+                      <!-- Safe: HTML is sanitized by sanitizeWordHtml in previewRenderers.ts -->
+                      <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                      <div data-import-file-panel-original-docx class="docx-preview">{@html original.html}</div>
+                      <p class={`mt-5 border-t border-line-soft pt-3 ${SHEET_SMALL} text-ink-muted`}>
+                        Text and tables from Word. Download the original to view embedded images or exact layout.
+                      </p>
+                    {:else}
+                      <div class="flex flex-col items-start gap-3">
+                        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
+                          This Word file has no previewable text (embedded images are omitted here). Download the original to view it.
+                        </p>
+                        <a
+                          href={file.originalUrl}
+                          download={file.name}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onclick={(event) => void handleDownload(event)}
+                          class={FALLBACK_DOWNLOAD}
+                        >
+                          <DownloadSimpleIcon size="0.875rem" aria-hidden="true" />
+                          <span>Download original</span>
+                        </a>
+                      </div>
+                    {/if}
                   {:else if original.kind === "spreadsheet"}
                     <div data-import-file-panel-original-sheet class="flex flex-col gap-2">
                       {#if original.sheet.rows.length === 0}
@@ -1299,17 +1322,17 @@
                   onclick={() => (moreDetailsOpen = !moreDetailsOpen)}
                   class="flex w-full items-center justify-between gap-2 rounded-sm text-xs leading-[calc(4/3)] text-ink-muted transition-colors duration-150 ease-out hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
                 >
-                  <span class="inline-flex items-center gap-1 font-medium">
-                    <span>More details</span>
+                  <span class="shrink-0 font-medium">More details</span>
+                  <span class="flex min-w-0 items-center justify-end gap-1.5">
+                    {#if moreDetailsSummary}
+                      <span class="min-w-0 truncate text-right text-ink-faint">{moreDetailsSummary}</span>
+                    {/if}
                     <CaretDownIcon
                       size={PICK_CARET_SIZE}
                       aria-hidden="true"
-                      class={`transition-transform duration-200 ease-out motion-reduce:transition-none ${moreDetailsOpen ? "rotate-180" : ""}`}
+                      class={`shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${moreDetailsOpen ? "rotate-180" : ""}`}
                     />
                   </span>
-                  {#if moreDetailsSummary}
-                    <span class="min-w-0 truncate text-right text-ink-faint">{moreDetailsSummary}</span>
-                  {/if}
                 </button>
 
                 <!-- Always mounted inside a CSS grid collapse so hiding never wipes unsaved initials edits. -->

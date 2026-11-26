@@ -254,6 +254,7 @@ export async function deleteGroupFiles(
   let fallbackSkipped = 0;
   let sawSkippedIds = false;
   let cursor: string | null | undefined = undefined;
+  let hasMoreAfterLoop = false;
   let error: unknown = null;
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
     try {
@@ -265,7 +266,11 @@ export async function deleteGroupFiles(
       } else {
         fallbackSkipped += res.skippedBeingRead;
       }
-      if (!res.hasMore) break;
+      if (!res.hasMore) {
+        hasMoreAfterLoop = false;
+        break;
+      }
+      hasMoreAfterLoop = true;
       if (res.nextCursor !== undefined) {
         if (res.nextCursor === null || res.nextCursor === cursor) break;
         cursor = res.nextCursor;
@@ -277,10 +282,16 @@ export async function deleteGroupFiles(
   }
   const skippedBeingRead = sawSkippedIds ? skippedIdSet.size : fallbackSkipped;
   if (changedIds.length > 0) options?.onRemoved?.(changedIds);
-  const beingReadNote =
-    skippedBeingRead > 0
-      ? `${plural(skippedBeingRead, "file")} left out because ${skippedBeingRead === 1 ? "it is" : "they are"} still being read.`
-      : undefined;
+  const notes: string[] = [];
+  if (skippedBeingRead > 0) {
+    notes.push(
+      `${plural(skippedBeingRead, "file")} left out because ${skippedBeingRead === 1 ? "it is" : "they are"} still being read.`
+    );
+  }
+  if (!error && hasMoreAfterLoop) {
+    notes.push("More files remain in this group - delete again to finish.");
+  }
+  const description = notes.length > 0 ? notes.join(" ") : undefined;
   const undo =
     changedIds.length > 0
       ? {
@@ -292,17 +303,17 @@ export async function deleteGroupFiles(
     const reason = userErrorMessage(error, TRY_AGAIN);
     toast.error(changedIds.length > 0 ? `${deletedText(changedIds.length)}. ${reason}` : reason, {
       ...IMPORT_TOAST,
-      description: beingReadNote,
+      description,
       ...(undo ? { action: undo } : {}),
     });
   } else if (changedIds.length > 0) {
     toast(deletedText(changedIds.length), {
       ...IMPORT_TOAST,
-      description: beingReadNote,
+      description,
       ...(undo ? { action: undo } : {}),
     });
   } else {
-    toast(NOTHING_CHANGED, { ...IMPORT_TOAST, description: beingReadNote });
+    toast(NOTHING_CHANGED, { ...IMPORT_TOAST, description });
   }
   return { changedIds, skippedBeingRead, error };
 }

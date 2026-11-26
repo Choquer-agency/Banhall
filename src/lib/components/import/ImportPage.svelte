@@ -171,6 +171,7 @@
     const index = panelFileIds.indexOf(removedId);
     const remaining = panelFileIds.filter((entry) => entry !== removedId);
     panelFileIds = remaining;
+    if (openFile !== removedId) return;
     if (remaining.length === 0) {
       openFile = null;
       return;

@@ -36,7 +36,7 @@ function seed(user: Record<string, unknown>) {
   __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
   __setQueryData("changelog:unseenCount", 2);
   __setQueryData("errorReports:openCount", 4);
-  __setQueryData("adminAttention:getAttention", { total: 1, ingestionFailed: 1 });
+  __setQueryData("adminAttention:getAttention", { total: 1, adminTotal: 0, ingestionFailed: 1 });
   __setQueryData("ingestion:sheetTotals", { files: 504, companies: 7, needsCheck: 117, ready: 387, beingRead: 0, complete: true });
   __setQueryData("notifications:listRecent", []);
 }
@@ -61,10 +61,11 @@ describe("round 2 shell captures", () => {
     await expect.poll(() => document.querySelector('[data-admin-link="/admin/house-rules"]')?.getAttribute("aria-current")).toBe("page");
     await expect.poll(() => document.querySelector('[data-admin-developer-link="alerts"] [data-rail-badge]')?.textContent).toBe("4");
     // Import lives on the main rail now (not inside AdminSidebar); failed
-    // files' attention stays on the rail's Admin item.
+    // files' attention sits on the rail's Import item.
     expect(document.querySelector('[data-admin-link="/admin/import"]')).toBeNull();
     expect(document.querySelector('[data-frame-rail] [data-rail-item="import"]')?.getAttribute("href")).toBe("/import");
-    expect(document.querySelector('[data-frame-rail] [data-rail-item="admin"] [data-rail-attention]')).not.toBeNull();
+    expect(document.querySelector('[data-frame-rail] [data-rail-item="import"] [data-rail-attention]')).not.toBeNull();
+    expect(document.querySelector('[data-frame-rail] [data-rail-item="admin"] [data-rail-attention]')).toBeNull();
     await settle();
     await page.screenshot({ path: await captures.path("b3-admin-house-rules") });
   });
