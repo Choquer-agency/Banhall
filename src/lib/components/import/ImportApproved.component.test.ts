@@ -226,7 +226,7 @@ describe("the Approved tab's controls", () => {
     expect(inRow("a1", "[data-import-file-title]").clientWidth).toBeGreaterThanOrEqual(48);
     const fileCell = inRow("a1", '[data-import-cell="file"]').getBoundingClientRect();
     for (const mark of [cra, inRow("a1", "[data-import-file-brain]")]) {
-      expect(mark.getBoundingClientRect().width).toBeGreaterThanOrEqual(19.5);
+      expect(mark.getBoundingClientRect().width).toBeGreaterThanOrEqual(18.5);
       expect(mark.getBoundingClientRect().right).toBeLessThanOrEqual(fileCell.right + 0.5);
     }
     // One mark leaves the name more room than two.

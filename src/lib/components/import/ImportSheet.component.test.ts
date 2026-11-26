@@ -983,7 +983,7 @@ describe("ImportSheet on laptop windows", () => {
   it("gives a cut name or science code title in full in a tooltip, with no new tab stops", async () => {
     // Since the Reviewer column (2026-11-17) the Science code column is the
     // code alone at 1100: its title is cut, and still shown, a little wider.
-    await mountAt(1440, 1000);
+    await mountAt(1440, 950);
     const tooltip = () => one("[data-tooltip-content]");
     const lactose = one('[data-import-file="lactose"]')!;
     // The code title is cut here: hover shows it whole.
