@@ -4,8 +4,8 @@ import { describe, expect, test } from "vitest";
 import { boardRem, rootFontSize, rootScale } from "./rootScale";
 
 // docs/design-system.md, "Sizes scale with the root": 16px on phones and
-// tablets, 15.75px on a laptop up to 1440px wide, 16.8px at 1600, 21px at
-// 2560 (owner, 2026-11-05: 5% larger than 15, 16 and 20).
+// tablets, 15px on a laptop up to 1440px wide, rising to 16px at 1600px and
+// staying at 16px on wider desktop monitors (owner, 2026-11-26).
 describe("root scale", () => {
   test("keeps phones and tablets at the 16px default", () => {
     // Phones, and tablets up to the full rail's 1280px breakpoint.
@@ -14,19 +14,18 @@ describe("root scale", () => {
     for (const width of [1280, 1366, 1440, 1520]) expect(rootFontSize(width, false)).toBe(16);
   });
 
-  test("is 15.75px on a laptop window from 1280 to 1440 and rises to 16.8px at 1600", () => {
-    for (const width of [1280, 1366, 1440]) expect(rootFontSize(width)).toBe(15.75);
-    expect(rootFontSize(1512)).toBeCloseTo(16.2225, 4);
-    expect(rootFontSize(1520)).toBeCloseTo(16.275, 4);
-    expect(rootFontSize(1600)).toBeCloseTo(16.8, 6);
+  test("is 15px on a laptop window from 1280 to 1440 and rises to 16px at 1600", () => {
+    for (const width of [1280, 1366, 1440]) expect(rootFontSize(width)).toBe(15);
+    expect(rootFontSize(1512)).toBeCloseTo(15.45, 4);
+    expect(rootFontSize(1520)).toBeCloseTo(15.5, 4);
+    expect(rootFontSize(1600)).toBeCloseTo(16, 6);
   });
 
-  test("grows to 21px at 2560 and stops", () => {
-    expect(rootFontSize(1920)).toBeCloseTo(18.2, 6);
-    expect(rootFontSize(2560)).toBeCloseTo(21, 6);
-    expect(rootFontSize(3840)).toBe(21);
-    // Above 1600 the pointer does not matter.
-    expect(rootFontSize(1920, false)).toBeCloseTo(18.2, 6);
+  test("stays capped at 16px on wide desktop monitors", () => {
+    expect(rootFontSize(1920)).toBe(16);
+    expect(rootFontSize(2560)).toBe(16);
+    expect(rootFontSize(3840)).toBe(16);
+    expect(rootFontSize(1920, false)).toBe(16);
   });
 
   test("layout.css carries the same breakpoints and slopes", () => {
@@ -34,9 +33,8 @@ describe("root scale", () => {
     const rule = css.slice(css.indexOf("html {"), css.indexOf("svg[data-board-icon]"));
     expect(rule).toContain("font-size: 100%;");
     expect(rule).toContain("@media (min-width: 1280px) and (pointer: fine)");
-    expect(rule).toContain("clamp(98.4375%, calc(98.4375% + (100vw - 1440px) * 0.0065625), 105%)");
-    expect(rule).toContain("@media (min-width: 1600px)");
-    expect(rule).toContain("clamp(105%, calc(105% + (100vw - 1600px) * 0.004375), 131.25%)");
+    expect(rule).toContain("clamp(93.75%, calc(93.75% + (100vw - 1440px) * 0.00625), 100%)");
+    expect(rule).not.toContain("@media (min-width: 1600px)");
   });
 
   test("board pixels render as rem and the scale falls back to 1 without a document", () => {

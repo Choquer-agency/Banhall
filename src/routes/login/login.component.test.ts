@@ -259,31 +259,30 @@ describe("/login", () => {
     }
   });
 
-  it("places a smaller logo top-left and keeps a calm 100% scale on 1440px and 2560px monitors", async () => {
+  it("places a smaller logo top-left and keeps a calm desktop scale on 1440px and 2560px monitors", async () => {
     try {
-      for (const [vw, vh] of [
-        [1440, 900],
-        [2560, 1440],
+      for (const [vw, vh, expectedRoot] of [
+        [1440, 900, "15px"],
+        [2560, 1440, "16px"],
       ] as const) {
         await page.viewport(vw, vh);
         const screen = await render(LoginPage);
         try {
           await expect.poll(() => document.querySelector("h1")?.textContent).toBe("Sign in");
-          // Signed-out auth screens stay at 16px root instead of scaling up to 21px at 2560px.
-          expect(getComputedStyle(document.documentElement).fontSize).toBe("16px");
+          expect(getComputedStyle(document.documentElement).fontSize).toBe(expectedRoot);
           const logo = document.querySelector<HTMLImageElement>("[data-banhall-logo]")!.getBoundingClientRect();
           const column = document.querySelector<HTMLElement>("[data-auth-column]")!.getBoundingClientRect();
-          expect(Math.round(logo.height)).toBe(36);
-          expect(Math.round(logo.left)).toBe(28);
-          expect(Math.round(logo.top)).toBe(24);
+          expect(Math.round(logo.height)).toBe(Math.round(board(36)));
+          expect(Math.round(logo.left)).toBe(Math.round(board(28)));
+          expect(Math.round(logo.top)).toBe(Math.round(board(24)));
           expect(logo.right).toBeLessThan(column.left);
-          expect(Math.round(column.width)).toBe(340);
+          expect(Math.round(column.width)).toBe(Math.round(board(340)));
           const field = document.querySelector<HTMLElement>("#email")!.closest<HTMLElement>("[data-auth-input]")!;
-          expect(field.getBoundingClientRect().height).toBe(40);
-          expect(getComputedStyle(field).borderRadius).toBe("8px");
+          expect(field.getBoundingClientRect().height).toBe(board(40));
+          expect(getComputedStyle(field).borderRadius).toBe(boardPx(8));
           expect(getComputedStyle(field).borderTopColor).toBe("rgb(218, 229, 227)");
           const button = document.querySelector<HTMLElement>('button[type="submit"]')!;
-          expect(button.getBoundingClientRect().height).toBe(40);
+          expect(button.getBoundingClientRect().height).toBe(board(40));
           expect(document.querySelector("[data-auth-footer]")).toBeNull();
         } finally {
           await screen.unmount();

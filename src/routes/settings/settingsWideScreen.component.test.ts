@@ -55,10 +55,10 @@ describe("Settings forms on a 2560px screen", () => {
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!.getBoundingClientRect();
     expect(panel.width).toBeGreaterThan(2200);
     // The card holds the Settings sidebar (228px) and the page; the content
-    // column fills the rest between the shared side inset (32px, 42px at the
-    // 21px root; the page frame, 2026-10-28; root 5% larger since 2026-11-05).
+    // column fills the rest between the shared side inset (32px at the 16px
+    // root; capped at 100% on wide monitors since 2026-11-26).
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    expect(rem).toBe(21);
+    expect(rem).toBe(16);
     const sidebar = document.querySelector<HTMLElement>("[data-section-sidebar-slot]")!.getBoundingClientRect();
     expect(sidebar.width).toBeCloseTo((228 / 16) * rem, 0);
     const content = document.querySelector<HTMLElement>("[data-settings-content]")!.getBoundingClientRect();
