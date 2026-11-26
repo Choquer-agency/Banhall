@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { formatFolderPath } from "./aiReadFormat";
 import {
   detectFileKind,
   fileTypeLabel,
   formatFileSize,
-  formatFolderPath,
   originalCaption,
-  sanitizeDocumentHtml,
+  renderDocxPreview,
+  renderEmailPreview,
+  renderPdfPages,
+  renderSpreadsheetPreview,
+  SHEET_PREVIEW_MAX_BYTES,
 } from "./originalPreview";
 
 describe("originalPreview", () => {
@@ -14,6 +18,8 @@ describe("originalPreview", () => {
     expect(detectFileKind("Summary.PDF")).toBe("pdf");
     expect(detectFileKind("Hours.xlsx")).toBe("spreadsheet");
     expect(detectFileKind("Costs.csv")).toBe("spreadsheet");
+    expect(detectFileKind("thread.msg")).toBe("email");
+    expect(detectFileKind("notes.eml")).toBe("email");
     expect(detectFileKind("diagram.png")).toBe("image");
     expect(detectFileKind("notes.txt")).toBe("text");
     expect(detectFileKind("archive.zip")).toBe("other");
@@ -23,8 +29,10 @@ describe("originalPreview", () => {
     expect(fileTypeLabel("PD 4.docx")).toBe("Word file");
     expect(fileTypeLabel("Report.pdf")).toBe("PDF");
     expect(fileTypeLabel("Budget.xlsx")).toBe("Excel file");
+    expect(fileTypeLabel("Thread.msg")).toBe("Email");
     expect(originalCaption("PD 4.docx")).toBe("How the file looks in Word");
     expect(originalCaption("Report.pdf")).toBe("Original PDF");
+    expect(originalCaption("Thread.msg")).toBe("Original email");
   });
 
   it("formats byte sizes concisely", () => {
@@ -40,16 +48,15 @@ describe("originalPreview", () => {
     expect(formatFolderPath("Cedarline Systems/2025 - Mar 31/Submitted/PD 4.docx", "PD 4.docx")).toBe(
       "Cedarline Systems / 2025 - Mar 31 / Submitted"
     );
-    expect(formatFolderPath("PD 4.docx", "PD 4.docx")).toBe("PD 4.docx");
+    expect(formatFolderPath("PD 4.docx", "PD 4.docx")).toBe("");
+    expect(formatFolderPath("Submitted")).toBe("Submitted");
   });
 
-  it("strips unsafe tags and attributes when sanitizing HTML", () => {
-    const clean = sanitizeDocumentHtml(
-      '<p>Hello</p><script>alert(1)</script><a href="javascript:alert(2)">Bad</a><a href="https://example.com">Good</a>'
-    );
-    expect(clean).not.toContain("script");
-    expect(clean).not.toContain("javascript:");
-    expect(clean).toContain("Hello");
-    expect(clean).toContain("Good");
+  it("exposes shared preview renderers and size cap", () => {
+    expect(typeof renderDocxPreview).toBe("function");
+    expect(typeof renderSpreadsheetPreview).toBe("function");
+    expect(typeof renderEmailPreview).toBe("function");
+    expect(typeof renderPdfPages).toBe("function");
+    expect(SHEET_PREVIEW_MAX_BYTES).toBeGreaterThan(0);
   });
 });

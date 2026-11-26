@@ -97,10 +97,108 @@ describe("formatAiReadDocument", () => {
       { kind: "paragraph", text: "The route solver evaluated freezer loads at depot hubs." },
     ]);
   });
+
+  it("preserves CRA Line 242/244 question prompts as headings and numbered steps as ordered lists", () => {
+    const raw = [
+      "Line 242 - What scientific or technological uncertainties did you attempt to overcome?",
+      "Standard CNC tolerances drifted across cold-start cycles.",
+      "",
+      "Line 244 - What work did you perform in the tax year to overcome the uncertainties?",
+      "1. Calibrated the API telemetry capture at 200 Hz.",
+      "2. Benchmarked SR&ED T661 prototypes across 12 runs.",
+      "",
+      "TECHNOLOGICAL ADVANCEMENTS FOR SR&ED",
+      "03/2025",
+      "The CRA review confirmed repeatable accuracy on 12/31.",
+    ].join("\n");
+
+    const doc = formatAiReadDocument(raw, { category: "final_pd" });
+    expect(doc.blocks).toEqual([
+      { kind: "heading", text: "Line 242 - What scientific or technological uncertainties did you attempt to overcome?" },
+      { kind: "paragraph", text: "Standard CNC tolerances drifted across cold-start cycles." },
+      { kind: "heading", text: "Line 244 - What work did you perform in the tax year to overcome the uncertainties?" },
+      {
+        kind: "list",
+        ordered: true,
+        items: [
+          "Calibrated the API telemetry capture at 200 Hz.",
+          "Benchmarked SR&ED T661 prototypes across 12 runs.",
+        ],
+      },
+      { kind: "heading", text: "Technological advancements for SR&ED" },
+      { kind: "paragraph", text: "03/2025 The CRA review confirmed repeatable accuracy on 12/31." },
+    ]);
+  });
+
+  it("keeps non-PD transcripts and notes as clean paragraphs without misparsing speaker labels", () => {
+    const raw = [
+      "00:01:15 Dana: We ran three trials on the freezing belt.",
+      "",
+      "Note: Follow up with operations on sensor mounting.",
+    ].join("\n");
+
+    const doc = formatAiReadDocument(raw, { category: "transcript" });
+    expect(doc.blocks).toEqual([
+      { kind: "paragraph", text: "00:01:15 Dana: We ran three trials on the freezing belt." },
+      { kind: "paragraph", text: "Note: Follow up with operations on sensor mounting." },
+    ]);
+  });
+
+  it("preserves standalone numbers, dates, prose Line 242 sentences, and inline math or identifiers", () => {
+    const raw = [
+      "120",
+      "12/31",
+      "6/30",
+      "",
+      "Line 242 was revised in May after thermal tests.",
+      "",
+      "Compute 5 * x * 2 inside __init__ before logging.",
+    ].join("\n");
+
+    const doc = formatAiReadDocument(raw, { category: "final_pd" });
+    expect(doc.blocks).toEqual([
+      { kind: "paragraph", text: "120 12/31 6/30" },
+      { kind: "paragraph", text: "Line 242 was revised in May after thermal tests." },
+      { kind: "paragraph", text: "Compute 5 * x * 2 inside __init__ before logging." },
+    ]);
+  });
+
+  it("keeps blank-line-separated ordered lists joined and preserves start number after interrupting paragraphs", () => {
+    const raw = [
+      "1. First step",
+      "",
+      "2. Second step",
+      "",
+      "Page 2 of 4",
+      "",
+      "3. Third step",
+      "",
+      "Intermediate note between phases.",
+      "",
+      "4. Fourth step",
+      "5. Fifth step",
+    ].join("\n");
+
+    const doc = formatAiReadDocument(raw, { category: "final_pd" });
+    expect(doc.blocks).toEqual([
+      {
+        kind: "list",
+        ordered: true,
+        items: ["First step", "Second step", "Third step"],
+      },
+      { kind: "paragraph", text: "Intermediate note between phases." },
+      {
+        kind: "list",
+        ordered: true,
+        start: 4,
+        items: ["Fourth step", "Fifth step"],
+      },
+    ]);
+  });
 });
 
 describe("documentSheetSubtitle", () => {
-  it("formats SR&ED project description and other categories", () => {
+  it("formats SR&ED project description and other categories including company_file", () => {
     expect(documentSheetSubtitle("final_pd", "Cedarline Systems")).toBe(
       "Cedarline Systems. SR&ED project description."
     );
@@ -110,17 +208,27 @@ describe("documentSheetSubtitle", () => {
     expect(documentSheetSubtitle("transcript", "Cedarline Systems")).toBe(
       "Cedarline Systems. Interview transcript."
     );
+    expect(documentSheetSubtitle("company_file", "Cedarline Systems")).toBe(
+      "Cedarline Systems. Company file."
+    );
     expect(documentSheetSubtitle("final_pd", null)).toBe("SR&ED project description.");
   });
 });
 
 describe("formatFolderPath", () => {
-  it("strips the trailing filename and spaces folder slashes", () => {
+  it("strips the trailing filename, handles backslashes, and preserves dotted folder names", () => {
     expect(formatFolderPath("Cedarline Systems/2025 - Mar 31/Submitted/pd1.docx")).toBe(
       "Cedarline Systems / 2025 - Mar 31 / Submitted"
+    );
+    expect(formatFolderPath("\\Cedarline Systems\\2025\\Submitted\\notes", "notes")).toBe(
+      "Cedarline Systems / 2025 / Submitted"
     );
     expect(formatFolderPath("Cedarline Systems/2025 - Mar 31/Submitted")).toBe(
       "Cedarline Systems / 2025 - Mar 31 / Submitted"
     );
+    expect(formatFolderPath("Cedarline Systems/Rev 2.10")).toBe(
+      "Cedarline Systems / Rev 2.10"
+    );
+    expect(formatFolderPath(null)).toBe("");
   });
 });

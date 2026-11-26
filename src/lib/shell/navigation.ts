@@ -48,6 +48,7 @@ export type RailBadges = {
   unseenChangelog: number;
   openAlerts: number;
   adminAttention: number;
+  importAttention?: number;
 };
 
 export type RailHrefs = {
@@ -103,7 +104,12 @@ export function railGroups(viewer: RailViewer, hrefs: RailHrefs, badges: RailBad
   const manage: RailItem[] = [];
   if (canViewTeam(viewer.role)) manage.push({ id: "team", label: "Team", href: hrefs.teamHref });
   if (canSeeAdmin(viewer)) {
-    manage.push({ id: "import", label: "Import", href: hrefs.importHref ?? "/import" });
+    manage.push({
+      id: "import",
+      label: "Import",
+      href: hrefs.importHref ?? "/import",
+      attention: (badges.importAttention ?? 0) > 0,
+    });
     manage.push({
       id: "admin",
       label: "Admin",
@@ -205,14 +211,21 @@ export function whatsNewLabel(unseen: number): string {
 export function frameRailItems(
   viewer: RailViewer,
   hrefs: FrameRailHrefs,
-  badges: { adminAttention: number; unseenChangelog?: number }
+  badges: { adminAttention: number; importAttention?: number; unseenChangelog?: number }
 ): { top: FrameRailItem[]; bottom: FrameRailItem[] } {
   const top: FrameRailItem[] = [
     { id: "projects", label: "Projects", href: hrefs.projectsHref },
     { id: "companies", label: "Companies", href: hrefs.companiesHref },
   ];
   if (canViewTeam(viewer.role)) top.push({ id: "team", label: "Team", href: hrefs.teamHref });
-  if (canSeeAdmin(viewer)) top.push({ id: "import", label: "Import", href: hrefs.importHref ?? "/import" });
+  if (canSeeAdmin(viewer)) {
+    top.push({
+      id: "import",
+      label: "Import",
+      href: hrefs.importHref ?? "/import",
+      attention: (badges.importAttention ?? 0) > 0,
+    });
+  }
   const bottom: FrameRailItem[] = [
     { id: "changelog", label: "What's new", href: hrefs.changelogHref, unseen: Math.max(0, badges.unseenChangelog ?? 0) },
   ];

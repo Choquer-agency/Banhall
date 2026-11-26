@@ -68,6 +68,8 @@ export type OnScreen = { file: SelectedFile; companyKey: string; company: string
 export class ImportSelection {
   /** Select is on: the checkbox column shows. */
   on = $state(false);
+  /** True when Select was turned on automatically by clicking a hover checkbox. */
+  autoEntered = $state(false);
   /** The selected files, as they were when last listed. */
   readonly files = new SvelteMap<FileId, SelectedFile>();
   /** The selectable rows each open section lists. */
@@ -95,13 +97,25 @@ export class ImportSelection {
     return this.files.has(id);
   }
 
+  #maybeExitAuto() {
+    if (this.autoEntered && this.files.size === 0 && this.#pending.size === 0) {
+      this.on = false;
+      this.autoEntered = false;
+    }
+  }
+
   set(row: SelectedFile, value: boolean) {
     if (value) this.files.set(row._id, slim(row));
     else this.files.delete(row._id);
+    this.#maybeExitAuto();
   }
 
   setMany(rows: readonly SelectedFile[], value: boolean) {
-    for (const row of rows) this.set(row, value);
+    for (const row of rows) {
+      if (value) this.files.set(row._id, slim(row));
+      else this.files.delete(row._id);
+    }
+    this.#maybeExitAuto();
   }
 
   /** What the selection holds about a selected file, after a change made to it (a move from its menu). */
@@ -113,17 +127,20 @@ export class ImportSelection {
   /** Drops these files from the selection (the ones an action changed or found gone). */
   remove(ids: readonly FileId[]) {
     for (const id of ids) this.files.delete(id);
+    this.#maybeExitAuto();
   }
 
-  /** Nothing selected, and nothing waiting to be. Select stays as it is. */
+  /** Nothing selected, and nothing waiting to be. Exits Select only if auto-entered from a hover checkbox. */
   clear() {
     this.files.clear();
     this.#pending.clear();
+    this.#maybeExitAuto();
   }
 
   /** Turns Select on or off; off clears the selection. */
-  setOn(value: boolean) {
+  setOn(value: boolean, options?: { auto?: boolean }) {
     this.on = value;
+    this.autoEntered = value ? Boolean(options?.auto) : false;
     if (!value) this.clear();
   }
 
@@ -164,6 +181,7 @@ export class ImportSelection {
     const key = sectionKey(companyKey, category);
     this.#listed.delete(key);
     this.#pending.delete(key);
+    this.#maybeExitAuto();
   }
 
   /**
@@ -181,6 +199,7 @@ export class ImportSelection {
       const listed = new Set<FileId>();
       for (const entry of this.#listed.values()) for (const row of entry.rows) listed.add(row._id);
       for (const id of vanished) if (!listed.has(id)) this.files.delete(id);
+      this.#maybeExitAuto();
     });
   }
 

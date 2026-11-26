@@ -148,9 +148,16 @@
 
   function readVisibleFileIds(): SheetFileRow["_id"][] {
     if (!pageRoot) return [];
-    return Array.from(pageRoot.querySelectorAll<HTMLElement>("[data-import-file]"))
-      .map((element) => element.dataset.importFile as SheetFileRow["_id"] | undefined)
-      .filter((value): value is SheetFileRow["_id"] => Boolean(value));
+    const scope = searching
+      ? pageRoot.querySelector<HTMLElement>("[data-import-search-results]")
+      : pageRoot.querySelector<HTMLElement>("[data-import-sheet-container]");
+    if (!scope) return [];
+    const ids = new Set<SheetFileRow["_id"]>();
+    for (const element of scope.querySelectorAll<HTMLElement>("[data-import-file]")) {
+      const value = element.dataset.importFile as SheetFileRow["_id"] | undefined;
+      if (value) ids.add(value);
+    }
+    return [...ids];
   }
 
   function openFileView(id: SheetFileRow["_id"]) {
@@ -160,6 +167,7 @@
   }
 
   function stepFileAfterRemoval(removedId: SheetFileRow["_id"]) {
+    selection.remove([removedId]);
     const index = panelFileIds.indexOf(removedId);
     const remaining = panelFileIds.filter((entry) => entry !== removedId);
     panelFileIds = remaining;
@@ -289,7 +297,7 @@
             <ImportSearchResults tab={sheetTab} text={settled} onJump={jumpTo} />
           {/if}
           <!-- Kept while searching, so open companies stay open. -->
-          <div hidden={searching}>
+          <div data-import-sheet-container hidden={searching}>
             {#key sheetTab}
               <ImportSheet
                 tab={sheetTab}

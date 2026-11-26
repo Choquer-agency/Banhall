@@ -50,14 +50,24 @@ import {
 
 export type BatchCall = (args: { ids: FileId[] }) => Promise<BatchResult>;
 export type MoveCall = (args: { ids: FileId[]; patch: MovePatch }) => Promise<BatchResult>;
-export type RemoveGroupResult = { changedIds: FileId[]; skippedBeingRead: number; hasMore: boolean };
-export type RemoveGroupCall = (args: { companyKey: string; category?: ImportCategory }) => Promise<RemoveGroupResult>;
+export type RemoveGroupResult = {
+  changedIds: FileId[];
+  skippedBeingRead: number;
+  skippedIds?: FileId[];
+  hasMore: boolean;
+  nextCursor?: string | null;
+};
+export type RemoveGroupCall = (args: {
+  companyKey: string;
+  category?: ImportCategory;
+  cursor?: string | null;
+}) => Promise<RemoveGroupResult>;
 
 /**
  * Where the selection bar's top sits above the window's bottom: bottom-6
- * (1.5rem) plus h-11 (2.75rem), and a 0.625rem gap (ImportSelectionBar).
+ * (1.5rem) plus h-11 (2.75rem) / touch 3.25rem, and a 0.625rem gap (ImportSelectionBar).
  */
-const ABOVE_BAR = "4.875rem";
+const ABOVE_BAR = "5.375rem";
 
 /**
  * Per-toast options for every Import toast: a class, and how far to lift it
@@ -240,19 +250,32 @@ export async function deleteGroupFiles(
 ): Promise<{ changedIds: FileId[]; skippedBeingRead: number; error: unknown }> {
   const MAX_PASSES = 50;
   const changedIds: FileId[] = [];
-  let skippedBeingRead = 0;
+  const skippedIdSet = new Set<FileId>();
+  let fallbackSkipped = 0;
+  let sawSkippedIds = false;
+  let cursor: string | null | undefined = undefined;
   let error: unknown = null;
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
     try {
-      const res = await removeGroup(target);
+      const res = await removeGroup(cursor !== undefined ? { ...target, cursor } : target);
       changedIds.push(...res.changedIds);
-      skippedBeingRead += res.skippedBeingRead;
+      if (res.skippedIds) {
+        sawSkippedIds = true;
+        for (const id of res.skippedIds) skippedIdSet.add(id);
+      } else {
+        fallbackSkipped += res.skippedBeingRead;
+      }
       if (!res.hasMore) break;
+      if (res.nextCursor !== undefined) {
+        if (res.nextCursor === null || res.nextCursor === cursor) break;
+        cursor = res.nextCursor;
+      }
     } catch (failure) {
       error = failure;
       break;
     }
   }
+  const skippedBeingRead = sawSkippedIds ? skippedIdSet.size : fallbackSkipped;
   if (changedIds.length > 0) options?.onRemoved?.(changedIds);
   const beingReadNote =
     skippedBeingRead > 0

@@ -48,7 +48,7 @@ async function addItems(f: Fixture, status: Status, count: number) {
   });
 }
 
-const zeros = { total: 0, ingestionFailed: 0 };
+const zeros = { total: 0, adminTotal: 0, ingestionFailed: 0 };
 
 describe("adminAttention.getAttention", () => {
   it("gives an Admin the failed OneDrive import count and one page needing a look", async () => {
@@ -58,7 +58,11 @@ describe("adminAttention.getAttention", () => {
     await addItems(f, "pending_review", 2);
     expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual(zeros);
     await addItems(f, "failed", 4);
-    expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual({ total: 1, ingestionFailed: 4 });
+    expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual({
+      total: 1,
+      adminTotal: 0,
+      ingestionFailed: 4,
+    });
   });
 
   it("gives Managers, Consultants and everyone else zeros without throwing", async () => {
@@ -74,6 +78,7 @@ describe("adminAttention.getAttention", () => {
     await addItems(f, "failed", ATTENTION_INGESTION_FAILED_CAP + 5);
     expect(await f.admin.query(api.adminAttention.getAttention, {})).toEqual({
       total: 1,
+      adminTotal: 0,
       ingestionFailed: ATTENTION_INGESTION_FAILED_CAP,
     });
   });

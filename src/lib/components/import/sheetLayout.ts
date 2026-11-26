@@ -34,11 +34,6 @@
 // and rows highlight cleanly edge-to-edge with zero left hover gap.
 export const SHEET_GRID = "grid grid-cols-[minmax(14rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.625rem,9.5rem)_minmax(6.375rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
-/** Kept for callers; unified grid never shifts columns when selecting or nested. */
-export function sheetGrid(_selecting = false, _indented = false): string {
-  return SHEET_GRID;
-}
-
 /**
  * Fixed 36px left gutter holding the hover-to-select checkbox at the sheet's
  * left edge, aligned identically across company bands, category sections, and
@@ -57,12 +52,12 @@ export const SHEET_MIN_WIDTH = "min-w-[44.5rem]";
 export const FIXED_CELL = "flex min-w-0 items-center border-l border-line-soft px-2";
 
 /**
- * The Science code cell of a row with hover actions (quick Delete + "..." menu):
- * actions sit over the cell's end and the cell smoothly makes room on hover,
- * focus, or while a menu is open. Touch screens always keep room.
+ * The Science code cell of a row with hover actions (quick Delete + "..." menu
+ * on fine pointers; "..." menu only on coarse pointers so touch users do not
+ * hit a one-tap delete or lose column width).
  */
 export const ROW_MENU_ROOM =
-  "relative transition-[padding] duration-150 ease-out motion-reduce:transition-none pointer-fine:group-hover/row:pr-[4.5rem] pointer-fine:group-focus-within/row:pr-[4.5rem] pointer-fine:has-[[data-import-row-menu-active]]:pr-[4.5rem] pointer-coarse:pr-[5.75rem]";
+  "relative transition-[padding] duration-150 ease-out motion-reduce:transition-none pointer-fine:group-hover/row:pr-[4.5rem] pointer-fine:group-focus-within/row:pr-[4.5rem] pointer-fine:has-[[data-import-row-menu-active]]:pr-[4.5rem] pointer-coarse:pr-14";
 
 /** Room for rows with only the "..." menu (Approved rows). */
 export const ROW_SINGLE_MENU_ROOM =

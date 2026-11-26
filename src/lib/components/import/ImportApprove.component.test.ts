@@ -671,7 +671,7 @@ describe("the file view", () => {
     await userEvent.click(page.getByRole("button", { name: "More for PD 3 Label vision check" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Open" }));
     await expect.element(page.getByRole("dialog")).toBeVisible();
-    await expect.poll(() => text(one("[data-import-file-panel-checks]"))).toBe("Needs a writer");
+    await expect.poll(() => text(one("[data-import-file-panel-inline-check]"))).toBe("Needs a writer");
     await expect.poll(() => text(one("[data-import-file-panel-no-text]"))).toBe("No text could be read from this file.");
   });
 });

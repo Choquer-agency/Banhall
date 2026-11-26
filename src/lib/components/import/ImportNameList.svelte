@@ -24,6 +24,7 @@
     canOfferNew = null,
     refuseTyped = null,
     hint = null,
+    note = null,
     loading = false,
     onPick,
     onNew = null,
@@ -49,6 +50,8 @@
     refuseTyped?: ((typed: string) => string | null) | null;
     /** A muted line when there is nothing to list yet ("Type a company name"). */
     hint?: string | null;
+    /** Optional top helper note shown above the search box (e.g. initials scope warning). */
+    note?: string | null;
     loading?: boolean;
     onPick: (value: string) => void;
     /** A typed name chosen with 'Use "..."'; onPick gets it when this is not given. */
@@ -103,6 +106,11 @@
 {/snippet}
 
 <Command.Root shouldFilter={false} loop {label} bind:value={highlighted} class="flex max-h-[min(20rem,calc(100dvh-8rem))] flex-col">
+  {#if note}
+    <p data-import-name-note class="shrink-0 border-b border-line-soft bg-gray-50 px-2.5 py-2 text-xs leading-[calc(4/3)] text-ink-secondary">
+      {note}
+    </p>
+  {/if}
   <div class="shrink-0 px-2 pb-1 pt-2">
     <div class="field-control-shell flex h-[2.125rem] items-center gap-2 rounded-md px-2.5">
       <MagnifyingGlassIcon size="0.875rem" aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />

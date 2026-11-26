@@ -6021,18 +6021,88 @@ describe("removeGroupItems and sheetFile originalUrl", () => {
     await expectCountsMatchRecount(t, "after removeGroupItems by company");
   });
 
-  it("returns originalUrl and size from sheetFile when original bytes are stored", async () => {
+  it("returns originalUrl, size, batch provenance, and approveBlock from sheetFile", async () => {
     const { t, admin } = await setup();
-    const id = await stage(t, `${CEDARLINE_FY}/Submitted/PD 4 Check.docx`);
-    await markRead(t, id);
-    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["sample word bytes"])));
-    await t.run((ctx) => ctx.db.patch(id, { storageId, size: 217_088 }));
+    const adminUser = await t.run(async (ctx) => {
+      const user = (await ctx.db.query("users").collect()).find((u) => u.role === "admin")!;
+      await ctx.db.patch(user._id, { firstName: "Jordan", lastName: "Ellis" });
+      return user;
+    });
+    const batchId = await t.run((ctx) =>
+      ctx.db.insert("importBatches", {
+        source: "page",
+        addedBy: adminUser._id,
+        startedAt: 1,
+        lastFileAt: 1,
+        added: 1,
+        alreadyHere: 0,
+        failed: 0,
+        read: 1,
+        couldNotRead: 0,
+      })
+    );
 
-    const file = await admin.query(api.ingestion.sheetFile, { id });
-    expect(file).not.toBeNull();
-    expect(file?.hasOriginal).toBe(true);
-    expect(typeof file?.originalUrl).toBe("string");
-    expect(file?.size).toBe(217_088);
+    const id = await stage(t, `${CEDARLINE_FY}/Submitted/04 CedarlineSystems 2025-03-31 T2.DW Sensor.docx`, {
+      driveItemId: "local:cedarline/pd4.docx",
+    });
+    await markRead(t, id);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch: { scienceCode: "2.02.09" } });
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["sample word bytes"])));
+    await t.run((ctx) => ctx.db.patch(id, { storageId, size: 217_088, batchId }));
+
+    // New company with no industry -> approveBlock reports no_industry.
+    const noIndustryFile = await admin.query(api.ingestion.sheetFile, { id });
+    expect(noIndustryFile).not.toBeNull();
+    expect(noIndustryFile?.hasOriginal).toBe(true);
+    expect(typeof noIndustryFile?.originalUrl).toBe("string");
+    expect(noIndustryFile?.size).toBe(217_088);
+    expect(noIndustryFile?.batchSource).toBe("page");
+    expect(noIndustryFile?.addedByName).toBe("Jordan Ellis");
+    expect(noIndustryFile?.approveBlock).toMatchObject({ reason: "no_industry" });
+
+    // Merged company -> approveBlock reports company_merged.
+    await seedCompanies(t);
+    const mergedId = await stage(t, "Halden Foods/2025 - Jun 30/Drafts/plan.docx");
+    await markRead(t, mergedId);
+    const mergedFile = await admin.query(api.ingestion.sheetFile, { id: mergedId });
+    expect(mergedFile?.approveBlock).toMatchObject({ reason: "company_merged" });
+  });
+
+  it("pages removeGroupItems past more than 100 being-read items without looping", async () => {
+    const { t, admin } = await setup();
+    const readingIds: Array<Id<"ingestionItems">> = [];
+    for (let i = 0; i < 105; i++) {
+      readingIds.push(await stage(t, `${CEDARLINE_FY}/Drafts/reading-${String(i).padStart(3, "0")}.docx`));
+    }
+    const ready1 = await stage(t, `${CEDARLINE_FY}/Drafts/ready-1.docx`);
+    const ready2 = await stage(t, `${CEDARLINE_FY}/Drafts/ready-2.docx`);
+    await markRead(t, ready1);
+    await markRead(t, ready2);
+    const companyKey = (await getItem(t, ready1)).companyKey!;
+
+    let cursor: string | null = null;
+    let pages = 0;
+    const allChanged = new Set<string>();
+    const allSkipped = new Set<string>();
+    while (true) {
+      pages += 1;
+      const pageResult = await admin.mutation(api.ingestion.removeGroupItems, {
+        companyKey,
+        ...(cursor ? { cursor } : {}),
+      });
+      for (const id of pageResult.changedIds) allChanged.add(id);
+      for (const id of pageResult.skippedIds) allSkipped.add(id);
+      if (!pageResult.hasMore) break;
+      expect(pageResult.nextCursor).not.toBeNull();
+      cursor = pageResult.nextCursor;
+      expect(pages).toBeLessThan(10);
+    }
+
+    expect(pages).toBeGreaterThanOrEqual(2);
+    expect(allChanged).toEqual(new Set([ready1, ready2]));
+    expect(allSkipped).toEqual(new Set(readingIds));
+    for (const id of [ready1, ready2]) expect((await getItem(t, id)).status).toBe("deleted");
+    await expectCountsMatchRecount(t, "after paged removeGroupItems past 105 being-read files");
   });
 });
 

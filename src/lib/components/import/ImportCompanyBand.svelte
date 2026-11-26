@@ -103,6 +103,7 @@
 
   const uid = $props.id();
   const sectionsId = `${uid}-sections`;
+  const bandNameId = `${uid}-name`;
   const name = $derived(bandName(band));
   const industry = $derived(band.company?.industry?.trim() || null);
   const picked = $derived(band.pickedIndustry?.trim() || null);
@@ -181,7 +182,8 @@
   let deleteOpen = $state(false);
   let deleting = $state(false);
   const deletableCount = $derived(Math.max(0, band.total - band.beingRead));
-  const canDeleteBand = $derived(tab === "review" && deletableCount > 0);
+  // Hide unfiltered group delete while "To check" or "New" hides sibling rows in this company.
+  const canDeleteBand = $derived(tab === "review" && !onlyToCheck && !onlyNew && deletableCount > 0);
 
   async function deleteBand() {
     if (deleting) return;
@@ -231,7 +233,7 @@
    */
   function toggleSelect() {
     if (!selection) return;
-    if (!selection.on) selection.setOn(true);
+    if (!selection.on) selection.setOn(true, { auto: true });
     if (selection.toggleRows(selection.listed(band.companyKey))) return;
     const present = bandSections(band, onlyToCheck, onlyNew).map((entry) => entry.category);
     const first = present[0];
@@ -263,24 +265,25 @@
     role="row"
     class={`group/band relative ${SHEET_GRID} h-[2.75rem] items-center border-t border-gray-300 transition-colors duration-150 ease-out hover:bg-gray-50 motion-reduce:transition-none`}
   >
-    {#if selection}
-      <div
-        data-import-select-cell
-        class={`${SELECT_GUTTER} ${
-          selecting || boxState !== "none"
-            ? "opacity-100"
-            : "opacity-0 pointer-fine:group-hover/band:opacity-100 pointer-fine:group-has-[:focus-visible]/band:opacity-100 focus-within:opacity-100"
-        }`}
-      >
-        <Checkbox
-          bind:checked={() => boxState === "all", () => toggleSelect()}
-          indeterminate={boxState === "some"}
-          aria-label={`Select ${name}`}
-          data-import-band-select={band.companyKey}
-        />
-      </div>
-    {/if}
     <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2 pl-9 @max-[56rem]/band:col-span-4">
+      {#if selection}
+        <div
+          data-import-select-cell
+          class={`${SELECT_GUTTER} ${
+            selecting || boxState !== "none"
+              ? "opacity-100 pointer-events-auto"
+              : "pointer-events-none opacity-0 pointer-fine:group-hover/band:pointer-events-auto pointer-fine:group-hover/band:opacity-100 pointer-fine:group-has-[:focus-visible]/band:pointer-events-auto pointer-fine:group-has-[:focus-visible]/band:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+          }`}
+        >
+          <Checkbox
+            bind:checked={() => boxState === "all", () => toggleSelect()}
+            indeterminate={boxState === "some"}
+            tabindex={selecting || boxState !== "none" ? 0 : -1}
+            aria-label={`Select ${name}`}
+            data-import-band-select={band.companyKey}
+          />
+        </div>
+      {/if}
       <button
         type="button"
         aria-expanded={open}
@@ -289,7 +292,7 @@
         onclick={onToggle}
         class={`${ROW_TOGGLE} min-w-0 shrink gap-2`}
       >
-        <span data-import-band-name class="truncate text-sm leading-[calc(18/14)] font-medium text-ink">{name}</span>
+        <span id={bandNameId} data-import-band-name class="truncate text-sm leading-[calc(18/14)] font-medium text-ink">{name}</span>
       </button>
       {#if band.isNew || industry}
         <span class="ml-1.5 flex min-w-0 shrink items-center gap-2">
@@ -455,6 +458,7 @@
             type="button"
             disabled={deleting}
             aria-label="Delete company files"
+            aria-describedby={bandNameId}
             title={`Delete all files in ${name}`}
             data-import-band-delete={band.companyKey}
             class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-[opacity,background-color,color] duration-150 ease-out hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-danger-surface data-[state=open]:text-danger-ink-muted motion-reduce:transition-none pointer-coarse:size-11 ${

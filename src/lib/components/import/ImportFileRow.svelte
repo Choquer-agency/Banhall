@@ -145,7 +145,6 @@
     tab,
     companyName = null,
     company = null,
-    inset = "section",
     selection = null,
   }: {
     row: SheetFileRow;
@@ -154,12 +153,12 @@
     companyName?: string | null;
     /** The company the file is in, for the company picker. */
     company?: string | null;
-    /** `section`: inside a section's 24px indent. `sheet`: a top-level row (search results). */
-    inset?: "section" | "sheet";
     /** The page's selection; none in search results. */
     selection?: ImportSelection | null;
   } = $props();
 
+  const uid = $props.id();
+  const fileTitleId = `${uid}-title`;
   const cells = $derived(fileCells(row));
   const fileView = useFileView();
   /** On Approved: what the file became (2026-11-17). */
@@ -635,27 +634,27 @@
     selected ? "bg-primary-wash" : "hover:bg-gray-50"
   }`}
 >
-  {#if can.select && selection}
-    <div
-      data-import-select-cell
-      class={`${SELECT_GUTTER} ${
-        selectColumn || selected
-          ? "opacity-100"
-          : "opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:opacity-100 focus-within:opacity-100"
-      }`}
-    >
-      <Checkbox
-        bind:checked={() => selected, (value) => {
-          if (value && !selection.on) selection.setOn(true);
-          selection.set(row, value);
-        }}
-        aria-label={fileSelectLabel(label, row.name, company)}
-        data-import-file-select={row._id}
-      />
-    </div>
-  {/if}
-
   <div role="cell" data-import-cell="file" class="flex min-w-0 flex-col justify-center pr-3 pl-12">
+    {#if can.select && selection}
+      <div
+        data-import-select-cell
+        class={`${SELECT_GUTTER} ${
+          selectColumn || selected
+            ? "opacity-100 pointer-events-auto"
+            : "pointer-events-none opacity-0 pointer-fine:group-hover/row:pointer-events-auto pointer-fine:group-hover/row:opacity-100 pointer-fine:group-has-[:focus-visible]/row:pointer-events-auto pointer-fine:group-has-[:focus-visible]/row:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+        }`}
+      >
+        <Checkbox
+          bind:checked={() => selected, (value) => {
+            if (value && !selection.on) selection.setOn(true, { auto: true });
+            selection.set(row, value);
+          }}
+          tabindex={selectColumn || selected ? 0 : -1}
+          aria-label={fileSelectLabel(label, row.name, company)}
+          data-import-file-select={row._id}
+        />
+      </div>
+    {/if}
     <span class="flex min-w-0 items-center gap-2.5">{@render nameLine()}</span>
     {#if companyName}
       <!-- Search results: the company on its own line, under the name, so neither squeezes the other. -->
@@ -741,6 +740,7 @@
         {#snippet content({ close })}
           <ImportWriterList
             currentWriterId={row.writerId ?? null}
+            initials={followsInitials && !approved ? (cells.writer?.initials ?? null) : null}
             onPick={(picked) => {
               close();
               pickWriter(picked);
@@ -787,6 +787,7 @@
           <ImportWriterList
             role="reviewer"
             currentWriterId={row.reviewerId ?? null}
+            initials={row.reviewerSource !== "person" && !approved ? (cells.reviewer?.initials ?? null) : null}
             onPick={(picked) => {
               close();
               pickReviewer(picked);
@@ -869,13 +870,15 @@
       <!-- Over the cell's end, in the room the cell makes on hover and focus (ROW_MENU_ROOM). -->
       <span data-import-row-end class="absolute inset-y-0 right-2 flex items-center gap-0.5 pointer-coarse:right-1.5">
         {#if can.remove}
+          <span id={fileTitleId} class="sr-only">{label}</span>
           <button
             type="button"
             aria-label="Delete file"
+            aria-describedby={fileTitleId}
             title={`Delete ${label}`}
             data-import-row-delete={row._id}
             onclick={() => void leaveWith(remove)}
-            class="relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted opacity-0 transition-[opacity,background-color,color] duration-150 ease-out group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11 pointer-coarse:opacity-100"
+            class="relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted opacity-0 transition-[opacity,background-color,color] duration-150 ease-out group-focus-within/row:opacity-100 group-hover/row:opacity-100 hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:hidden"
           >
             <TrashIcon size="0.875rem" aria-hidden="true" />
           </button>

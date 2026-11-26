@@ -93,6 +93,7 @@
 
   const uid = $props.id();
   const filesId = `${uid}-files`;
+  const sectionLabelId = `${uid}-label`;
 
   // Fixed when the section mounts, so a count moving under it never restarts the read.
   const firstPage = untrack(() => firstPageSize(section.category, section.count));
@@ -114,6 +115,8 @@
   const loadingFirst = $derived(open && rows.length === 0 && filesQ.status === "LoadingFirstPage" && !filesQ.error);
   const remaining = $derived(Math.max(0, section.count - rows.length));
   const hasMore = $derived(remaining > 0 && (filesQ.status === "CanLoadMore" || filesQ.status === "LoadingMore"));
+  // If section.count shrinks to match rows.length while the query still reports
+  // CanLoadMore, nudge one more page so the pagination cursor catches up.
   $effect(() => {
     if (open && remaining === 0 && rows.length > 0 && filesQ.status === "CanLoadMore") {
       untrack(() => filesQ.loadMore(SHOW_MORE_STEP));
@@ -128,7 +131,8 @@
   const deletableCount = $derived(
     notSorted ? Math.max(0, section.counts.total - beingRead) : section.counts.total
   );
-  const canDeleteSection = $derived(tab === "review" && deletableCount > 0);
+  // Hide unfiltered group delete while "To check" or "New" hides sibling rows in this section.
+  const canDeleteSection = $derived(tab === "review" && !onlyToCheck && !onlyNew && deletableCount > 0);
 
   async function deleteSection() {
     if (deleting) return;
@@ -168,7 +172,7 @@
 
   function toggleSelect() {
     if (!selection) return;
-    if (!selection.on) selection.setOn(true);
+    if (!selection.on) selection.setOn(true, { auto: true });
     if (selection.toggleRows(selection.listed(companyKey, category))) return;
     if (open && selection.isListed(companyKey, category)) return;
     selection.selectWhenListed(companyKey, category);
@@ -181,24 +185,25 @@
     role="row"
     class="group/section relative flex h-9 items-center border-t border-line pr-2.5 pl-12 transition-colors duration-150 ease-out hover:bg-gray-50 motion-reduce:transition-none"
   >
-    {#if selection}
-      <div
-        data-import-select-cell
-        class={`${SELECT_GUTTER} ${
-          selecting || checkState !== "none"
-            ? "opacity-100"
-            : "opacity-0 pointer-fine:group-hover/section:opacity-100 pointer-fine:group-has-[:focus-visible]/section:opacity-100 focus-within:opacity-100"
-        }`}
-      >
-        <Checkbox
-          bind:checked={() => checkState === "all", () => toggleSelect()}
-          indeterminate={checkState === "some"}
-          aria-label={selectLabel}
-          data-import-section-select={section.category}
-        />
-      </div>
-    {/if}
     <div role="cell" aria-colspan={6} class="flex min-w-0 flex-1 items-center gap-2">
+      {#if selection}
+        <div
+          data-import-select-cell
+          class={`${SELECT_GUTTER} ${
+            selecting || checkState !== "none"
+              ? "opacity-100 pointer-events-auto"
+              : "pointer-events-none opacity-0 pointer-fine:group-hover/section:pointer-events-auto pointer-fine:group-hover/section:opacity-100 pointer-fine:group-has-[:focus-visible]/section:pointer-events-auto pointer-fine:group-has-[:focus-visible]/section:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+          }`}
+        >
+          <Checkbox
+            bind:checked={() => checkState === "all", () => toggleSelect()}
+            indeterminate={checkState === "some"}
+            tabindex={selecting || checkState !== "none" ? 0 : -1}
+            aria-label={selectLabel}
+            data-import-section-select={section.category}
+          />
+        </div>
+      {/if}
       <button
         type="button"
         aria-expanded={open}
@@ -207,7 +212,7 @@
         onclick={onToggle}
         class={`${ROW_TOGGLE} shrink-0 gap-2`}
       >
-        <span data-import-section-label class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{section.label}</span>
+        <span id={sectionLabelId} data-import-section-label class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{section.label}</span>
         <span
           data-import-section-count
           class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-import-count px-[0.3125rem] text-[0.625rem] leading-[1.2] text-primary-selected"
@@ -233,6 +238,7 @@
               type="button"
               disabled={deleting}
               aria-label="Delete section files"
+              aria-describedby={sectionLabelId}
               title={`Delete ${section.label.toLowerCase()} in ${company ?? "No company yet"}`}
               data-import-section-delete={section.category}
               class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-[opacity,background-color,color] duration-150 ease-out hover:bg-danger-surface hover:text-danger-ink-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-danger-surface data-[state=open]:text-danger-ink-muted motion-reduce:transition-none pointer-coarse:size-11 ${

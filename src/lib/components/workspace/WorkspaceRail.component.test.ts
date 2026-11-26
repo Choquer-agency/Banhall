@@ -56,12 +56,30 @@ const USERS = {
   developerConsultant: { _id: "u-dc", firstName: "Dev", lastName: "Writer", role: "writer", isDeveloper: true },
 } as const;
 
-function seed(user: keyof typeof USERS, extra: { openAlerts?: number; unseen?: number; failed?: number } = {}) {
+function seed(
+  user: keyof typeof USERS,
+  extra: { openAlerts?: number; unseen?: number; failed?: number; adminOther?: number; importFiles?: number } = {}
+) {
   __setQueryData("users:getCurrentUser", { imageUrl: null, ...USERS[user] });
   __setQueryData("errorReports:openCount", extra.openAlerts ?? 0);
   __setQueryData("changelog:unseenCount", extra.unseen ?? 0);
   const failed = extra.failed ?? 0;
-  __setQueryData("adminAttention:getAttention", { total: failed > 0 ? 1 : 0, ingestionFailed: failed });
+  const adminOther = extra.adminOther ?? 0;
+  __setQueryData("adminAttention:getAttention", {
+    total: (failed > 0 ? 1 : 0) + adminOther,
+    adminTotal: adminOther,
+    ingestionFailed: failed,
+  });
+  if (extra.importFiles !== undefined) {
+    __setQueryData("ingestion:sheetTotals", {
+      files: extra.importFiles,
+      companies: 1,
+      needsCheck: 0,
+      ready: extra.importFiles,
+      beingRead: 0,
+      complete: true,
+    });
+  }
 }
 
 const nav = () => document.querySelector<HTMLElement>('nav[aria-label="Workspace"]')!;
@@ -240,15 +258,32 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     expect(__isQueryActive("adminAttention:getAttention")).toBe(false);
   });
 
-  it.each(["admin", "owner"] as const)("%s gets Team, Import, Admin with the attention dot, and Settings", async (user) => {
-    seed(user, { failed: 1 });
+  it.each(["admin", "owner"] as const)("%s gets Team, Import with attention dot (and review count only on /import), Admin, and Settings", async (user) => {
+    seed(user, { failed: 1, importFiles: 12 });
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Import", "Admin", "What's new", "Settings"] });
-    await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
-    expect(item("admin")!.querySelector("[data-rail-attention]")!.className).toContain("bg-stale-dot");
+    await expect.poll(railRows).toEqual({
+      top: ["Home", "Projects", "Companies"],
+      bottom: ["Team", "Import", "Admin", "What's new", "Settings"],
+    });
+    // Home's cost rule: off /import, the rail does not open a sheetTotals subscription.
+    expect(__isQueryActive("ingestion:sheetTotals")).toBe(false);
+    await expect.poll(() => item("import")!.querySelector("[data-rail-attention]")).not.toBeNull();
+    expect(item("import")!.querySelector("[data-rail-attention]")!.className).toContain("bg-stale-dot");
+    expect(item("import")!.querySelector("[data-rail-attention]")!.getAttribute("aria-hidden")).toBe("true");
+    expect(item("import")!.getAttribute("aria-label")).toBe("Import, 1 failed");
+    expect(item("admin")!.querySelector("[data-rail-attention]")).toBeNull();
     expect(item("team")!.getAttribute("href")).toBe("/team");
     expect(item("import")!.getAttribute("href")).toBe("/import");
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe(user === "owner" ? "Owner" : "Admin");
+
+    // On /import, the rail reuses the page's sheetTotals subscription to show the review count.
+    __setPageUrl("/import");
+    await expect.poll(railRows).toEqual({
+      top: ["Home", "Projects", "Companies"],
+      bottom: ["Team", "Import 12", "Admin", "What's new", "Settings"],
+    });
+    expect(__isQueryActive("ingestion:sheetTotals")).toBe(true);
+    expect(item("import")!.getAttribute("aria-label")).toBe("Import 12, 1 failed");
   });
 
   it("a developer Admin gets Alerts with the red count and Feature requests above Settings", async () => {
@@ -270,7 +305,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
   });
 
   it("B1, B2: the Admin chevron sits on the right, down closed and up open, and the choice persists", async () => {
-    seed("admin", { failed: 1 });
+    seed("admin", { adminOther: 1 });
     await mount(baseProps());
     await expect.poll(() => item("admin")).not.toBeNull();
     const toggle = item("admin") as HTMLButtonElement;

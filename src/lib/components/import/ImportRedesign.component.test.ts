@@ -158,7 +158,7 @@ describe("Import page redesign interactions", () => {
     expect(supportingChevron.firstElementChild!.getAttribute("class")).toContain("rotate-0");
   });
 
-  it("auto-enables Select mode when clicking a row checkbox on hover with zero layout shift", async () => {
+  it("auto-enables Select mode when clicking a row checkbox on hover with zero layout shift and exits when unchecked", async () => {
     seedBase();
     await mountAndOpen();
     const titleLeftBefore = box(one('[data-import-file="pd1"] [data-import-file-prefix]')!).left;
@@ -171,6 +171,10 @@ describe("Import page redesign interactions", () => {
     await expect.poll(() => one("[data-import-select-header]")).not.toBeNull();
     await expect.poll(() => text(one("[data-import-bar-count]"))).toBe("1 file selected");
     expect(box(one('[data-import-file="pd1"] [data-import-file-prefix]')!).left).toBeCloseTo(titleLeftBefore, 0);
+
+    // Unchecking the last hover-selected row automatically exits auto-entered Select mode.
+    await userEvent.click(one('[data-import-file-select="pd1"]')!);
+    await expect.poll(() => one("[data-import-select-header]")).toBeNull();
   });
 
   it("supports quick delete on a single row, category section, and company band with Undo", async () => {
@@ -182,7 +186,7 @@ describe("Import page redesign interactions", () => {
     __setMutationHandler("ingestion:removeGroupItems", (args) => {
       const { category } = args as { companyKey: string; category?: string };
       const ids = category ? ["pd1", "pd2", "pd3"] : ["pd1", "pd2", "pd3", "s1", "s2", "s3"];
-      return { changed: ids.length, changedIds: ids, skipped: [], hasMore: false };
+      return { changed: ids.length, changedIds: ids, skipped: [], skippedIds: [], skippedBeingRead: 0, hasMore: false, nextCursor: null };
     });
     __setMutationHandler("ingestion:restoreItems", (args) => {
       const { ids } = args as { ids: string[] };
@@ -214,85 +218,128 @@ describe("Import page redesign interactions", () => {
     });
   });
 
-  it("opens split-pane preview with What AI read / Original toggle, prev/next pager, inline CRA toggle, and Approve and next", async () => {
+  it("opens split-pane preview with What AI read / Original toggle, prev/next pager, More details (CRA + initials slots), approveBlock reason, and Approve and next", async () => {
     seedBase();
-    __setQueryDataForArgs("ingestion:sheetFile", { id: "pd1" }, {
-      ...FINAL_PDS[0],
-      sheetTab: "review",
-      companyKey: "cedarline systems",
-      displayName: "Cedarline Systems",
-      relativePath: "Cedarline Systems/2025/01 Route planning engine.pdf",
-      createdAt: MAR_31_2025,
-      hasText: true,
-      hasOriginal: true,
-      originalUrl: "https://files.test/pd1.pdf",
-    });
-    __setQueryDataForArgs("ingestion:sheetFile", { id: "pd2" }, {
-      ...FINAL_PDS[1],
-      sheetTab: "review",
-      companyKey: "cedarline systems",
-      displayName: "Cedarline Systems",
-      relativePath: "Cedarline Systems/2025/02 Yard map solver.pdf",
-      createdAt: MAR_31_2025,
-      hasText: true,
-      hasOriginal: true,
-      originalUrl: "https://files.test/pd2.pdf",
-    });
-    __setQueryDataForArgs("ingestion:sheetFile", { id: "pd3" }, {
-      ...FINAL_PDS[2],
-      sheetTab: "review",
-      companyKey: "cedarline systems",
-      displayName: "Cedarline Systems",
-      relativePath: "Cedarline Systems/2025/03 Sensor pipeline.pdf",
-      createdAt: MAR_31_2025,
-      hasText: true,
-      hasOriginal: true,
-      originalUrl: "https://files.test/pd3.pdf",
-    });
-    __setMutationHandler("ingestion:sheetFileText", (args) => {
-      const { id } = args as { id: string };
-      const body = id === "pd1" ? "Extracted text for Route planning engine." : "Extracted text for Yard map solver.";
-      return { text: body, start: 0, end: body.length, total: body.length, source: "document", cutAtImport: false };
-    });
-    __setMutationHandler("ingestion:setCraReviewed", (args) => {
-      const { ids } = args as { ids: string[] };
-      return { changed: ids.length, changedIds: ids, skipped: [] };
-    });
-    __setMutationHandler("ingestion:approveFiles", (args) => ({
-      approvalId: "ap-1",
-      added: (args as { ids: string[] }).ids.length,
-    }));
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response("Original text body for pd1.", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const pd1Detail = {
+        ...FINAL_PDS[0],
+        name: "pd1.txt",
+        sheetTab: "review",
+        companyKey: "cedarline systems",
+        clientName: "Cedarline Systems",
+        path: "Cedarline Systems/2025/pd1.txt",
+        addedAt: MAR_31_2025,
+        addedVia: "folder_upload",
+        batchSource: "page",
+        addedByName: "Jordan Ellis",
+        writerInitials: "DW",
+        hasText: true,
+        hasOriginal: true,
+        originalUrl: "https://files.test/pd1.txt",
+      };
+      __setQueryDataForArgs("ingestion:sheetFile", { id: "pd1" }, pd1Detail);
+      __setQueryDataForArgs("ingestion:sheetFile", { id: "pd2" }, {
+        ...FINAL_PDS[1],
+        sheetTab: "review",
+        companyKey: "cedarline systems",
+        clientName: "Cedarline Systems",
+        path: "Cedarline Systems/2025/02 Yard map solver.pdf",
+        addedAt: MAR_31_2025,
+        addedVia: "folder_upload",
+        hasText: true,
+        hasOriginal: true,
+        originalUrl: "https://files.test/pd2.pdf",
+      });
+      __setQueryDataForArgs("ingestion:sheetFile", { id: "pd3" }, {
+        ...FINAL_PDS[2],
+        sheetTab: "review",
+        companyKey: "cedarline systems",
+        clientName: "Cedarline Systems",
+        path: "Cedarline Systems/2025/03 Sensor pipeline.pdf",
+        addedAt: MAR_31_2025,
+        addedVia: "onedrive_sync",
+        approveBlock: { reason: "no_industry", detail: "Pick an industry for this company." },
+        hasText: true,
+        hasOriginal: true,
+        originalUrl: "https://files.test/pd3.pdf",
+      });
+      __setMutationHandler("ingestion:sheetFileText", (args) => {
+        const { id } = args as { id: string };
+        const body = id === "pd1" ? "Extracted text for Route planning engine." : "Extracted text for Yard map solver.";
+        return { text: body, start: 0, end: body.length, total: body.length, source: "full", cutAtImport: false };
+      });
+      __setMutationHandler("ingestion:setCraReviewed", (args) => {
+        const { ids } = args as { ids: string[] };
+        return { changed: ids.length, changedIds: ids, skipped: [] };
+      });
+      __setMutationHandler("ingestion:approveFiles", (args) => ({
+        approvalId: "ap-1",
+        added: (args as { ids: string[] }).ids.length,
+      }));
 
-    await mountAndOpen();
-    await userEvent.click(one('[data-import-file="pd1"] [data-import-file-open]')!);
-    await expect.poll(() => one("[data-import-file-panel]")).not.toBeNull();
+      await mountAndOpen();
+      await userEvent.click(one('[data-import-file="pd1"] [data-import-file-open]')!);
+      await expect.poll(() => one("[data-import-file-panel]")).not.toBeNull();
 
-    // Header counter, title, and Download link
-    expect(text(one("[data-import-file-panel-counter]"))).toBe("1 of 3");
-    await expect.poll(() => text(one("[data-import-file-panel-text]"))).toContain("Extracted text for Route planning engine.");
-    expect(one("[data-import-file-panel-download]")?.getAttribute("href")).toBe("https://files.test/pd1.pdf");
+      // Header counter, provenance, and Download link
+      expect(text(one("[data-import-file-panel-counter]"))).toBe("1 of 3");
+      expect(text(one('[data-import-file-panel-label="Added"]'))).toContain("Added on the page by Jordan Ellis");
+      expect(text(one('[data-import-file-panel-label="Path"]'))).toBe("Cedarline Systems / 2025");
+      await expect.poll(() => text(one("[data-import-file-panel-text]"))).toContain("Extracted text for Route planning engine.");
+      expect(one("[data-import-file-panel-download]")?.getAttribute("href")).toBe("https://files.test/pd1.txt");
 
-    // Switch to Original view -> renders PDF iframe
-    await userEvent.click(one('[data-import-file-panel-view="original"]')!);
-    await expect.poll(() => one("[data-import-file-panel-original-pdf]")?.getAttribute("src")).toBe("https://files.test/pd1.pdf");
+      // Switch to Original view -> renders text original cleanly
+      await userEvent.click(one('[data-import-file-panel-view="original"]')!);
+      await expect.poll(() => text(one("[data-import-file-panel-original-text]"))).toContain("Original text body for pd1.");
+      expect(fetchCalls).toBe(1);
 
-    // Inline CRA toggle works inside the collapsed More details disclosure
-    await userEvent.click(one("[data-import-file-panel-more-details]")!);
-    await userEvent.click(one("[data-import-panel-cra-toggle]")!);
-    await expect.poll(() => __mutationCalls("ingestion:setCraReviewed")).toEqual([{ ids: ["pd1"], reviewed: true }]);
+      // Live Convex label update on the open file must not re-fetch or flash Original view
+      __setQueryDataForArgs("ingestion:sheetFile", { id: "pd1" }, {
+        ...pd1Detail,
+        scienceCode: "1.02.02",
+        editedLabels: ["scienceCode"],
+      });
+      await expect.poll(() => text(one("[data-import-file-panel]"))).toContain("1.02.02");
+      expect(fetchCalls).toBe(1);
+      expect(text(one("[data-import-file-panel-original-text]"))).toContain("Original text body for pd1.");
 
-    // Approve and next approves pd1, removes it from the queue, and advances to pd2 (now 1 of 2)
-    expect(text(one("[data-import-file-panel-approve]"))).toBe("Approve and next");
-    await userEvent.click(one("[data-import-file-panel-approve]")!);
-    await expect.poll(() => __mutationCalls("ingestion:approveFiles")).toEqual([{ ids: ["pd1"] }]);
-    await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("1 of 2");
-    await expect.poll(() => text(one("[data-import-file-panel-checks]"))).toContain("The document has no code.");
-    await expect.poll(() => text(one("[data-import-file-panel-callout]"))).toContain("Field of science or technology code:");
+      // Switch back to What AI read
+      await userEvent.click(one('[data-import-file-panel-view="ai"]')!);
 
-    // Next and previous pager buttons navigate between remaining files
-    await userEvent.click(one("[data-import-file-panel-next]")!);
-    await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("2 of 2");
-    await userEvent.click(one("[data-import-file-panel-prev]")!);
-    await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("1 of 2");
+      // Inline CRA toggle and ImportInitialsSlots live inside More details
+      await userEvent.click(one("[data-import-file-panel-more-details]")!);
+      await userEvent.click(one("[data-import-panel-cra-toggle]")!);
+      await expect.poll(() => __mutationCalls("ingestion:setCraReviewed")).toEqual([{ ids: ["pd1"], reviewed: true }]);
+      expect(one("[data-import-initials-slots]")).not.toBeNull();
+
+      // Approve and next approves pd1, removes it from the queue, and advances to pd2 (now 1 of 2)
+      expect(text(one("[data-import-file-panel-approve]"))).toBe("Approve and next");
+      await userEvent.click(one("[data-import-file-panel-approve]")!);
+      await expect.poll(() => __mutationCalls("ingestion:approveFiles")).toEqual([{ ids: ["pd1"] }]);
+      await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("1 of 2");
+      await expect.poll(() => text(one("[data-import-file-panel-inline-check]"))).toContain("The document has no code.");
+      await expect.poll(() => text(one("[data-import-file-panel-callout]"))).toContain("Field of science or technology code:");
+
+      // Next navigates to pd3 which has server-side approveBlock (no_industry) -> disabled with linked reason
+      await userEvent.click(one("[data-import-file-panel-next]")!);
+      await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("2 of 2");
+      const approveBtn = one("[data-import-file-panel-approve]")!;
+      const reasonEl = one("[data-import-file-panel-approve-reason]")!;
+      expect(approveBtn.hasAttribute("disabled")).toBe(true);
+      expect(approveBtn.getAttribute("aria-describedby")).toBe(reasonEl.id);
+      await expect.poll(() => text(reasonEl)).toContain("Pick an industry for this company.");
+
+      // Previous returns to pd2
+      await userEvent.click(one("[data-import-file-panel-prev]")!);
+      await expect.poll(() => text(one("[data-import-file-panel-counter]"))).toBe("1 of 2");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

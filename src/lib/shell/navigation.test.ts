@@ -214,8 +214,15 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
     expect(whatsNewLabel(4)).toBe("What's new, 4 new updates");
   });
 
-  it("puts the attention dot on Admin only when something needs a look", () => {
-    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0 }).bottom[1].attention).toBe(false);
+  it("puts the attention dot on Import and Admin independently", () => {
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0, importAttention: 0 }).bottom[1].attention).toBe(false);
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0, importAttention: 0 }).top[3].attention).toBe(false);
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0, importAttention: 3 }).top[3]).toEqual({
+      id: "import",
+      label: "Import",
+      href: "/import",
+      attention: true,
+    });
     expect(frameRailItems(admin, frameHrefs, { adminAttention: 2 }).bottom[1]).toEqual({
       id: "admin",
       label: "Admin",

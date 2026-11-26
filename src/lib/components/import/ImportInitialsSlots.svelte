@@ -10,6 +10,7 @@
   team roster.
 -->
 <script lang="ts">
+  import { untrack } from "svelte";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
   import { ArrowLeftIcon, ArrowRightIcon, XIcon } from "phosphor-svelte";
@@ -103,18 +104,74 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
 
-  $effect(() => {
+  type InitialsSeed = {
+    writer: string;
+    reviewer: string;
+    client: string;
+    financial: string;
+    coWriters: string;
+    inProgress: boolean;
+  };
+  let lastFileId: Id<"ingestionItems"> | null = null;
+  let lastSeed: InitialsSeed | null = null;
+
+  function applySeed(seed: InitialsSeed) {
     values = {
+      writer: seed.writer,
+      reviewer: seed.reviewer,
+      client: seed.client,
+      financial: seed.financial,
+    };
+    coWritersText = seed.coWriters;
+    showCoWriters = seed.coWriters.length > 0;
+    inProgress = seed.inProgress;
+    droppedUnassigned = [];
+    error = null;
+    lastSeed = seed;
+  }
+
+  function isFormCleanAgainst(seed: InitialsSeed): boolean {
+    return (
+      values.writer.trim().toUpperCase() === seed.writer.toUpperCase() &&
+      values.reviewer.trim().toUpperCase() === seed.reviewer.toUpperCase() &&
+      normalizeList(values.client).join(", ") === seed.client.toUpperCase() &&
+      values.financial.trim().toUpperCase() === seed.financial.toUpperCase() &&
+      normalizeList(coWritersText).join(", ") === seed.coWriters.toUpperCase() &&
+      droppedUnassigned.length === 0 &&
+      (values.reviewer.trim() === "" || inProgress === seed.inProgress)
+    );
+  }
+
+  // Re-seed whenever switching files, or when server props change while the
+  // form has no unsaved edits (so another Admin's edit or server normalization
+  // updates cleanly without wiping active typing).
+  $effect(() => {
+    const targetId = fileId;
+    const incoming: InitialsSeed = {
       writer: writerInitials ?? "",
       reviewer: reviewerInitials ?? "",
       client: joinInitials(clientInitials, extraClientInitials),
       financial: financialInitials ?? "",
+      coWriters: (coWriterInitials ?? []).join(", "),
+      inProgress: reviewerInProgress === true,
     };
-    coWritersText = (coWriterInitials ?? []).join(", ");
-    showCoWriters = (coWriterInitials?.length ?? 0) > 0;
-    inProgress = reviewerInProgress === true;
-    droppedUnassigned = [];
-    error = null;
+    untrack(() => {
+      if (targetId !== lastFileId || !lastSeed) {
+        lastFileId = targetId;
+        applySeed(incoming);
+        return;
+      }
+      const changed =
+        incoming.writer !== lastSeed.writer ||
+        incoming.reviewer !== lastSeed.reviewer ||
+        incoming.client !== lastSeed.client ||
+        incoming.financial !== lastSeed.financial ||
+        incoming.coWriters !== lastSeed.coWriters ||
+        incoming.inProgress !== lastSeed.inProgress;
+      if (changed && isFormCleanAgainst(lastSeed)) {
+        applySeed(incoming);
+      }
+    });
   });
 
   const savedClientKey = $derived(joinInitials(clientInitials, extraClientInitials).toUpperCase());
@@ -250,6 +307,14 @@
         ...(droppedUnassigned.length > 0 ? { dropUnassignedInitials: droppedUnassigned } : {}),
         reviewerInProgress: nextReviewer !== null ? inProgress : false,
       });
+      applySeed({
+        writer: nextWriter ?? "",
+        reviewer: nextReviewer ?? "",
+        client: joinInitials(nextClient ?? undefined, nextExtraClients.length > 0 ? nextExtraClients : undefined),
+        financial: nextFinancial ?? "",
+        coWriters: nextCoWriters.join(", "),
+        inProgress: nextReviewer !== null ? inProgress : false,
+      });
       toast("Initials updated", IMPORT_TOAST);
     } catch (cause) {
       error = userErrorMessage(cause, "Could not update initials.");
@@ -257,11 +322,14 @@
       saving = false;
     }
   }
+
+  const focusRing =
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
 </script>
 
-<section class="mt-5 rounded-lg border border-line-soft bg-gray-50/70 p-3.5" data-import-initials-slots>
+<section class="mt-4 rounded-lg border border-line-soft bg-gray-50/70 p-3" data-import-initials-slots>
   <div class="flex items-baseline justify-between gap-2">
-    <h3 class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>Filename initials</h3>
+    <h3 class={`${SHEET_SMALL} font-medium text-ink-secondary`}>Filename initials</h3>
     <span class={`${SHEET_SMALL} text-ink-muted`}>Use arrows to shift roles</span>
   </div>
   {#if initialsGroups && initialsGroups.length > 4}
@@ -273,7 +341,7 @@
     <div class="mt-1.5 flex flex-wrap items-center gap-1.5" data-import-initials-unassigned>
       <span class={`${SHEET_SMALL} text-ink-muted`}>Unassigned:</span>
       {#each unassignedGroups as code (code)}
-        <span class="inline-flex items-center gap-1 rounded bg-chrome px-1.5 py-0.5 text-[0.6875rem] leading-tight font-medium text-ink-secondary">
+        <span class="inline-flex items-center gap-1 rounded bg-chrome px-1.5 py-0.5 text-[0.6875rem] leading-[calc(14/11)] font-medium text-ink-secondary">
           <span>{code}</span>
           <button
             type="button"
@@ -281,7 +349,7 @@
             aria-label={`Remove unassigned initials ${code}`}
             data-import-initials-drop-unassigned={code}
             onclick={() => dropUnassigned(code)}
-            class="inline-flex size-3.5 items-center justify-center rounded-sm text-ink-muted hover:bg-primary-wash hover:text-ink disabled:opacity-40"
+            class={`inline-flex size-4 items-center justify-center rounded-sm text-ink-muted transition-colors duration-150 ease-out hover:bg-primary-wash hover:text-ink disabled:opacity-40 motion-reduce:transition-none pointer-coarse:size-11 ${focusRing}`}
           >
             <XIcon size="0.625rem" aria-hidden="true" />
           </button>
@@ -290,7 +358,7 @@
     </div>
   {/if}
   <form class="mt-2.5 flex flex-col gap-2.5" onsubmit={save} novalidate>
-    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div class="grid grid-cols-2 gap-2">
       {#each SLOTS as slot, index (slot.key)}
         <div class="flex flex-col gap-1 rounded-md border border-line-soft bg-surface p-2" data-import-initials-slot={slot.key}>
           <label for={`initials-slot-${slot.key}`} class={`${SHEET_SMALL} text-ink-muted`}>{slot.label}</label>
@@ -303,7 +371,7 @@
             maxlength={slot.key === "client" ? 32 : 6}
             placeholder={slot.key === "client" ? "BM, JT" : "-"}
             bind:value={values[slot.key]}
-            class="!h-7 w-full !rounded !px-1.5 !py-0 text-center !text-xs font-medium uppercase text-ink"
+            class="h-7! w-full rounded! px-1.5! py-0! text-center text-xs! leading-[calc(4/3)]! font-medium uppercase text-ink"
           />
           <div class="flex items-center justify-between pt-0.5">
             <button
@@ -312,7 +380,7 @@
               aria-label={`Move ${slot.label} initials left`}
               data-import-initials-shift-left={slot.key}
               onclick={() => swapSlots(index, index - 1)}
-              class="flex size-6 items-center justify-center rounded text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink disabled:opacity-30"
+              class={`flex size-6 items-center justify-center rounded text-ink-muted transition-colors duration-150 ease-out hover:bg-primary-wash hover:text-ink disabled:opacity-30 motion-reduce:transition-none pointer-coarse:size-11 ${focusRing}`}
             >
               <ArrowLeftIcon size="0.75rem" aria-hidden="true" />
             </button>
@@ -322,7 +390,7 @@
               aria-label={`Move ${slot.label} initials right`}
               data-import-initials-shift-right={slot.key}
               onclick={() => swapSlots(index, index + 1)}
-              class="flex size-6 items-center justify-center rounded text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink disabled:opacity-30"
+              class={`flex size-6 items-center justify-center rounded text-ink-muted transition-colors duration-150 ease-out hover:bg-primary-wash hover:text-ink disabled:opacity-30 motion-reduce:transition-none pointer-coarse:size-11 ${focusRing}`}
             >
               <ArrowRightIcon size="0.75rem" aria-hidden="true" />
             </button>
@@ -344,7 +412,7 @@
             maxlength={32}
             placeholder="e.g. AL, KP"
             bind:value={coWritersText}
-            class="!h-7 w-full !rounded !px-2 !py-0 !text-xs font-medium uppercase text-ink"
+            class="h-7! w-full rounded! px-2! py-0! text-xs! leading-[calc(4/3)]! font-medium uppercase text-ink"
           />
         </div>
         {#if coWritersText.trim() === ""}
@@ -353,21 +421,21 @@
             onclick={() => {
               showCoWriters = false;
             }}
-            class={`${SHEET_SMALL} text-ink-muted hover:text-ink`}
+            class={`rounded-sm ${SHEET_SMALL} text-ink-muted transition-colors duration-150 ease-out hover:text-ink motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
           >Hide</button>
         {/if}
       </div>
     {:else}
-      <div class="flex items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
           data-import-initials-add-cowriter
           onclick={() => {
             showCoWriters = true;
           }}
-          class={`${SHEET_SMALL} text-ink-muted underline-offset-2 hover:text-ink hover:underline`}
+          class={`rounded-sm ${SHEET_SMALL} text-ink-muted underline-offset-2 transition-colors duration-150 ease-out hover:text-ink hover:underline motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
         >+ Co-writer</button>
-        <span class={`${SHEET_SMALL} text-ink-muted`}>Separate multiple initials with commas</span>
+        <span class={`${SHEET_SMALL} text-ink-muted`}>Separate multiple with commas</span>
       </div>
     {/if}
 
@@ -396,7 +464,7 @@
     {/if}
 
     {#if error}
-      <p role="alert" class="text-xs text-danger-ink-muted">{error}</p>
+      <p role="alert" class={`${SHEET_SMALL} text-danger-ink-muted`}>{error}</p>
     {/if}
 
     {#if dirty}
@@ -405,7 +473,7 @@
           type="submit"
           disabled={saving}
           data-import-initials-save
-          class="h-7 rounded-md bg-fir px-3 text-xs font-medium text-white disabled:opacity-50"
+          class={`h-8 rounded-md bg-action-primary px-3 text-xs leading-[calc(4/3)] font-medium text-action-primary-foreground transition-colors duration-150 ease-out hover:bg-action-primary-hover disabled:opacity-50 motion-reduce:transition-none pointer-coarse:min-h-11 ${focusRing}`}
         >{saving ? "Saving..." : "Save initials"}</button>
       </div>
     {/if}

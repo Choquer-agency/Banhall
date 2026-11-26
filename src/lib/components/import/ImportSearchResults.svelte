@@ -90,7 +90,7 @@
         <div role="rowgroup" data-import-found-files>
           {@render groupLabel("Files", result.files.length)}
           {#each result.files as file (file._id)}
-            <ImportFileRow row={file} {tab} companyName={companyOf(file)} company={file.companyKey === NO_COMPANY_KEY ? null : companyOf(file)} inset="sheet" />
+            <ImportFileRow row={file} {tab} companyName={companyOf(file)} company={file.companyKey === NO_COMPANY_KEY ? null : companyOf(file)} />
           {/each}
         </div>
       {/if}
