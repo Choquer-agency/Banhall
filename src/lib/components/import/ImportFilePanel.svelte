@@ -503,7 +503,7 @@
                     onclick={() => (viewMode = "ai")}
                     class={`rounded-md px-3 py-1 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
                       viewMode === "ai"
-                        ? "bg-primary font-medium text-on-primary"
+                        ? "bg-action-primary font-medium text-action-primary-foreground"
                         : "text-ink-secondary hover:text-ink"
                     }`}
                   >What AI read</button>
@@ -515,7 +515,7 @@
                     onclick={() => (viewMode = "original")}
                     class={`rounded-md px-3 py-1 text-xs leading-[calc(4/3)] transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11 ${
                       viewMode === "original"
-                        ? "bg-primary font-medium text-on-primary"
+                        ? "bg-action-primary font-medium text-action-primary-foreground"
                         : "text-ink-secondary hover:text-ink"
                     }`}
                   >Original</button>
@@ -1180,7 +1180,7 @@
               disabled={!canApprove || acting}
               title={!canApprove ? (checks[0] ?? "Still needs checks before approving") : undefined}
               onclick={() => void handleApprove()}
-              class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs leading-[calc(4/3)] font-medium text-on-primary transition-colors duration-150 ease-out hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-45 motion-reduce:transition-none pointer-coarse:min-h-11"
+              class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-action-primary px-3.5 text-xs leading-[calc(4/3)] font-medium text-action-primary-foreground transition-colors duration-150 ease-out hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-45 motion-reduce:transition-none pointer-coarse:min-h-11"
             >
               <CheckIcon size="0.875rem" aria-hidden="true" />
               <span>{hasNext ? "Approve and next" : "Approve"}</span>
@@ -1193,7 +1193,7 @@
                 data-import-file-panel-put-back
                 disabled={acting}
                 onclick={() => void handlePutBack()}
-                class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-primary px-3.5 text-xs leading-[calc(4/3)] font-medium text-on-primary transition-colors duration-150 ease-out hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-45 motion-reduce:transition-none pointer-coarse:min-h-11"
+                class="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-action-primary px-3.5 text-xs leading-[calc(4/3)] font-medium text-action-primary-foreground transition-colors duration-150 ease-out hover:bg-action-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-45 motion-reduce:transition-none pointer-coarse:min-h-11"
               >Put back</button>
             {/if}
           {:else}
