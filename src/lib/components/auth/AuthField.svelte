@@ -1,8 +1,8 @@
 <script lang="ts">
-  // J1 field: 13px 500 label, 44px input (radius 10, line border, 15px ink,
-  // faint placeholder). Focus: 1.5px primary-selected border and a 3px
-  // primary ring at 12% (J3, J5). Invalid fields take a 1.5px danger border
-  // (J2, J4).
+  // Auth field: 13px 500 label, 40px input (radius 8, line border, 14px ink on
+  // desktop / 16px on phones, faint placeholder). Focus: 1.5px primary-selected
+  // border and a 3px primary ring at 12%. Invalid fields take a 1.5px danger
+  // border.
   import type { Snippet } from "svelte";
   import type { HTMLInputAttributes } from "svelte/elements";
 
@@ -35,7 +35,7 @@
   <div
     data-auth-input
     data-invalid={invalid ? "true" : undefined}
-    class={`flex h-11 items-center gap-2 rounded-[0.625rem] bg-surface px-3 transition-[border-color,box-shadow] ${invalid ? "border-[1.5px] border-danger" : "border border-line focus-within:border-[1.5px] focus-within:border-primary-selected focus-within:ring-[3px] focus-within:ring-primary/12"}`}
+    class={`flex h-10 items-center gap-2 rounded-lg bg-surface px-3 transition-[border-color,box-shadow] ${invalid ? "border-[1.5px] border-danger" : "border border-line focus-within:border-[1.5px] focus-within:border-primary-selected focus-within:ring-[3px] focus-within:ring-primary/12"}`}
   >
     <input
       bind:this={element}
@@ -43,7 +43,7 @@
       bind:value
       aria-invalid={invalid ? "true" : undefined}
       {...rest}
-      class="input-chromeless h-full min-w-0 flex-1 bg-transparent p-0 text-[0.9375rem] leading-[calc(4/3)] text-ink placeholder:text-ink-faint disabled:opacity-60"
+      class="input-chromeless h-full min-w-0 flex-1 bg-transparent p-0 text-base leading-[calc(10/7)] text-ink placeholder:text-ink-faint disabled:opacity-60 sm:text-sm"
     />
     {@render trailing?.()}
   </div>

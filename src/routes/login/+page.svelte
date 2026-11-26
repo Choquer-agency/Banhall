@@ -176,7 +176,7 @@
   </div>
 {/snippet}
 
-<AuthLayout width={360}>
+<AuthLayout width={340}>
   {#if auth.isAuthenticated || entering}
     <div class="flex min-h-64 flex-col items-center justify-center" aria-live="polite">
       <Spinner />
@@ -193,9 +193,7 @@
       <AuthHeading title="Sign in" serif={false} />
     {/if}
 
-    <!-- J1: Email and Password 14px apart. J3: the account card, then the
-         password, 20px apart like every other row in the column. -->
-    <form onsubmit={handleSubmit} class="flex flex-col gap-5" aria-busy={!hydrated || submitting}>
+    <form onsubmit={handleSubmit} class="flex flex-col gap-4" aria-busy={!hydrated || submitting}>
       {#if known}
         <AccountCard
           name={known.name}
@@ -217,7 +215,7 @@
         />
         {@render passwordBlock()}
       {:else}
-        <div class="flex flex-col gap-3.5">
+        <div class="flex flex-col gap-3">
           <AuthField
             id="email"
             label="Email"
@@ -239,7 +237,7 @@
       <button
         type="submit"
         disabled={!hydrated || submitting}
-        class="flex h-[2.875rem] items-center justify-center gap-2 rounded-[0.625rem] bg-fir text-[0.9375rem] leading-[calc(4/3)] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        class="flex h-10 items-center justify-center gap-2 rounded-lg bg-fir text-sm leading-[calc(10/7)] font-medium text-white transition-colors hover:bg-navy-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {#if submitting}
           <Spinner size="sm" class="h-3.5 w-3.5 border-white" />
